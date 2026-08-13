@@ -73,6 +73,26 @@ export PATH="$HOME/.local/bin:$PATH"
 After `pnpm install` runs, `git config core.hooksPath` should print
 `.husky/_` — that means the commit-message hook is active.
 
+### golangci-lint built against an older Go
+
+If a pre-installed `golangci-lint` was built with an older Go than `go.mod`
+requires, it refuses to run:
+
+```
+can't load config: the Go language version (goX.Y) used to build golangci-lint
+is lower than the targeted Go version (goX.Y.Z)
+```
+
+Rebuild it with the target toolchain — replace the version with the one from
+the `toolchain` line in `go.mod`:
+
+```
+GOTOOLCHAIN=go1.26.6 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+```
+
+With `go env GOTOOLCHAIN` set to `auto` (the Go default), the toolchain is
+already cached after the first build, so this costs no extra download.
+
 ## Before you open a pull request
 
 - `go build ./...`, `go vet ./...`, `go test ./... -race`
