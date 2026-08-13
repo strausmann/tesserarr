@@ -1,0 +1,41 @@
+services:
+  tesserarr:
+    image: ghcr.io/example/tesserarr:0.0.1
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TESSERARR_BASE_URL: "https://tesserarr.example.org"
+      TESSERARR_DATA_DIR: "/data"
+      TESSERARR_SESSION_SECRET: "CHANGE_ME"
+      TESSERARR_TRUSTED_PROXIES: ""
+      TESSERARR_SYNCTHING_API_URL: "http://syncthing:8384"
+      TESSERARR_SYNCTHING_API_KEY: "CHANGE_ME"
+    volumes:
+      - ./data:/data
+      - /mnt/media/outgoing:/data/outgoing
+      - /mnt/media/income:/data/income
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tesserarr", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  syncthing:
+    image: syncthing/syncthing:1
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./syncthing-config:/var/syncthing/config
+      # Derselbe Host-Pfad wie oben bei tesserarr — ein und dasselbe Verzeichnis,
+      # zweimal eingehängt, nicht zwei verschiedene Kopien.
+      - /mnt/media/outgoing:/var/syncthing/outgoing
+      - /mnt/media/income:/var/syncthing/income
+    ports:
+      - "8384:8384"       # Web-Oberfläche — NICHT ungeschützt ins Internet stellen
+      - "22000:22000/tcp"
+      - "22000:22000/udp"
+      - "21027:21027/udp"

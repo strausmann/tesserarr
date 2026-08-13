@@ -1,0 +1,26 @@
+services:
+  tesserarr:
+    image: ghcr.io/example/tesserarr:0.0.1
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TESSERARR_BASE_URL: "https://tesserarr.example.org"
+      TESSERARR_DATA_DIR: "/data"
+      TESSERARR_SESSION_SECRET: "CHANGE_ME"
+      TESSERARR_TRUSTED_PROXIES: ""
+      TESSERARR_OIDC_ISSUER_URL: "https://idp.example.org/application/o/tesserarr/"
+      TESSERARR_OIDC_CLIENT_ID: "CHANGE_ME"
+      TESSERARR_OIDC_CLIENT_SECRET: "CHANGE_ME"
+      TESSERARR_SYNCTHING_API_URL: "http://syncthing:8384"
+      TESSERARR_SYNCTHING_API_KEY: "CHANGE_ME"
+    volumes:
+      - ./data:/data
+      - /mnt/media/outgoing:/data/outgoing
+      - /mnt/media/income:/data/income
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tesserarr", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3

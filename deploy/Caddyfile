@@ -1,0 +1,4 @@
+# Caddyfile
+tesserarr.example.org {
+    reverse_proxy tesserarr:8080
+}
