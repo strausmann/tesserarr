@@ -261,13 +261,18 @@ func TestOpenDBFailsWhenDirectoryIsUnwritable(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o500); err != nil {
+	// gosec G302 checks file permissions against a "0600 or less" rule, but
+	// this is a directory: the execute bit is what makes it enterable at
+	// all, and 0o500 (read+execute, no write) is what we need to test —
+	// stricter than 0o700, not laxer, despite tripping the file-oriented
+	// check below.
+	if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // directory perms, not file perms — see comment above
 		t.Fatalf("setup: chmod failed: %v", err)
 	}
 	// Restore write access before t.TempDir()'s own cleanup tries to remove
 	// the directory — cleanups run in LIFO order, so this one (registered
 	// after Chmod) runs first.
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // directory perms, not file perms — see comment above
 
 	dbPath := filepath.Join(dir, "test.db")
 	if _, err := openDB(dbPath); err == nil {
