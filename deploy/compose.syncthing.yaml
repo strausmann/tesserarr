@@ -1,6 +1,6 @@
 services:
   tesserarr:
-    image: ghcr.io/example/tesserarr:0.0.1
+    image: ghcr.io/strausmann/tesserarr:0.0.1
     restart: unless-stopped
     ports:
       - "8080:8080"
