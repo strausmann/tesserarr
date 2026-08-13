@@ -43,6 +43,27 @@ func TestHealthEndpointReturnsOK(t *testing.T) {
 	}
 }
 
+// TestHealthEndpointReturnsServiceUnavailableWhenDatabaseIsUnreachable closes
+// the store's connection out from under the handler, which is exactly how a
+// lost database connection presents to PingContext in production.
+func TestHealthEndpointReturnsServiceUnavailableWhenDatabaseIsUnreachable(t *testing.T) {
+	a := newTestAPI(t)
+	if err := a.store.Close(); err != nil {
+		t.Fatalf("store.Close() returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
 func TestHealthEndpointCarriesNoAuthMiddleware(t *testing.T) {
 	// The health path must stay reachable without any credential — a monitoring
 	// probe has none. This is the one deliberate exception to the two prefixes.
@@ -64,5 +85,80 @@ func TestUnknownPathReturnsNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestMiddlewareStringUnknownValue(t *testing.T) {
+	// Middleware is a closed set today, but String() still has to answer
+	// something sane for a value outside it rather than panic or print
+	// garbage — this is what a stray fmt.Sprintf("%v") would hit.
+	if got := Middleware(99).String(); got != "unknown" {
+		t.Errorf("String() = %q, want %q", got, "unknown")
+	}
+}
+
+func TestRequireSessionRejectsEverything(t *testing.T) {
+	// Teil B fills this in; until then it must reject unconditionally, which
+	// is the safe direction for an unfinished check.
+	a := newTestAPI(t)
+	handler := a.requireSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("wrapped handler must not run before session authentication exists")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, PrefixApp+"/whatever", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRequireTokenRejectsEverything(t *testing.T) {
+	a := newTestAPI(t)
+	handler := a.requireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("wrapped handler must not run before token authentication exists")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, PrefixToken+"/whatever", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestWrapSelectsMiddlewareByKind exercises all three branches of wrap()
+// directly, since none of MiddlewareSession or MiddlewareToken is registered
+// on a real route yet (Teil B).
+func TestWrapSelectsMiddlewareByKind(t *testing.T) {
+	a := newTestAPI(t)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+
+	tests := []struct {
+		name string
+		mw   Middleware
+		want int
+	}{
+		{"none passes through", MiddlewareNone, http.StatusTeapot},
+		{"session rejects", MiddlewareSession, http.StatusUnauthorized},
+		{"token rejects", MiddlewareToken, http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := a.wrap(tt.mw, inner)
+
+			req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
 	}
 }
