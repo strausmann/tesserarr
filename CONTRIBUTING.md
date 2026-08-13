@@ -44,6 +44,35 @@ fix(provision): hardlink faellt bei fremdem dateisystem auf kopie zurueck
 docs(adr): adr-0007 zur karenzzeit
 ```
 
+## Tooling
+
+Repository tooling (commit-message linting, and anything else outside `web/`,
+which has its own `package.json`) is installed with `pnpm`, not `npm` — this
+matches the package manager the web interface's Dockerfile uses
+(`corepack enable` + `pnpm install --frozen-lockfile`).
+
+```
+pnpm install
+```
+
+If `pnpm` is missing, get it via corepack (bundled with Node 22):
+
+```
+corepack enable
+```
+
+If that fails with a permission error — `corepack enable` without arguments
+tries to write into a system directory such as `/usr/bin` — install into a
+user directory instead:
+
+```
+corepack enable --install-directory "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+After `pnpm install` runs, `git config core.hooksPath` should print
+`.husky/_` — that means the commit-message hook is active.
+
 ## Before you open a pull request
 
 - `go build ./...`, `go vet ./...`, `go test ./... -race`
