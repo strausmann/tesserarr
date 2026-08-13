@@ -194,7 +194,7 @@ func (s *Store) appliedVersions() (map[int]bool, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("read applied migrations: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	applied := make(map[int]bool)
 	highest := 0
