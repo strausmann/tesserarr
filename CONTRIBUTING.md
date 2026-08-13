@@ -106,9 +106,23 @@ A pull request that changes behaviour without a test does not get merged.
 
 ## Architecture decisions
 
-Anything that shapes the architecture, the technology choice or the way the
-service is operated gets an ADR under [`docs/adr/`](docs/adr/) — including the
-alternatives that were rejected and why. Copy an existing one as a template and
-add your entry to the registry in the same change.
+The decisions that shape this repository — why a single Go binary, why a
+hardlink instead of a symlink, why an invitation is mandatory, why the token
+path and the session path stay separate, and more — are recorded as
+Architecture Decision Records under [`docs/adr/`](docs/adr/). The registry and
+the full rules for writing one live in
+[`docs/adr/README.md`](docs/adr/README.md).
+
+A pull request needs a new ADR when it does one of two things:
+
+- it changes a decision already recorded there (the existing record's
+  `Status` moves to `superseded` or `deprecated`, per the lineage rules in the
+  registry), or
+- it makes a new decision of comparable weight — something that shapes the
+  architecture, the technology choice or the way the service is operated,
+  including the alternatives that were rejected and why.
+
+Copy an existing ADR as a template and add the entry to the registry table in
+the same change.
 
 Trivia, formatting and obvious implementation details do not need an ADR.
