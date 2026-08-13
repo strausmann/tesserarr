@@ -34,6 +34,42 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesOverrides(t *testing.T) {
+	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
+	t.Setenv("TESSERARR_DATA_DIR", "/data")
+	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_HTTP_ADDR", "127.0.0.1:9090")
+	t.Setenv("TESSERARR_DB_PATH", "/custom/db.sqlite")
+	t.Setenv("TESSERARR_OUTGOING_DIR", "/custom/outgoing")
+	t.Setenv("TESSERARR_INCOME_DIR", "/custom/income")
+	t.Setenv("TESSERARR_SESSION_COOKIE_NAME", "custom_session")
+	t.Setenv("TESSERARR_LOG_LEVEL", "debug")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+
+	if cfg.HTTPAddr != "127.0.0.1:9090" {
+		t.Errorf("HTTPAddr = %q, want %q", cfg.HTTPAddr, "127.0.0.1:9090")
+	}
+	if cfg.DBPath != "/custom/db.sqlite" {
+		t.Errorf("DBPath = %q, want %q", cfg.DBPath, "/custom/db.sqlite")
+	}
+	if cfg.OutgoingDir != "/custom/outgoing" {
+		t.Errorf("OutgoingDir = %q, want %q", cfg.OutgoingDir, "/custom/outgoing")
+	}
+	if cfg.IncomeDir != "/custom/income" {
+		t.Errorf("IncomeDir = %q, want %q", cfg.IncomeDir, "/custom/income")
+	}
+	if cfg.SessionCookieName != "custom_session" {
+		t.Errorf("SessionCookieName = %q, want %q", cfg.SessionCookieName, "custom_session")
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
+	}
+}
+
 func TestLoadRejectsMissingRequired(t *testing.T) {
 	// Deliberately unset: TESSERARR_BASE_URL
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
