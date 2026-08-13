@@ -30,7 +30,6 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-
-volumes:
-  caddy_data:
+      # TLS certificates live here; a bind mount keeps them inside the stack
+      # directory so a backup of that directory actually contains them.
+      - ./caddy-data:/data
