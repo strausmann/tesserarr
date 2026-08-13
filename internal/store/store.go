@@ -117,7 +117,12 @@ func (s *Store) migrate(migrations fs.FS) error {
 	parsed := make([]namedMigration, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
-			continue
+			// The flat migrations layout is a deliberate choice, not an
+			// oversight: fs.ReadDir(migrations, ".") does not recurse, so a
+			// migration placed in a subdirectory would otherwise never run
+			// and never say so — the same silent-loss failure this function
+			// exists to rule out for misordered files.
+			return fmt.Errorf("migrations must be flat files; found directory %q", entry.Name())
 		}
 		version, err := migrationVersion(entry.Name())
 		if err != nil {

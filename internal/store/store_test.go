@@ -176,3 +176,209 @@ func TestMigrateRejectsFileWithoutNumericPrefix(t *testing.T) {
 		t.Fatal("migrate() returned no error, want error for missing numeric version prefix")
 	}
 }
+
+// TestMigrateRejectsDirectoryEntry ensures a nested path inside the
+// migrations directory (which fstest.MapFS, like a real directory, surfaces
+// as its own directory entry when listing ".") is a loud startup error, not
+// silently ignored. A silently ignored migration is exactly the failure
+// class this file's other tests exist to prevent: it exists, it never runs,
+// and SchemaVersion() reports success regardless.
+func TestMigrateRejectsDirectoryEntry(t *testing.T) {
+	st := newTestStore(t)
+
+	migrations := fstest.MapFS{
+		"0001_first.sql":    &fstest.MapFile{Data: []byte(`CREATE TABLE first_table (id TEXT);`)},
+		"subdir/0002_x.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE second_table (id TEXT);`)},
+	}
+	err := st.migrate(migrations)
+	if err == nil {
+		t.Fatal("migrate() returned no error for a directory entry, want error")
+	}
+	if !strings.Contains(err.Error(), "subdir") {
+		t.Errorf("migrate() error = %q, want it to name the offending directory subdir", err.Error())
+	}
+}
+
+// TestMigrateWrapsApplyMigrationFailure ensures a migration that fails to
+// apply is reported by name, not just as a generic migrate() failure — the
+// operator needs to know which file to fix.
+func TestMigrateWrapsApplyMigrationFailure(t *testing.T) {
+	st := newTestStore(t)
+
+	migrations := fstest.MapFS{
+		"0001_broken.sql": &fstest.MapFile{Data: []byte("THIS IS NOT VALID SQL;")},
+	}
+	err := st.migrate(migrations)
+	if err == nil {
+		t.Fatal("migrate() returned no error for an invalid migration, want error")
+	}
+	if !strings.Contains(err.Error(), "apply migration 0001_broken.sql") {
+		t.Errorf("migrate() error = %q, want it to name the failing migration", err.Error())
+	}
+}
+
+// TestOpenFailsWhenSchemaIsAheadOfMigrations simulates a downgrade: a
+// database whose schema_migrations already lists a version this binary's
+// embedded migrations never reach. Open() must fail loudly through its
+// "migrate database" wrapping rather than silently reporting success.
+func TestOpenFailsWhenSchemaIsAheadOfMigrations(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("setup: openDB() returned error: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (
+		version    INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("setup: create schema_migrations failed: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO schema_migrations (version, applied_at) VALUES (2, datetime('now'))`,
+	); err != nil {
+		t.Fatalf("setup: insert future version failed: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("setup: close failed: %v", err)
+	}
+
+	_, err = Open(dbPath)
+	if err == nil {
+		t.Fatal("Open() returned no error for a schema ahead of the known migrations, want error")
+	}
+	if !strings.Contains(err.Error(), "migrate database") {
+		t.Errorf("Open() error = %q, want it to wrap the migrate failure", err.Error())
+	}
+}
+
+// TestOpenDBFailsWhenDirectoryIsUnwritable exercises the Ping() failure
+// branch: the directory exists (so MkdirAll is a no-op), but SQLite cannot
+// create the database file inside it.
+func TestOpenDBFailsWhenDirectoryIsUnwritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root ignores permission bits")
+	}
+
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("setup: chmod failed: %v", err)
+	}
+	// Restore write access before t.TempDir()'s own cleanup tries to remove
+	// the directory — cleanups run in LIFO order, so this one (registered
+	// after Chmod) runs first.
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	dbPath := filepath.Join(dir, "test.db")
+	if _, err := openDB(dbPath); err == nil {
+		t.Fatal("openDB() returned no error for an unwritable directory, want error")
+	}
+}
+
+// TestDBExposesUnderlyingHandle covers the accessor that packages owning
+// their own tables (selftest today) rely on.
+func TestDBExposesUnderlyingHandle(t *testing.T) {
+	st := newTestStore(t)
+
+	if st.DB() == nil {
+		t.Fatal("DB() returned nil, want the underlying *sql.DB")
+	}
+}
+
+// TestSchemaVersionFailsAfterClose covers the error path: a query against a
+// closed handle must be reported, not misread as "no migrations applied".
+func TestSchemaVersionFailsAfterClose(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	st, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("Close() returned error: %v", err)
+	}
+
+	if _, err := st.SchemaVersion(); err == nil {
+		t.Fatal("SchemaVersion() after Close() returned no error, want error")
+	}
+}
+
+// TestAppliedVersionsFailsAfterClose is the same idea one layer down: the
+// query migrate() relies on must surface a closed handle as an error too.
+func TestAppliedVersionsFailsAfterClose(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.db.Close(); err != nil {
+		t.Fatalf("db.Close() returned error: %v", err)
+	}
+
+	if _, _, err := st.appliedVersions(); err == nil {
+		t.Fatal("appliedVersions() after Close() returned no error, want error")
+	}
+}
+
+// TestApplyMigrationRollsBackOnBadSQL ensures a migration whose body does not
+// even parse leaves no trace: no schema_migrations row, no partial DDL.
+func TestApplyMigrationRollsBackOnBadSQL(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.migrate(fstest.MapFS{}); err != nil {
+		t.Fatalf("setup: migrate() returned error: %v", err)
+	}
+
+	if err := st.applyMigration(1, []byte("THIS IS NOT VALID SQL;")); err == nil {
+		t.Fatal("applyMigration() returned no error for invalid SQL, want error")
+	}
+
+	version, err := st.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion() returned error: %v", err)
+	}
+	if version != 0 {
+		t.Errorf("SchemaVersion() after rolled-back applyMigration() = %d, want 0", version)
+	}
+}
+
+// TestApplyMigrationRollsBackOnDuplicateVersion covers the other failure
+// branch: the migration body itself succeeds (it is idempotent), but
+// recording it under a version already present in schema_migrations collides
+// with the primary key. Neither half must stick.
+func TestApplyMigrationRollsBackOnDuplicateVersion(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.migrate(fstest.MapFS{}); err != nil {
+		t.Fatalf("setup: migrate() returned error: %v", err)
+	}
+
+	body := []byte(`CREATE TABLE IF NOT EXISTS idempotent_table (id TEXT);`)
+	if err := st.applyMigration(1, body); err != nil {
+		t.Fatalf("first applyMigration() returned error: %v", err)
+	}
+
+	if err := st.applyMigration(1, body); err == nil {
+		t.Fatal("second applyMigration() with a duplicate version returned no error, want error")
+	}
+
+	version, err := st.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion() returned error: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("SchemaVersion() after rejected duplicate applyMigration() = %d, want 1 (unchanged)", version)
+	}
+}
+
+// TestMigrationVersionRejectsEmptyPrefix covers a filename that starts with
+// the underscore itself, e.g. "_foo.sql" — Cut then yields an empty prefix, a
+// different failure mode than a prefix present but non-numeric.
+func TestMigrationVersionRejectsEmptyPrefix(t *testing.T) {
+	if _, err := migrationVersion("_no_prefix.sql"); err == nil {
+		t.Fatal("migrationVersion() returned no error for an empty numeric prefix, want error")
+	}
+}
+
+// TestMigrationVersionRejectsOverflowingPrefix covers a numeric prefix too
+// large for an int — every character is a digit, so the loop accepts it, but
+// strconv.Atoi itself must still reject it rather than wrap around silently.
+func TestMigrationVersionRejectsOverflowingPrefix(t *testing.T) {
+	name := "999999999999999999999999999999_overflow.sql"
+	if _, err := migrationVersion(name); err == nil {
+		t.Fatal("migrationVersion() returned no error for an overflowing numeric prefix, want error")
+	}
+}
