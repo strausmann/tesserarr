@@ -102,12 +102,33 @@ func checkRouting(routes []Route) []error {
 
 	mux := http.NewServeMux()
 	middlewareOf := make(map[string]Middleware, len(routes))
+	registered := make([]string, 0, len(routes))
+	failed := make(map[string]bool, len(routes))
+
 	for _, route := range routes {
 		if _, _, err := splitPattern(route.Pattern); err != nil {
 			continue // already reported by checkPairing; ServeMux would panic on it
 		}
+
+		conflicts, ok := registerRoute(mux, route.Pattern, registered)
+		if !ok {
+			// Two patterns net/http.ServeMux itself cannot tell apart — it
+			// would otherwise panic here and take down the whole check,
+			// losing every finding checkPairing already collected. This is
+			// a finding, not a crash: report it and move on.
+			failed[route.Pattern] = true
+			for _, other := range conflicts {
+				problems = append(problems, fmt.Errorf(
+					"route %q and route %q resolve to the same requests as far as the router "+
+						"is concerned — net/http.ServeMux cannot tell them apart; give one of "+
+						"the two patterns a more specific path",
+					route.Pattern, other))
+			}
+			continue
+		}
+
 		middlewareOf[route.Pattern] = route.Middleware
-		mux.Handle(route.Pattern, http.NotFoundHandler())
+		registered = append(registered, route.Pattern)
 	}
 
 	winner := func(method, path string) string {
@@ -122,6 +143,9 @@ func checkRouting(routes []Route) []error {
 		method, path, err := splitPattern(route.Pattern)
 		if err != nil {
 			continue // already reported by checkPairing
+		}
+		if failed[route.Pattern] {
+			continue // already reported above; it was never added to the router
 		}
 		if path == healthPattern {
 			continue
@@ -156,6 +180,50 @@ func checkRouting(routes []Route) []error {
 	}
 
 	return problems
+}
+
+// registerRoute adds pattern to mux, converting net/http.ServeMux's own
+// conflict panic — raised when two patterns overlap and neither is more
+// specific than the other, including two identical patterns — into a normal,
+// recoverable outcome. A router ambiguity is exactly the kind of thing this
+// inventory exists to report; it must never abort CheckInventory outright and
+// take every already-collected finding down with it.
+//
+// On a conflict it also names which of the already-registered patterns the
+// new one collides with, by re-trying each pairing in isolation (see
+// patternsConflict). That is more reliable than parsing the text of
+// net/http's panic, which is not a documented, stable interface.
+func registerRoute(mux *http.ServeMux, pattern string, alreadyRegistered []string) (conflicts []string, ok bool) {
+	defer func() {
+		if recover() == nil {
+			return
+		}
+		ok = false
+		for _, existing := range alreadyRegistered {
+			if patternsConflict(existing, pattern) {
+				conflicts = append(conflicts, existing)
+			}
+		}
+	}()
+
+	mux.Handle(pattern, http.NotFoundHandler())
+	return nil, true
+}
+
+// patternsConflict reports whether net/http.ServeMux itself would refuse to
+// register a and b together, by trying exactly that on a throwaway mux that
+// holds nothing else.
+func patternsConflict(a, b string) (conflict bool) {
+	defer func() {
+		if recover() != nil {
+			conflict = true
+		}
+	}()
+
+	m := http.NewServeMux()
+	m.Handle(a, http.NotFoundHandler())
+	m.Handle(b, http.NotFoundHandler())
+	return false
 }
 
 // concretePath turns a route pattern's wildcards into one concrete path a
@@ -204,6 +272,12 @@ func splitPattern(pattern string) (method, path string, err error) {
 
 	i := strings.IndexByte(pattern, ' ')
 	if i < 0 {
+		if slash := strings.IndexByte(pattern, '/'); slash >= 0 {
+			return "", "", fmt.Errorf(
+				"has a path, but it is prefixed with a host (%q) instead of starting with %q — "+
+					"host-scoped patterns are not supported here",
+				pattern[:slash], "/")
+		}
 		return "", "", fmt.Errorf("has no path and does not start with %q", "/")
 	}
 
