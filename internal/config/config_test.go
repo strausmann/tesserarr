@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -116,5 +118,34 @@ func TestLoadRejectsMalformedTrustedProxies(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() returned no error, want error about malformed CIDR")
+	}
+}
+
+// marker is a value distinctive enough that its presence in formatted output
+// cannot be mistaken for anything else the struct might print.
+const sessionSecretMarker = "sess-secret-marker-9f3a1b7c0d2e4f68"
+
+func TestConfigFormattingRedactsSessionSecret(t *testing.T) {
+	cfg := Config{
+		BaseURL:       "https://tesserarr.example.org",
+		SessionSecret: sessionSecretMarker,
+	}
+
+	cases := []struct {
+		name string
+		out  string
+	}{
+		{"value %v", fmt.Sprintf("%v", cfg)},
+		{"value %+v", fmt.Sprintf("%+v", cfg)},
+		{"pointer %v", fmt.Sprintf("%v", &cfg)},
+		{"pointer %+v", fmt.Sprintf("%+v", &cfg)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if strings.Contains(tc.out, sessionSecretMarker) {
+				t.Errorf("formatted output leaks SessionSecret: %s", tc.out)
+			}
+		})
 	}
 }

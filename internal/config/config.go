@@ -34,6 +34,29 @@ type Config struct {
 	LogLevel          string
 }
 
+// String implements fmt.Stringer so that formatting a Config — directly, by
+// pointer, with %v or with %+v — never prints SessionSecret. A value receiver
+// is deliberate: Go promotes value-receiver methods to the pointer's method
+// set too, so both Config and *Config satisfy fmt.Stringer, and both %v and
+// %+v honor it (the '+' flag only changes how the *default* struct format
+// prints field names; it does not suppress a Stringer). configAlias has an
+// identical field layout but no String method, so formatting it does not
+// recurse back into this method.
+//
+// A dedicated slog.LogValuer is not added: this codebase does not use
+// log/slog anywhere yet, and slog's own fallback formatting for a type
+// without LogValue already goes through fmt (verified: a TextHandler prints
+// an arbitrary struct via the same %+v/Stringer path), so this one method
+// already covers the log/slog case if it is introduced later.
+func (c Config) String() string {
+	redacted := c
+	if redacted.SessionSecret != "" {
+		redacted.SessionSecret = "REDACTED"
+	}
+	type configAlias Config
+	return fmt.Sprintf("%+v", configAlias(redacted))
+}
+
 // Load reads the configuration from the environment, applies defaults and
 // validates required fields. It returns an error describing the first problem
 // found rather than starting with a half-valid configuration.
