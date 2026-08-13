@@ -1,5 +1,9 @@
 # Tesserarr
 
+[![test](https://github.com/strausmann/tesserarr/actions/workflows/test.yml/badge.svg)](https://github.com/strausmann/tesserarr/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/strausmann/tesserarr)](https://github.com/strausmann/tesserarr/releases)
+[![license](https://img.shields.io/github/license/strausmann/tesserarr)](LICENSE)
+[![image size](https://ghcr-badge.egpl.dev/strausmann/tesserarr/size)](https://github.com/strausmann/tesserarr/pkgs/container/tesserarr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/adr/)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
@@ -49,6 +53,15 @@ instance, per device and folder.
 Early development. Nothing is usable yet. The architecture decisions are
 written down in [`docs/adr/`](docs/adr/) — start there if you want to know why
 things are built the way they are.
+
+## Development
+
+Requires **Go 1.26 or newer**. Go fetches the matching toolchain itself since
+1.21 (`GOTOOLCHAIN=auto`, the built-in default) — that needs network access to
+`proxy.golang.org`. Without that access, or when `GOTOOLCHAIN=local` is set,
+`go1.26.6` has to be installed by hand.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Documentation
 
