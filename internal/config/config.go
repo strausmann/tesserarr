@@ -35,13 +35,18 @@ type Config struct {
 	LogLevel          string
 }
 
-// Redaction of SessionSecret from any formatted representation of Config is
-// spread across three methods below, because no single Go interface covers
-// every path a caller can reach for. Each method's doc comment states only
-// the paths that were actually run against a build without that method and
-// seen to leak the marker value in internal/config/config_test.go
-// (TestConfigRedactsSessionSecretAcrossFormattingPaths) — not paths assumed
-// to behave the same way.
+// Redaction of SessionSecret when Config as a whole is formatted or
+// serialized is spread across three methods below, because no single Go
+// interface covers every such path a caller can reach for. Each method's doc
+// comment states only the paths that were actually run against a build
+// without that method and seen to leak the marker value in
+// internal/config/config_test.go (TestConfigRedactsSessionSecretAcrossFormattingPaths)
+// — not paths assumed to behave the same way.
+//
+// This does NOT cover direct access to the field itself — cfg.SessionSecret
+// printed on its own, reflected into a template, or read by any other means
+// that bypasses formatting/serializing the struct — no method on Config can
+// intercept that.
 //
 // All three follow the same pattern: copy Config, replace SessionSecret with
 // "REDACTED", then format the copy through a local configAlias type (same
