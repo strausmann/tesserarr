@@ -4,9 +4,8 @@
 [![release](https://img.shields.io/github/v/release/strausmann/tesserarr)](https://github.com/strausmann/tesserarr/releases)
 [![license](https://img.shields.io/github/license/strausmann/tesserarr)](LICENSE)
 [![image size](https://ghcr-badge.egpl.dev/strausmann/tesserarr/size)](https://github.com/strausmann/tesserarr/pkgs/container/tesserarr)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/adr/)
-[![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
 
 Share parts of your media library with friends over an existing Syncthing link —
 without torrents, without a public index, and without doing it by hand.
