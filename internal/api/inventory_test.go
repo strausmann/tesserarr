@@ -127,3 +127,98 @@ func TestInventoryRejectsTokenWildcardShadowingSessionSpace(t *testing.T) {
 		t.Fatal("CheckInventory() reported no problem, want one about the token wildcard shadowing the session space")
 	}
 }
+
+// --- Finding 3: checkRouting builds a real net/http.ServeMux to ask it which
+// pattern serves a given request. Two patterns net/http itself cannot tell
+// apart make ServeMux.Handle PANIC instead of returning an error — and a
+// literal, well-formed route list is enough to trigger it (no server needs to
+// start). CheckInventory must turn that into an ordinary finding, and it must
+// not lose whatever checkPairing already collected in the process. ---
+
+func TestInventoryReportsAmbiguousPatternPairInsteadOfPanicking(t *testing.T) {
+	routes := []Route{
+		{Pattern: "/api/v1/app/{resource}/{id}", Middleware: MiddlewareSession},
+		{Pattern: "/api/v1/{provider}/app/{action}", Middleware: MiddlewareToken},
+	}
+
+	errs := CheckInventory(routes) // must return, not panic
+
+	if !anyErrorNamesBoth(errs, routes[0].Pattern, routes[1].Pattern) {
+		t.Fatalf("no finding names both %q and %q: %v", routes[0].Pattern, routes[1].Pattern, errs)
+	}
+}
+
+func TestInventoryReportsExactDuplicateRouteInsteadOfPanicking(t *testing.T) {
+	routes := []Route{
+		{Pattern: "/api/v1/app/x", Middleware: MiddlewareSession},
+		{Pattern: "/api/v1/app/x", Middleware: MiddlewareSession},
+	}
+
+	errs := CheckInventory(routes) // must return, not panic
+
+	if !anyErrorContains(errs, routes[0].Pattern) {
+		t.Fatalf("no finding names the duplicated route %q: %v", routes[0].Pattern, errs)
+	}
+}
+
+func TestInventoryKeepsEarlierFindingsWhenARoutingConflictAlsoOccurs(t *testing.T) {
+	// /stray sits below neither prefix — a checkPairing finding, from the
+	// first, string-only stage. It must survive even though the other two
+	// routes make the second stage, checkRouting, hit an ambiguous pair.
+	routes := []Route{
+		{Pattern: "/stray", Middleware: MiddlewareSession},
+		{Pattern: "/api/v1/app/{resource}/{id}", Middleware: MiddlewareSession},
+		{Pattern: "/api/v1/{provider}/app/{action}", Middleware: MiddlewareToken},
+	}
+
+	errs := CheckInventory(routes)
+
+	if !anyErrorContains(errs, "/stray") {
+		t.Errorf("findings %v lost the checkPairing finding about /stray", errs)
+	}
+	if !anyErrorNamesBoth(errs, routes[1].Pattern, routes[2].Pattern) {
+		t.Errorf("findings %v are missing the checkRouting finding about the ambiguous pair", errs)
+	}
+}
+
+func anyErrorContains(errs []error, substr string) bool {
+	for _, err := range errs {
+		if strings.Contains(err.Error(), substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyErrorNamesBoth(errs []error, a, b string) bool {
+	for _, err := range errs {
+		msg := err.Error()
+		if strings.Contains(msg, a) && strings.Contains(msg, b) {
+			return true
+		}
+	}
+	return false
+}
+
+// --- Small, separate finding while investigating the above: a pattern with a
+// host prefix instead of a leading "/" (e.g. "example.org/api/v1/app/x") was
+// reported as "has no path and does not start with /" — wrong, it has a
+// path, just behind a host. The route is still correctly rejected either way;
+// only the wording was misleading. ---
+
+func TestInventoryReportsHostPrefixedPatternAccurately(t *testing.T) {
+	routes := []Route{{Pattern: "example.org/api/v1/app/x", Middleware: MiddlewareSession}}
+
+	errs := CheckInventory(routes)
+	if len(errs) == 0 {
+		t.Fatal("CheckInventory() reported no problem, want one about the host-prefixed pattern")
+	}
+	if !anyErrorContains(errs, "example.org") {
+		t.Errorf("findings %v do not mention the host prefix", errs)
+	}
+	for _, err := range errs {
+		if strings.Contains(err.Error(), "has no path") {
+			t.Errorf("finding %q still claims the pattern has no path, but it does", err)
+		}
+	}
+}
