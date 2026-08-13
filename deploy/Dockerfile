@@ -57,7 +57,7 @@ EXPOSE 8080
 
 LABEL org.opencontainers.image.title="tesserarr" \
       org.opencontainers.image.description="Share parts of your media library with friends over Syncthing" \
-      org.opencontainers.image.source="https://github.com/example/tesserarr" \
+      org.opencontainers.image.source="https://github.com/strausmann/tesserarr" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
