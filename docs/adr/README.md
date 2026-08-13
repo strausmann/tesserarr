@@ -5,11 +5,11 @@ wichtige, langfristig wirkende Entscheidungen — inklusive Kontext und Konseque
 spätere Sessions und Mitwirkende nachvollziehen können, **warum** etwas so gebaut wurde und nicht
 anders.
 
-Diese Dateien liegen als Zwischenlager im Verwaltungsrepo (`homelab-management`) unter
+Diese ADRs entstanden zunächst als Zwischenlager im Verwaltungsrepo (`homelab-management`) unter
 `docs/superpowers/specs/tesserarr-adr/`, solange das eigentliche Tesserarr-Repository noch nicht
-existiert. Sobald es angelegt ist, wandern sie unverändert nach `docs/adr/` dieses neuen
-Repositorys — Verweise untereinander sind deshalb bewusst **relativ** gehalten, damit sie den
-Umzug überstehen.
+existierte. Mit dessen Anlage sind sie unverändert hierher, nach `docs/adr/`, übernommen worden —
+Verweise untereinander sind deshalb bewusst **relativ** gehalten, der Umzug hat sie unberührt
+gelassen.
 
 Neues ADR anlegen: ein bestehendes ADR aus diesem Verzeichnis als Vorlage kopieren (Felder
 Status/Datum/Lineage/Kontext/Entscheidung/Konsequenzen/Referenzen) nach `NNNN-slug.md` (nächste
