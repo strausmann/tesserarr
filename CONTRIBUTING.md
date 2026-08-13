@@ -46,6 +46,11 @@ docs(adr): adr-0007 zur karenzzeit
 
 ## Tooling
 
+Requires **Go 1.26 or newer**. Go fetches the matching toolchain itself since
+1.21 (`GOTOOLCHAIN=auto`, the built-in default) — that needs network access to
+`proxy.golang.org`. Without that access, or when `GOTOOLCHAIN=local` is set,
+`go1.26.6` has to be installed by hand.
+
 Repository tooling (commit-message linting, and anything else outside `web/`,
 which has its own `package.json`) is installed with `pnpm`, not `npm` — this
 matches the package manager the web interface's Dockerfile uses
