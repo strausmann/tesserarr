@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -125,26 +128,68 @@ func TestLoadRejectsMalformedTrustedProxies(t *testing.T) {
 // cannot be mistaken for anything else the struct might print.
 const sessionSecretMarker = "sess-secret-marker-9f3a1b7c0d2e4f68"
 
-func TestConfigFormattingRedactsSessionSecret(t *testing.T) {
-	cfg := Config{
-		BaseURL:       "https://tesserarr.example.org",
-		SessionSecret: sessionSecretMarker,
+// TestConfigRedactsSessionSecretAcrossFormattingPaths covers every formatting
+// path a later command could plausibly reach for when it logs or dumps a
+// Config: fmt verbs (%v, %+v, %q, %#v), encoding/json, and both stdlib slog
+// handlers — each with a value and a pointer. Four of these paths (%#v,
+// json.Marshal, slog.JSONHandler — value and pointer each) leaked the secret
+// before String()/GoString()/MarshalJSON() existed; %v, %+v, %q and
+// slog.TextHandler were already clean via String(). All of them are asserted
+// here together so a later refactor cannot silently reopen one.
+func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
+	newCfg := func() Config {
+		return Config{
+			BaseURL:       "https://tesserarr.example.org",
+			SessionSecret: sessionSecretMarker,
+		}
 	}
+
+	slogOutput := func(handler func(w *bytes.Buffer) *slog.Logger, arg any) string {
+		var buf bytes.Buffer
+		handler(&buf).Info("test", "config", arg)
+		return buf.String()
+	}
+	textHandler := func(w *bytes.Buffer) *slog.Logger { return slog.New(slog.NewTextHandler(w, nil)) }
+	jsonHandler := func(w *bytes.Buffer) *slog.Logger { return slog.New(slog.NewJSONHandler(w, nil)) }
 
 	cases := []struct {
 		name string
-		out  string
+		out  func() string
 	}{
-		{"value %v", fmt.Sprintf("%v", cfg)},
-		{"value %+v", fmt.Sprintf("%+v", cfg)},
-		{"pointer %v", fmt.Sprintf("%v", &cfg)},
-		{"pointer %+v", fmt.Sprintf("%+v", &cfg)},
+		{"%v value", func() string { return fmt.Sprintf("%v", newCfg()) }},
+		{"%v pointer", func() string { c := newCfg(); return fmt.Sprintf("%v", &c) }},
+		{"%+v value", func() string { return fmt.Sprintf("%+v", newCfg()) }},
+		{"%+v pointer", func() string { c := newCfg(); return fmt.Sprintf("%+v", &c) }},
+		{"%q value", func() string { return fmt.Sprintf("%q", newCfg()) }},
+		{"%q pointer", func() string { c := newCfg(); return fmt.Sprintf("%q", &c) }},
+		{"%#v value", func() string { return fmt.Sprintf("%#v", newCfg()) }},
+		{"%#v pointer", func() string { c := newCfg(); return fmt.Sprintf("%#v", &c) }},
+		{"json.Marshal value", func() string {
+			b, err := json.Marshal(newCfg())
+			if err != nil {
+				t.Fatalf("json.Marshal(value) returned error: %v", err)
+			}
+			return string(b)
+		}},
+		{"json.Marshal pointer", func() string {
+			c := newCfg()
+			b, err := json.Marshal(&c)
+			if err != nil {
+				t.Fatalf("json.Marshal(pointer) returned error: %v", err)
+			}
+			return string(b)
+		}},
+		{"slog.TextHandler value", func() string { return slogOutput(textHandler, newCfg()) }},
+		{"slog.TextHandler pointer", func() string { c := newCfg(); return slogOutput(textHandler, &c) }},
+		{"slog.JSONHandler value", func() string { return slogOutput(jsonHandler, newCfg()) }},
+		{"slog.JSONHandler pointer", func() string { c := newCfg(); return slogOutput(jsonHandler, &c) }},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if strings.Contains(tc.out, sessionSecretMarker) {
-				t.Errorf("formatted output leaks SessionSecret: %s", tc.out)
+			out := tc.out()
+			if strings.Contains(out, sessionSecretMarker) {
+				t.Errorf("formatted output leaks SessionSecret: %s", out)
 			}
 		})
 	}
