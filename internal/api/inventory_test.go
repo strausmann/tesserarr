@@ -7,7 +7,7 @@ import (
 
 func TestInventoryAcceptsWellFormedRoutes(t *testing.T) {
 	routes := []Route{
-		{Pattern: "/healthz", Middleware: MiddlewareNone},
+		{Pattern: "/healthz", Middleware: MiddlewarePublic},
 		{Pattern: "/api/v1/app/session", Middleware: MiddlewareSession},
 		{Pattern: "/api/v1/search", Middleware: MiddlewareToken},
 	}
@@ -50,7 +50,14 @@ func TestInventoryRejectsTokenMiddlewareOnAppPrefix(t *testing.T) {
 }
 
 func TestInventoryRejectsUnguardedRouteOtherThanHealth(t *testing.T) {
-	routes := []Route{{Pattern: "/api/v1/app/invites", Middleware: MiddlewareNone}}
+	// "Unguarded" is expressed as MiddlewarePublic now that MiddlewareNone is
+	// gone — a route on the app prefix claiming to need no check at all is
+	// exactly what this test predates: it must still be rejected, whether
+	// because it sits on the session prefix (checkPairing's prefix rule) or
+	// because it is not on the public allow-list (see
+	// TestInventoryRejectsMiddlewarePublicOnRouteNotOnAllowList further down
+	// for that second reason in isolation).
+	routes := []Route{{Pattern: "/api/v1/app/invites", Middleware: MiddlewarePublic}}
 
 	if errs := CheckInventory(routes); len(errs) == 0 {
 		t.Fatal("CheckInventory() reported no problem, want one about the missing check")
@@ -94,7 +101,7 @@ func TestInventoryRejectsMethodPrefixedRouteWithWrongMiddleware(t *testing.T) {
 }
 
 func TestInventoryAcceptsMethodPrefixedHealthRoute(t *testing.T) {
-	routes := []Route{{Pattern: "GET /healthz", Middleware: MiddlewareNone}}
+	routes := []Route{{Pattern: "GET /healthz", Middleware: MiddlewarePublic}}
 
 	if errs := CheckInventory(routes); len(errs) != 0 {
 		t.Errorf("CheckInventory() reported %d problems, want none: %v", len(errs), errs)
@@ -103,8 +110,10 @@ func TestInventoryAcceptsMethodPrefixedHealthRoute(t *testing.T) {
 
 func TestInventoryRejectsPatternWithoutPathAfterMethod(t *testing.T) {
 	// A method-looking word with nothing after it is a typo, not a route. It
-	// must be reported, not silently dropped or silently accepted.
-	routes := []Route{{Pattern: "GET", Middleware: MiddlewareNone}}
+	// must be reported, not silently dropped or silently accepted. The
+	// middleware value is irrelevant here — splitPattern fails before it is
+	// ever consulted.
+	routes := []Route{{Pattern: "GET", Middleware: MiddlewareSession}}
 
 	errs := CheckInventory(routes)
 	if len(errs) == 0 {
@@ -228,9 +237,8 @@ func TestInventoryRejectsMiddlewarePublicOnRouteNotOnAllowList(t *testing.T) {
 
 // TestInventoryRejectsSessionMiddlewareOnHealthPath is the symmetric case to
 // TestInventoryAcceptsHealthRouteWithMiddlewarePublic: the health path stays
-// rejected under any check other than the two the allow-list actually
-// permits for it — MiddlewareNone (kept for backward compatibility) or
-// MiddlewarePublic.
+// rejected under any check other than the one the allow-list actually
+// permits for it — MiddlewarePublic.
 func TestInventoryRejectsSessionMiddlewareOnHealthPath(t *testing.T) {
 	routes := []Route{{Pattern: "/healthz", Middleware: MiddlewareSession}}
 
