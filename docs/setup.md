@@ -108,6 +108,11 @@ the catalog page.
     short of "your friend's first invite" and instead confirm that sign-in
     itself works end to end.
 
+!!! tip "Already running a guard in front of your services?"
+
+    If Pangolin, Authentik, tinyauth, Authelia or oauth2-proxy already sits in front of Tesserarr,
+    you can skip a second login entirely — see [Forward-auth sign-in](forward-auth.md).
+
 ## Verify
 
 `docker compose ps` should show the container `healthy` — the health check

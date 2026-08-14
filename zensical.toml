@@ -10,6 +10,7 @@ edit_uri = "edit/main/docs/"
 nav = [
   { "Home" = "index.md" },
   { "Setup" = "setup.md" },
+  { "Forward-auth sign-in" = "forward-auth.md" },
   { "Roadmap" = "roadmap.md" },
 ]
 
