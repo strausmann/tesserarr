@@ -13,6 +13,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
 	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
 
 	cfg, err := Load()
 	if err != nil {
@@ -37,12 +40,24 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if len(cfg.TrustedProxies) != 0 {
 		t.Errorf("TrustedProxies = %v, want empty", cfg.TrustedProxies)
 	}
+	if cfg.OIDCIssuerURL != "https://idp.example.org/application/o/tesserarr/" {
+		t.Errorf("OIDCIssuerURL = %q, want %q", cfg.OIDCIssuerURL, "https://idp.example.org/application/o/tesserarr/")
+	}
+	if cfg.OIDCClientID != "tesserarr-client" {
+		t.Errorf("OIDCClientID = %q, want %q", cfg.OIDCClientID, "tesserarr-client")
+	}
+	if cfg.OIDCClientSecret.Reveal() != "oidc-client-secret" {
+		t.Errorf("OIDCClientSecret.Reveal() = %q, want %q", cfg.OIDCClientSecret.Reveal(), "oidc-client-secret")
+	}
 }
 
 func TestLoadAppliesOverrides(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
 	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
 	t.Setenv("TESSERARR_HTTP_ADDR", "127.0.0.1:9090")
 	t.Setenv("TESSERARR_DB_PATH", "/custom/db.sqlite")
 	t.Setenv("TESSERARR_OUTGOING_DIR", "/custom/outgoing")
@@ -99,6 +114,9 @@ func TestLoadParsesTrustedProxies(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
 	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
 	t.Setenv("TESSERARR_TRUSTED_PROXIES", "192.0.2.0/24, 198.51.100.0/24")
 
 	cfg, err := Load()
@@ -117,10 +135,52 @@ func TestLoadRejectsMalformedTrustedProxies(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
 	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
 	t.Setenv("TESSERARR_TRUSTED_PROXIES", "not-a-cidr")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() returned no error, want error about malformed CIDR")
+	}
+}
+
+func TestLoadRejectsMissingOIDCIssuerURL(t *testing.T) {
+	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
+	t.Setenv("TESSERARR_DATA_DIR", "/data")
+	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	// Deliberately unset: TESSERARR_OIDC_ISSUER_URL
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() returned no error, want error about missing TESSERARR_OIDC_ISSUER_URL")
+	}
+}
+
+func TestLoadRejectsMissingOIDCClientID(t *testing.T) {
+	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
+	t.Setenv("TESSERARR_DATA_DIR", "/data")
+	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	// Deliberately unset: TESSERARR_OIDC_CLIENT_ID
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() returned no error, want error about missing TESSERARR_OIDC_CLIENT_ID")
+	}
+}
+
+func TestLoadRejectsMissingOIDCClientSecret(t *testing.T) {
+	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
+	t.Setenv("TESSERARR_DATA_DIR", "/data")
+	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	// Deliberately unset: TESSERARR_OIDC_CLIENT_SECRET
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() returned no error, want error about missing TESSERARR_OIDC_CLIENT_SECRET")
 	}
 }
 

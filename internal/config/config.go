@@ -32,6 +32,17 @@ type Config struct {
 	SessionCookieName string
 	TrustedProxies    []netip.Prefix
 	LogLevel          string
+	// OIDCIssuerURL, OIDCClientID and OIDCClientSecret configure the single
+	// generic OpenID Connect provider this deployment authenticates against
+	// (see internal/identity.OIDCConfig, which these three feed directly).
+	// There is deliberately no separate redirect-URL setting: the address the
+	// provider redirects back to is always BaseURL plus a fixed path (see
+	// internal/api.LoginOIDCCallbackPath) — the same "derive from BaseURL,
+	// don't ask for it twice" choice createInvite already makes for the
+	// invite redeem link.
+	OIDCIssuerURL    string
+	OIDCClientID     string
+	OIDCClientSecret Secret
 }
 
 // Redaction of SessionSecret used to live here as three methods on Config
@@ -63,6 +74,9 @@ func Load() (*Config, error) {
 		SessionSecret:     Secret(os.Getenv("TESSERARR_SESSION_SECRET")),
 		SessionCookieName: envOr("TESSERARR_SESSION_COOKIE_NAME", "tesserarr_session"),
 		LogLevel:          envOr("TESSERARR_LOG_LEVEL", "info"),
+		OIDCIssuerURL:     os.Getenv("TESSERARR_OIDC_ISSUER_URL"),
+		OIDCClientID:      os.Getenv("TESSERARR_OIDC_CLIENT_ID"),
+		OIDCClientSecret:  Secret(os.Getenv("TESSERARR_OIDC_CLIENT_SECRET")),
 	}
 
 	if cfg.BaseURL == "" {
@@ -73,6 +87,15 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.SessionSecret) < minSessionSecretLen {
 		return nil, fmt.Errorf("TESSERARR_SESSION_SECRET must be at least %d bytes", minSessionSecretLen)
+	}
+	if cfg.OIDCIssuerURL == "" {
+		return nil, fmt.Errorf("TESSERARR_OIDC_ISSUER_URL is required")
+	}
+	if cfg.OIDCClientID == "" {
+		return nil, fmt.Errorf("TESSERARR_OIDC_CLIENT_ID is required")
+	}
+	if len(cfg.OIDCClientSecret) == 0 {
+		return nil, fmt.Errorf("TESSERARR_OIDC_CLIENT_SECRET is required")
 	}
 
 	cfg.DBPath = envOr("TESSERARR_DB_PATH", filepath.Join(cfg.DataDir, "tesserarr.db"))
