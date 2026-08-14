@@ -47,6 +47,23 @@ func newTestAPI(t *testing.T) *API {
 	return a
 }
 
+// loginAsTestUser wraps createTestUserAndSession (middleware_test.go) —
+// which already does the actual work of inserting the minimal user row and
+// minting a real session via a.sessions, the same store requireSession
+// resolves against — and hands back a ready-to-attach *http.Cookie instead
+// of the raw token string. tokens_test.go and Aufgabe 8's account_test.go
+// both need exactly that shape to exercise session-space handlers via
+// req.AddCookie, without going through a full OIDC or forward-auth round
+// trip; delegating here keeps the user-row-plus-session-creation logic in
+// the one place middleware_test.go already owns it, rather than
+// re-implementing it a second time.
+func loginAsTestUser(t *testing.T, a *API, userID string) *http.Cookie {
+	t.Helper()
+
+	token := createTestUserAndSession(t, a, userID)
+	return &http.Cookie{Name: a.cfg.SessionCookieName, Value: token} //nolint:gosec // G124: this is an INCOMING request cookie built for a test client — see the comment on the other AddCookie calls in middleware_test.go/csrf_test.go
+}
+
 func TestHealthEndpointReturnsOK(t *testing.T) {
 	a := newTestAPI(t)
 
