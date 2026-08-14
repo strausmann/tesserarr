@@ -16,7 +16,9 @@ var userIDContextKey = &contextKey{name: "userID"}
 
 // userIDFromContext returns the id of the user whose credential the running
 // middleware verified, and whether one was actually set. It is unset on the
-// health path, which carries no middleware at all (see MiddlewareNone).
+// health path (MiddlewareNone) and on any other path deliberately reachable
+// without a check (MiddlewarePublic) — neither wraps the handler in
+// requireSession or requireToken, so neither ever populates this value.
 func userIDFromContext(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(userIDContextKey).(string)
 	return id, ok

@@ -150,6 +150,7 @@ func TestWrapSelectsMiddlewareByKind(t *testing.T) {
 		{"none passes through", MiddlewareNone, http.StatusTeapot},
 		{"session rejects", MiddlewareSession, http.StatusUnauthorized},
 		{"token rejects", MiddlewareToken, http.StatusUnauthorized},
+		{"public passes through", MiddlewarePublic, http.StatusTeapot},
 	}
 
 	for _, tt := range tests {

@@ -181,6 +181,64 @@ func TestInventoryKeepsEarlierFindingsWhenARoutingConflictAlsoOccurs(t *testing.
 	}
 }
 
+// --- MiddlewarePublic: a named kind for paths deliberately reachable with no
+// check at all, backed by an explicit allow-list (publicPaths in
+// inventory.go) instead of a single hard-coded constant. A route carrying
+// MiddlewarePublic is only accepted when its path is actually named on that
+// list — the kind by itself grants nothing, or the new kind would just be
+// the old healthPattern special case renamed. ---
+
+func TestInventoryAcceptsHealthRouteWithMiddlewarePublic(t *testing.T) {
+	routes := []Route{{Pattern: "/healthz", Middleware: MiddlewarePublic}}
+
+	if errs := CheckInventory(routes); len(errs) != 0 {
+		t.Errorf("CheckInventory() reported %d problems, want none: %v", len(errs), errs)
+	}
+}
+
+// TestInventoryAcceptsInviteRedeemPatternWithMiddlewarePublic proves the
+// allow-list is ready for the invite-redeem route before anyone registers
+// it. No handler exists for "/invite/{token}" yet (see router.go) — this
+// only exercises CheckInventory against a literal route, same as every other
+// test in this file.
+func TestInventoryAcceptsInviteRedeemPatternWithMiddlewarePublic(t *testing.T) {
+	routes := []Route{{Pattern: "GET /invite/{token}", Middleware: MiddlewarePublic}}
+
+	if errs := CheckInventory(routes); len(errs) != 0 {
+		t.Errorf("CheckInventory() reported %d problems, want none: %v", len(errs), errs)
+	}
+}
+
+// TestInventoryRejectsMiddlewarePublicOnRouteNotOnAllowList is the important
+// case: MiddlewarePublic is not a free pass. A route that carries it without
+// being named, with its reason, on publicPaths must be reported.
+func TestInventoryRejectsMiddlewarePublicOnRouteNotOnAllowList(t *testing.T) {
+	// /api/v1/app/invites sits squarely on the session prefix — a route there
+	// claiming to be public is exactly the bypass this list exists to catch.
+	routes := []Route{{Pattern: "/api/v1/app/invites", Middleware: MiddlewarePublic}}
+
+	errs := CheckInventory(routes)
+	if len(errs) == 0 {
+		t.Fatal("CheckInventory() reported no problem, want one about the allow-list")
+	}
+	if !anyErrorContains(errs, "/api/v1/app/invites") {
+		t.Errorf("findings %v do not name the offending route", errs)
+	}
+}
+
+// TestInventoryRejectsSessionMiddlewareOnHealthPath is the symmetric case to
+// TestInventoryAcceptsHealthRouteWithMiddlewarePublic: the health path stays
+// rejected under any check other than the two the allow-list actually
+// permits for it — MiddlewareNone (kept for backward compatibility) or
+// MiddlewarePublic.
+func TestInventoryRejectsSessionMiddlewareOnHealthPath(t *testing.T) {
+	routes := []Route{{Pattern: "/healthz", Middleware: MiddlewareSession}}
+
+	if errs := CheckInventory(routes); len(errs) == 0 {
+		t.Fatal("CheckInventory() reported no problem, want one about the middleware")
+	}
+}
+
 func anyErrorContains(errs []error, substr string) bool {
 	for _, err := range errs {
 		if strings.Contains(err.Error(), substr) {
