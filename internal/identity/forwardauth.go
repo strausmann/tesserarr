@@ -83,6 +83,17 @@ func (f *ForwardAuthLogin) Authenticate(claims ForwardAuthClaims, inviteToken, p
 			return "", updateErr
 		}
 	case errors.Is(err, sql.ErrNoRows):
+		// This inviteToken == "" check is DELIBERATELY redundant with
+		// createUserFromInvite's own invite.Redeem call a few lines down:
+		// Redeem("", userID) hashes the empty string, finds no matching
+		// row, and returns the same ErrUnknownIdentityWithoutInvite-wrapped
+		// rejection on its own — see
+		// TestAuthenticateRejectsUnknownSubjectWithoutInvite's comment for
+		// what that means for what the test actually proves. Kept anyway
+		// for two reasons: it mirrors OIDCLogin.resolveUser's identical
+		// early check (oidc.go), and it avoids opening a transaction
+		// (tx.Begin, two INSERTs) purely to have Redeem reject a request
+		// that never carried a token at all.
 		if inviteToken == "" {
 			return "", ErrUnknownIdentityWithoutInvite
 		}
