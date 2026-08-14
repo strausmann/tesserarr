@@ -119,3 +119,37 @@ func TestPromoteUserRoleReportsAmbiguousEmail(t *testing.T) {
 		t.Errorf("error = %v, want ErrAmbiguousEmail", err)
 	}
 }
+
+// TestRemapForwardAuthSubjectReportsAlreadyBoundSubject covers the plan's
+// silence on remapping onto a subject some OTHER account already owns.
+// identities has PRIMARY KEY (provider, subject) — SQLite rejects the
+// UPDATE outright, so this was never a silent-merge risk; what was
+// missing was a caller-recognizable error instead of a raw driver
+// message. Both bindings must survive UNCHANGED — a half-applied remap
+// would be worse than the raw error it replaces.
+func TestRemapForwardAuthSubjectReportsAlreadyBoundSubject(t *testing.T) {
+	db := newAdminTestDB(t)
+	insertAdminTestUser(t, db, "user-1", "")
+	insertAdminTestIdentity(t, db, "user-1", forwardAuthProviderName, "subject-a")
+	insertAdminTestUser(t, db, "user-2", "")
+	insertAdminTestIdentity(t, db, "user-2", forwardAuthProviderName, "subject-b")
+
+	if err := RemapForwardAuthSubject(db, "subject-a", "subject-b"); !errors.Is(err, ErrSubjectAlreadyBound) {
+		t.Errorf("error = %v, want ErrSubjectAlreadyBound", err)
+	}
+
+	userID, err := lookupIdentity(db, forwardAuthProviderName, "subject-a")
+	if err != nil {
+		t.Fatalf("lookupIdentity(subject-a) after rejected remap returned error: %v", err)
+	}
+	if userID != "user-1" {
+		t.Errorf("subject-a still resolves to %q, want user-1 (unchanged)", userID)
+	}
+	userID, err = lookupIdentity(db, forwardAuthProviderName, "subject-b")
+	if err != nil {
+		t.Fatalf("lookupIdentity(subject-b) after rejected remap returned error: %v", err)
+	}
+	if userID != "user-2" {
+		t.Errorf("subject-b still resolves to %q, want user-2 (unchanged)", userID)
+	}
+}

@@ -258,12 +258,23 @@ func createInvite(db *sql.DB, baseURL string, ttl time.Duration, forwardAuthEnab
 	return nil
 }
 
+// errUsage is the sentinel behind every "user" subcommand's argument-count
+// rejection. A plain errors.New would leave TestRunUserRemapRejectsWrongArgumentCount
+// and TestRunUserPromoteRejectsWrongArgumentCount unable to tell "the guard
+// fired" apart from "config.Load failed for its own, unrelated reason" —
+// both return SOME non-nil error either way, and asserting only err != nil
+// passes in both cases (found live: the guard was deleted entirely and the
+// test stayed green because the test process has no TESSERARR_BASE_URL set,
+// so config.Load fails on its own right after). errors.Is(err, errUsage)
+// closes that gap: config.Load's error can never satisfy it.
+var errUsage = errors.New("usage")
+
 // runUser dispatches the "user" subcommands — mirroring runInvite's shape
 // exactly, for the same reason: tests drive the dispatch logic without an
 // os.Exit in the way.
 func runUser(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <email> <role>")
+		return fmt.Errorf("%w: tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <email> <role>", errUsage)
 	}
 	switch args[0] {
 	case "remap":
@@ -277,7 +288,7 @@ func runUser(args []string) error {
 
 func runUserRemap(args []string) error {
 	if len(args) != 2 {
-		return errors.New("usage: tesserarr user remap <old-subject> <new-subject>")
+		return fmt.Errorf("%w: user remap expects exactly 2 arguments (old-subject new-subject)", errUsage)
 	}
 
 	cfg, err := config.Load()
@@ -291,6 +302,9 @@ func runUserRemap(args []string) error {
 	defer func() { _ = st.Close() }()
 
 	if err := identity.RemapForwardAuthSubject(st.DB(), args[0], args[1]); err != nil {
+		if errors.Is(err, identity.ErrSubjectAlreadyBound) {
+			return fmt.Errorf("remap user: the new subject %q is already bound to a different account — pick a different value, or reconcile the two accounts by hand first", args[1])
+		}
 		return fmt.Errorf("remap user: %w", err)
 	}
 	fmt.Println("remapped.")
@@ -299,7 +313,7 @@ func runUserRemap(args []string) error {
 
 func runUserPromote(args []string) error {
 	if len(args) != 2 {
-		return errors.New("usage: tesserarr user promote <email> <role>")
+		return fmt.Errorf("%w: user promote expects exactly 2 arguments (email role)", errUsage)
 	}
 
 	cfg, err := config.Load()
