@@ -7,13 +7,13 @@ import { LOGIN_START_URL } from "@/lib/auth-links";
 // page.test.tsx covers.
 export default function LoginPage() {
   return (
-    <div className="card stack">
+    <div className="section">
       <h1>Sign in</h1>
       <p className="muted">
         Tesserarr is invite-only. If you were invited, sign in with the
         account your host set up for you.
       </p>
-      <a className="button" href={LOGIN_START_URL}>
+      <a className="btn btn--primary" href={LOGIN_START_URL}>
         Continue to sign in
       </a>
     </div>

@@ -29,10 +29,10 @@ export default function LogoutPage() {
 
   if (state === "done") {
     return (
-      <div className="card stack">
+      <div className="section">
         <h1>You are logged out</h1>
         <p className="muted">Your session on this device has ended.</p>
-        <a className="button" href="/login/">
+        <a className="btn btn--primary" href="/login/">
           Back to sign in
         </a>
       </div>
@@ -40,16 +40,16 @@ export default function LogoutPage() {
   }
 
   return (
-    <div className="card stack">
+    <div className="section">
       <h1>Log out?</h1>
       <p className="muted">This ends your current Tesserarr session on this device.</p>
       {state === "error" && (
-        <p className="error-text" role="alert">
+        <p className="form-error" role="alert">
           Could not log out: {errorMessage}
         </p>
       )}
       <button
-        className="button"
+        className="btn btn--primary"
         type="button"
         onClick={handleConfirm}
         disabled={state === "pending"}

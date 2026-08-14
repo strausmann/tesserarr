@@ -111,6 +111,17 @@ a {
   outline-offset: 2px;
 }
 
+/* ---- Legacy shell/content classes — kept, not replaced ----
+   Task 3's brief said to replace these outright, but two out-of-scope
+   consumers still read them: layout.tsx (`.page`, `.app-header`,
+   `.app-header__title` — the header/main chrome around every page) and
+   not-found.tsx (`.card`, `.stack`, `.button`, `.error-text`), neither of
+   which is in this task's file list. Deleting these rules would leave both
+   unstyled. They stay until a follow-up task moves layout.tsx and
+   not-found.tsx onto the Werkstatt classes below, at which point this whole
+   block can go. `.muted` is untouched either way (see the replacement
+   table) and lives in the Werkstatt block below instead of here, so it is
+   only declared once. */
 .page {
   width: min(100%, 40rem);
   margin-inline: auto;
@@ -140,10 +151,6 @@ a {
   gap: var(--space-2);
 }
 
-.muted {
-  color: var(--color-fg-muted);
-}
-
 .button {
   display: inline-block;
   border: none;
@@ -164,4 +171,165 @@ a {
 
 .error-text {
   color: var(--color-danger);
+}
+
+/* ==== Werkstatt component classes (ADR-0011) ====
+   `/`, `/login/` and `/logout/` are built from these. `.shell`,
+   `.shell__where` and the rest of the vocabulary not yet consumed here land
+   with Aufgabe 9 of the forward-auth plan and the layout.tsx migration. */
+
+/* ---- Shell: brand left, place right, content capped. No sidebar — four
+   pages do not need a navigation column. ---- */
+.shell__bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-surface);
+}
+.shell__brand { font-weight: 650; letter-spacing: -0.01em; }
+.shell__where { color: var(--color-fg-muted); font-size: 0.8125rem; }
+.shell__main {
+  width: min(100%, 64rem);
+  margin-inline: auto;
+  padding: var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ---- Section: a micro label over a hairline. Deliberately not a card —
+   hairlines instead of boxes is what separates this system from the
+   card-based look it was derived away from (ADR-0011). ---- */
+.section { display: flex; flex-direction: column; gap: var(--space-3); }
+.section__label {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-hairline);
+  margin-bottom: var(--space-3);
+}
+
+/* ---- Row: hairlines BETWEEN items, none around the list. ---- */
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-hairline);
+}
+.row:last-child { border-bottom: 0; }
+.row__name { font-weight: 600; font-size: 0.8125rem; }
+.row__meta {
+  color: var(--color-fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Field ---- */
+.field { display: flex; flex-direction: column; gap: var(--space-2); }
+.field__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+.field__row { display: flex; gap: var(--space-2); align-items: stretch; }
+.field__input {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-surface);
+  /* --color-input-border, never --color-border: the border is what makes a
+     field recognisable, so it carries the 3:1 requirement. */
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-fg);
+  font: inherit;
+}
+
+/* ---- Buttons, three roles. The accent is reserved for actions. ---- */
+.btn {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn--primary { background: var(--color-accent); color: var(--color-accent-fg); }
+.btn--secondary {
+  background: transparent;
+  border-color: var(--color-input-border);
+  color: var(--color-fg);
+}
+.btn--danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: transparent;
+}
+.btn--danger:hover, .btn--danger:focus-visible { border-color: var(--color-danger); }
+
+/* ---- Callout: the ONE card in this system, for the plaintext token that is
+   shown exactly once. ---- */
+.callout {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.callout__head {
+  color: var(--color-accent);
+  font-weight: 640;
+  font-size: 0.8125rem;
+  margin-bottom: var(--space-2);
+}
+.callout__code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* ---- Badge: fixed width so a column of them stays aligned. ---- */
+.badge {
+  display: inline-block;
+  min-width: 5.5rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: var(--radius);
+  padding: 0.125rem var(--space-2);
+}
+.badge--ok { color: var(--color-ok); background: color-mix(in srgb, var(--color-ok) 10%, transparent); }
+.badge--warn { color: var(--color-warn); background: color-mix(in srgb, var(--color-warn) 10%, transparent); }
+
+/* ---- Empty state: one sentence and the button that fixes it. ---- */
+.empty { color: var(--color-fg-muted); font-size: 0.8125rem; padding: var(--space-4) 0; }
+
+/* ---- Form error: under the field it belongs to, never a bubble. ---- */
+.form-error { color: var(--color-danger); font-size: 0.8125rem; }
+
+.muted {
+  color: var(--color-fg-muted);
 }
