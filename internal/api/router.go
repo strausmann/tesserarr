@@ -21,9 +21,14 @@
 // A third kind of path sits outside both spaces entirely and carries no check
 // at all: MiddlewarePublic, for routes that are deliberately reachable with
 // neither a session nor a token — a monitoring probe has no credential, an
-// invited person redeeming an invite has no session yet. It is not a general
-// escape hatch: CheckInventory (see inventory.go) only accepts it for a path
-// named, together with its reason, on the explicit publicPaths allow-list. A
+// invited person redeeming an invite has no session yet, and the embedded
+// browser interface (see static.go) is a static file that carries no
+// sensitive data of its own — /api/v1 is its only path to anything worth
+// protecting (ADR-0005), so gating delivery of the HTML/JS shell itself
+// would protect nothing while blocking the very page (/login/) an
+// unauthenticated visitor needs to reach. It is not a general escape hatch:
+// CheckInventory (see inventory.go) only accepts it for a path named,
+// together with its reason, on the explicit publicPaths allow-list. A
 // route that carries MiddlewarePublic without being on that list is a
 // finding, same as a route on the wrong prefix.
 package api
@@ -39,6 +44,7 @@ import (
 	"github.com/strausmann/tesserarr/internal/config"
 	"github.com/strausmann/tesserarr/internal/identity"
 	"github.com/strausmann/tesserarr/internal/store"
+	"github.com/strausmann/tesserarr/internal/web"
 )
 
 // sessionTTL is the lifetime a newly created session is granted. 30 days is a
@@ -129,6 +135,16 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 		return nil, fmt.Errorf("discover oidc provider: %w", err)
 	}
 
+	// web.FS's only failure mode (fs.Sub failing on the embedded "dist"
+	// directory) is unreachable in practice — the directory is always
+	// present at compile time — but it returns an error rather than
+	// panicking, so New checks it rather than assuming success, same as
+	// every other startup dependency here.
+	webFS, err := web.FS()
+	if err != nil {
+		return nil, fmt.Errorf("embed web interface: %w", err)
+	}
+
 	a := &API{
 		cfg:       cfg,
 		store:     st,
@@ -144,6 +160,11 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 	a.register(LoginOIDCCallbackPath, MiddlewarePublic, a.handleLoginOIDCCallback)
 	a.register("GET /invite/{token}", MiddlewarePublic, a.handleInviteRedeem)
 	a.register("POST "+LogoutPath, MiddlewareSession, a.handleLogout)
+	// Registered last, but that has no bearing on precedence — see the
+	// package comment above: ServeMux resolves every request to its most
+	// specific matching pattern, never by registration order, so "/" only
+	// ever catches what none of the routes above claimed.
+	a.register("/", MiddlewarePublic, newStaticHandler(webFS))
 	return a, nil
 }
 
