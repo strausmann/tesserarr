@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/strausmann/tesserarr/internal/config"
@@ -130,5 +131,76 @@ func TestHandleLoginForwardAuthAnswers404WhenDisabled(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+// TestHandleLoginForwardAuthRejectsEmptySubjectHeader guards the design
+// doc's own assurance ("Ablauf", step 3: "Die Schlüssel-Kopfzeile wird
+// gelesen. Fehlt sie oder ist sie leer -> Ablehnung.") — the "Schlüssel-
+// Kopfzeile" there is the SUBJECT header (config.ForwardAuthHeaders.Subject,
+// "the identity table's key"), not the shared-secret header
+// ForwardAuthSecretHeaderName, which TestHandleLoginForwardAuthRejects-
+// MissingSharedSecret already guards separately (verification point 1).
+//
+// Trust passes here (correct secret, trusted network) — the point under
+// test is specifically that a PRESENT-BUT-EMPTY subject header is rejected
+// the same way an entirely absent one would be, matching handleLoginForward-
+// Auth's own "subject == \"\"" check, which reads no differently for either
+// case (r.Header.Get returns "" for both a missing and an explicitly empty
+// header). A guard sending an empty header — rather than omitting it — is a
+// realistic misconfiguration this test exists to catch.
+//
+// This check turns out to be REDUNDANT with a second, independent guard:
+// identity.ForwardAuthLogin.Authenticate rejects an empty Subject claim on
+// its own (ErrForwardAuthSubjectEmpty, forwardauth.go — "a defense here
+// costs nothing"). Disabling only the check below still yields 401,
+// because Authenticate catches it next — the STATUS CODE alone cannot tell
+// the two layers apart. The body text can: this handler's own check
+// answers with the specific "forward-auth subject header missing", while
+// falling through to Authenticate's generic, deliberately unspecific
+// "login failed" (same principle as handleLoginOIDCCallback — a caller
+// must not learn which guess came closer). Asserting the specific body
+// text is what makes THIS check's own counter-proof meaningful rather than
+// silently passing on the deeper layer's defense.
+func TestHandleLoginForwardAuthRejectsEmptySubjectHeader(t *testing.T) {
+	a := newForwardAuthTestAPI(t)
+	req := forwardAuthRequest(LoginForwardAuthPath, "", "shared-secret-value")
+	req.Header.Set("Remote-User-Id", "") // present, deliberately empty — not omitted
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if !strings.Contains(rec.Body.String(), "subject header missing") {
+		t.Errorf("body = %q, want it to name the missing subject header (this handler's own check, not identity.ForwardAuthLogin's deeper, deliberately generic rejection)", rec.Body.String())
+	}
+	if findSetCookie(rec.Result(), a.cfg.SessionCookieName) != nil {
+		t.Error("a session cookie was set despite the empty subject header")
+	}
+}
+
+// TestHandleLoginForwardAuthRejectsOverlongInviteToken guards the same
+// unbounded-length defense maxInviteTokenLen already gives handleInvite-
+// Redeem and handleLoginOIDCCallback's invite path (see maxInviteTokenLen's
+// own comment in login.go) — but on THIS, newer entry path specifically.
+// One of the security-audit run's four findings was exactly this shape: a
+// defense that exists on the established paths but was never confirmed to
+// also apply to a newly added one. A copy-pasted check is not the same as
+// a verified one.
+func TestHandleLoginForwardAuthRejectsOverlongInviteToken(t *testing.T) {
+	a := newForwardAuthTestAPI(t)
+	overlong := strings.Repeat("a", maxInviteTokenLen+1)
+	req := forwardAuthRequest(LoginForwardAuthPath+"?invite="+overlong, "some-subject", "shared-secret-value")
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if findSetCookie(rec.Result(), a.cfg.SessionCookieName) != nil {
+		t.Error("a session cookie was set despite the overlong invite token")
 	}
 }
