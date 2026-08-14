@@ -98,8 +98,10 @@ func TestMiddlewareStringUnknownValue(t *testing.T) {
 }
 
 func TestRequireSessionRejectsEverything(t *testing.T) {
-	// Teil B fills this in; until then it must reject unconditionally, which
-	// is the safe direction for an unfinished check.
+	// No cookie at all is the un-authenticated baseline: it must be rejected
+	// regardless of what else requireSession later learns to accept. The
+	// credential-bearing cases (valid cookie, valid-but-misplaced bearer
+	// token, unknown cookie) live in middleware_test.go.
 	a := newTestAPI(t)
 	handler := a.requireSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("wrapped handler must not run before session authentication exists")
@@ -115,6 +117,8 @@ func TestRequireSessionRejectsEverything(t *testing.T) {
 }
 
 func TestRequireTokenRejectsEverything(t *testing.T) {
+	// No Authorization header at all is the un-authenticated baseline — see
+	// the comment on TestRequireSessionRejectsEverything above.
 	a := newTestAPI(t)
 	handler := a.requireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("wrapped handler must not run before token authentication exists")
@@ -130,8 +134,8 @@ func TestRequireTokenRejectsEverything(t *testing.T) {
 }
 
 // TestWrapSelectsMiddlewareByKind exercises all three branches of wrap()
-// directly, since none of MiddlewareSession or MiddlewareToken is registered
-// on a real route yet (Teil B).
+// directly with an unauthenticated request, independent of which concrete
+// routes New() happens to register them on.
 func TestWrapSelectsMiddlewareByKind(t *testing.T) {
 	a := newTestAPI(t)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

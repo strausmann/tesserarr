@@ -19,10 +19,18 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/strausmann/tesserarr/internal/config"
+	"github.com/strausmann/tesserarr/internal/identity"
 	"github.com/strausmann/tesserarr/internal/store"
 )
+
+// sessionTTL is the lifetime a newly created session is granted. 30 days is a
+// deliberate middle ground for a self-hosted app: long enough that a user is
+// not logged out mid-week, short enough that a leaked cookie eventually stops
+// working on its own even if nobody notices and revokes it by hand.
+const sessionTTL = 30 * 24 * time.Hour
 
 // Path prefixes. Every registered route lives below exactly one of them — with
 // the single, tested exception of the health path.
@@ -65,16 +73,24 @@ type Route struct {
 
 // API holds the dependencies of the HTTP surface.
 type API struct {
-	cfg    *config.Config
-	store  *store.Store
-	routes []Route
-	mux    *http.ServeMux
+	cfg      *config.Config
+	store    *store.Store
+	sessions *identity.SessionStore
+	routes   []Route
+	mux      *http.ServeMux
 }
 
 // New builds the API and registers every route.
 func New(cfg *config.Config, st *store.Store) *API {
-	a := &API{cfg: cfg, store: st, mux: http.NewServeMux()}
+	a := &API{
+		cfg:      cfg,
+		store:    st,
+		sessions: identity.NewSessionStore(st.DB(), identity.SessionConfig{TTL: sessionTTL}),
+		mux:      http.NewServeMux(),
+	}
 	a.register("/healthz", MiddlewareNone, a.handleHealth)
+	a.register(PrefixApp+"/session", MiddlewareSession, a.handleSessionStatus)
+	a.register(PrefixToken+"/status", MiddlewareToken, a.handleTokenStatus)
 	return a
 }
 
@@ -97,21 +113,8 @@ func (a *API) wrap(mw Middleware, handler http.HandlerFunc) http.Handler {
 	}
 }
 
-// requireSession is the session-only check. Teil B fills it; until then it
-// rejects everything, which is the safe direction for an unfinished check.
-func (a *API) requireSession(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "authentication not implemented", http.StatusUnauthorized)
-	})
-}
-
-// requireToken is the token-only check. It must never look at the session
-// cookie — see the package comment.
-func (a *API) requireToken(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "authentication not implemented", http.StatusUnauthorized)
-	})
-}
+// requireSession and requireToken are defined in middleware.go — this file
+// only ever wires them into wrap() and register(), never their bodies.
 
 // Routes returns the registered routes. The inventory test reads this from the
 // running server rather than from a hand-kept list, because a hand-kept list
