@@ -56,7 +56,12 @@ export default defineConfig({
       cwd: repoRoot,
       url: `${baseURL}/healthz`,
       reuseExistingServer: !process.env.CI,
-      timeout: 30_000,
+      // 30 s was enough locally, where the Go build cache is warm, and not
+      // enough on a cold CI runner: this command compiles the whole module
+      // (modernc.org/sqlite included) before the server even starts. The CI
+      // workflow now pre-builds in its own step, so this budget normally
+      // covers startup alone — it stays generous for the cold-cache case.
+      timeout: 120_000,
       env: {
         TESSERARR_BASE_URL: baseURL,
         TESSERARR_DATA_DIR: dataDir,
