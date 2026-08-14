@@ -14,7 +14,7 @@ import (
 // repeated in every test below, so adding the next migration only means
 // updating this one line rather than hunting down every hardcoded
 // expectation across the file.
-const wantSchemaVersion = 3
+const wantSchemaVersion = 4
 
 func TestOpenCreatesSchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
