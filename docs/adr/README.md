@@ -56,6 +56,7 @@ Zählung beginnt bei **0001**.
 | [0008](0008-widerruf-wirkt-auf-beide-wege-kopplung-am-nutzer.md) | Widerruf wirkt auf beide Wege — Kopplung am Nutzer | accepted | 2026-08-13 |
 | [0009](0009-zwei-getrennte-protokollstroeme.md) | Zwei getrennte Protokollströme | accepted | 2026-08-13 |
 | [0010](0010-forward-auth-als-zweiter-eintrittsweg.md) | Forward-Auth als zweiter Eintrittsweg | accepted | 2026-08-14 |
+| [0011](0011-design-system-werkstatt.md) | Design-System „Werkstatt" für Tesserarr | accepted | 2026-08-14 |
 
 ## Status-Werte
 
