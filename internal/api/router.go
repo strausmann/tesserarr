@@ -29,7 +29,10 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/strausmann/tesserarr/internal/apitoken"
@@ -94,23 +97,54 @@ type API struct {
 	store     *store.Store
 	sessions  *identity.SessionStore
 	apiTokens *apitoken.Store
+	login     *identity.OIDCLogin
 	routes    []Route
 	mux       *http.ServeMux
 }
 
 // New builds the API and registers every route.
-func New(cfg *config.Config, st *store.Store) *API {
+//
+// It discovers the configured OIDC provider (identity.NewOIDCLogin) as part
+// of building the API — one network round trip, exactly like the store's own
+// migration step already run by the time st reaches here. That belongs at
+// startup, not per request, and a caller that cannot reach its provider
+// should fail loudly there rather than serve a login button that can never
+// work — see runServe in cmd/tesserarr/main.go, which returns New's error
+// instead of starting the server.
+func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error) {
+	sessions := identity.NewSessionStore(st.DB(), identity.SessionConfig{TTL: sessionTTL})
+
+	// The redirect URI registered with the provider is always BaseURL plus
+	// LoginOIDCCallbackPath — there is deliberately no separate
+	// configuration setting for it (see config.Config's comment on
+	// OIDCIssuerURL), the same "derive it, don't ask for it twice" choice
+	// createInvite already makes for the invite redeem link.
+	login, err := identity.NewOIDCLogin(ctx, st.DB(), sessions, identity.OIDCConfig{
+		IssuerURL:    cfg.OIDCIssuerURL,
+		ClientID:     cfg.OIDCClientID,
+		ClientSecret: cfg.OIDCClientSecret,
+		RedirectURL:  strings.TrimRight(cfg.BaseURL, "/") + LoginOIDCCallbackPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("discover oidc provider: %w", err)
+	}
+
 	a := &API{
 		cfg:       cfg,
 		store:     st,
-		sessions:  identity.NewSessionStore(st.DB(), identity.SessionConfig{TTL: sessionTTL}),
+		sessions:  sessions,
 		apiTokens: apitoken.New(st.DB()),
+		login:     login,
 		mux:       http.NewServeMux(),
 	}
 	a.register("/healthz", MiddlewarePublic, a.handleHealth)
 	a.register(PrefixApp+"/session", MiddlewareSession, a.handleSessionStatus)
 	a.register(PrefixToken+"/status", MiddlewareToken, a.handleTokenStatus)
-	return a
+	a.register(LoginOIDCPath, MiddlewarePublic, a.handleLoginOIDC)
+	a.register(LoginOIDCCallbackPath, MiddlewarePublic, a.handleLoginOIDCCallback)
+	a.register("GET /invite/{token}", MiddlewarePublic, a.handleInviteRedeem)
+	a.register("POST "+LogoutPath, MiddlewareSession, a.handleLogout)
+	return a, nil
 }
 
 // register records the route in the inventory and installs it on the mux with

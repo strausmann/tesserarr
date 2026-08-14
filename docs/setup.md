@@ -75,6 +75,17 @@ Point your browser at `TESSERARR_BASE_URL`. You're redirected to your OIDC
 provider; after signing in there, Tesserarr sets a session cookie and shows
 the catalog page.
 
+!!! warning "The session cookie requires HTTPS"
+
+    The session cookie is `Secure` — browsers refuse to send it back over
+    plain HTTP, no exception. `TESSERARR_BASE_URL` and the redirect URI you
+    register with the provider (see below) both have to be `https://`
+    addresses for sign-in to work at all — a bare `docker compose -f
+    deploy/compose.yaml up` with no reverse proxy in front of it will not
+    let you sign in. Use one of the Caddy, Traefik or Pangolin variants
+    (see [Deploy](#deploy) above), or terminate TLS yourself in front of
+    the plain [`compose.yaml`](https://github.com/strausmann/tesserarr/blob/main/deploy/compose.yaml).
+
 !!! note "0.0.1 has no invite management yet"
 
     Access to Tesserarr is invite-only by design — there is no
@@ -91,5 +102,8 @@ the catalog page.
 runs `tesserarr healthcheck` against the local server, no network round trip
 involved. If sign-in redirects back with an error, check that
 `TESSERARR_OIDC_ISSUER_URL` matches your provider exactly (trailing slash and
-all) and that the redirect URI registered with the provider points at
-`TESSERARR_BASE_URL`.
+all) and that the redirect URI registered with the provider is exactly
+`<TESSERARR_BASE_URL>/api/v1/app/login/oidc/callback` — no trailing slash,
+no other path. There is no separate setting for it: Tesserarr always derives
+it from `TESSERARR_BASE_URL`, the same way it derives an invite link from
+that same base URL.

@@ -38,6 +38,14 @@ var publicPaths = []publicPath{
 		prefix: true,
 		why:    "the invited person has no session yet — the token in the path is the credential",
 	},
+	{
+		path: LoginOIDCPath,
+		why:  "starting a login is exactly what happens before any session exists",
+	},
+	{
+		path: LoginOIDCCallbackPath,
+		why:  "the provider redirects back here with no session cookie of its own — that is the entire reason a login exists",
+	},
 }
 
 // isPublicPath reports whether path is named on publicPaths: a prefix entry

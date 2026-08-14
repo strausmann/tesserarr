@@ -74,7 +74,18 @@ func runServe() error {
 	}
 	defer func() { _ = st.Close() }()
 
-	a := api.New(cfg, st)
+	// Created here, ahead of api.New, rather than a fresh context.Background()
+	// right before it: api.New's own network round trip against the OIDC
+	// provider (identity.NewOIDCLogin's discovery request) should be
+	// cancelable by the same signal this process already listens for below,
+	// not run against a context nothing can ever cancel.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	a, err := api.New(ctx, cfg, st)
+	if err != nil {
+		return fmt.Errorf("api: %w", err)
+	}
 
 	// Fail loudly at startup rather than shipping a misrouted endpoint. The
 	// same check runs in the test suite; running it here too means a build that
@@ -91,9 +102,6 @@ func runServe() error {
 		Handler:           a.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {
