@@ -852,6 +852,67 @@ func TestOIDCLoginCreateUserFromInviteRollsBackWhenRedeemFails(t *testing.T) {
 		t.Errorf("users table has %d row(s) after a rejected invite redemption, want 0 — "+
 			"an account was left behind that never actually redeemed an invitation", count)
 	}
+
+	// Counter-review addition, ported from an independent second
+	// implementation of the same audit fix: the assertion above proves the
+	// failed attempt left no row behind, but not that the SAME subject can
+	// still redeem a REAL invite afterward — the two-step, pre-fix version
+	// could in principle leave the subject in some half-created state that
+	// blocks, or worse silently bypasses, a later, genuine redemption.
+	//
+	// IMPORTANT — verified, not assumed: a bare "the second Callback()
+	// succeeds and returns a session" assertion does NOT distinguish this
+	// fix from its absence. Checked directly: run against the pre-fix,
+	// two-step implementation (with this test's own blocking trigger still
+	// in place), the first attempt's orphaned identity row survives
+	// exactly as the assertion above already catches — but a bare
+	// "succeeds" check on the second attempt would ALSO pass, for the
+	// WRONG reason: resolveUser's known-subject shortcut recognizes the
+	// leftover identity and mints a session WITHOUT ever consulting
+	// realToken at all, silently reproducing the exact vulnerability this
+	// fix closes rather than proving it fixed. A bare success/session
+	// check cannot tell "redeemed cleanly" from "let in via the orphaned
+	// identity from the first, rejected attempt" apart — both return a
+	// non-empty session token.
+	//
+	// The assertion that actually distinguishes the two: realToken itself
+	// must have been consumed BY THIS SPECIFIC new user — invitations.redeemed_by
+	// must equal the second attempt's own userID. In the pre-fix scenario
+	// above, the known-subject shortcut never touches realToken at all, so
+	// it stays unredeemed (redeemed_by IS NULL) even though a session was
+	// returned — which is exactly what the query below would catch.
+	realToken, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	authURL2 := login.BeginLogin(realToken)
+	state2, code2 := completeLogin(t, authURL2, "orphan-candidate-subject", "")
+
+	sessionToken, err := login.Callback(context.Background(), state2, code2, "")
+	if err != nil {
+		t.Fatalf("second Callback() with a genuine invite returned error: %v — "+
+			"the rejected first attempt must not block a later, real redemption", err)
+	}
+	if sessionToken == "" {
+		t.Fatal("second Callback() with a genuine invite returned no session token")
+	}
+
+	userID2, err := sessions.Lookup(sessionToken)
+	if err != nil {
+		t.Fatalf("sessions.Lookup() on the second session token returned error: %v", err)
+	}
+
+	var redeemedByThisUser int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM invitations WHERE redeemed_by = ?`, userID2,
+	).Scan(&redeemedByThisUser); err != nil {
+		t.Fatalf("count invitations redeemed by the second user: %v", err)
+	}
+	if redeemedByThisUser != 1 {
+		t.Errorf("invitations redeemed by the second attempt's user = %d, want 1 — "+
+			"the second session must come from genuinely redeeming realToken, not from the "+
+			"first, rejected attempt's identity surviving under the known-subject shortcut", redeemedByThisUser)
+	}
 }
 
 // TestOIDCLoginCreateUserFromInviteChoosesDisplayName exercises
