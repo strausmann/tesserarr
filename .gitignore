@@ -3,5 +3,7 @@
 /coverage.out
 node_modules/
 web/out/
+web/.next/
+web/coverage/
 /site/
 /.venv-docs-build/

@@ -1,0 +1,32 @@
+{
+  "name": "tesserarr-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tesserarr's browser interface. Built as a static export and embedded into the Go binary via go:embed (internal/web) — see ADR-0005.",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "next": "^16",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16",
+    "@testing-library/user-event": "^14",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "@vitest/coverage-v8": "^4",
+    "jsdom": "^30",
+    "typescript": "^5",
+    "vitest": "^4"
+  }
+}

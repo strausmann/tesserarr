@@ -1,6 +1,9 @@
 # Stage 1 — web interface. Node 22 and pnpm, deliberately not Bun.
-# Teil A ships no web interface yet; the stage exists so Teil B only has to fill
-# it, and so the build works today with an empty output directory.
+# Teil A shipped no web interface yet; the stage existed so Teil B only had to
+# fill it, and so the build worked with an empty output directory in the
+# meantime. Teil B's web/ has a package.json now, so this always takes the
+# `pnpm run build` branch — the `mkdir -p out` fallback is dead code today,
+# left in place only in case web/ is ever gutted back to nothing again.
 FROM node:22-bookworm-slim AS web
 WORKDIR /src/web
 RUN corepack enable
@@ -17,7 +20,15 @@ WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
-COPY --from=web /src/web/out ./web/out
+# internal/web/embed.go's go:embed directive is rooted at internal/web/dist,
+# not at web/out — go:embed patterns cannot reach outside their own package
+# directory (no ".." path elements), so the built static export has to land
+# INSIDE internal/web for the Go build below to pick it up at all. This
+# COPY overwrites the placeholder page that ships in git there (see
+# internal/web/dist/index.html's own comment for why a placeholder is
+# committed in the first place) with the real, freshly built interface —
+# entirely inside this build stage, never touching the host working tree.
+COPY --from=web /src/web/out ./internal/web/dist
 
 ARG VERSION=dev
 ARG REVISION=unknown
