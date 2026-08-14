@@ -294,12 +294,24 @@ func randHex(n int) string {
 // session_test.go for the database side — same package, same fixtures.
 func newTestOIDCLogin(t *testing.T, provider *fakeOIDCProvider, db *sql.DB, sessions *SessionStore) *OIDCLogin {
 	t.Helper()
-	login, err := NewOIDCLogin(context.Background(), db, sessions, OIDCConfig{
-		IssuerURL:    provider.issuer(),
-		ClientID:     "tesserarr-test-client",
-		ClientSecret: config.Secret("test-client-secret-does-not-matter"),
-		RedirectURL:  "http://tesserarr.example/api/v1/app/login/oidc/callback",
-	})
+	return newTestOIDCLoginWithConfig(t, provider, db, sessions, OIDCConfig{})
+}
+
+// newTestOIDCLoginWithConfig is newTestOIDCLogin with room to override
+// fields cfg carries — currently only DefaultRole (see
+// TestCreateUserFromInviteSetsDefaultRoleAndEmail) — while still wiring up
+// against provider the same way. IssuerURL/ClientID/ClientSecret/RedirectURL
+// on cfg are always overwritten with the same fixed test values
+// newTestOIDCLogin uses, so a caller only ever has to name the field it
+// actually wants to vary.
+func newTestOIDCLoginWithConfig(t *testing.T, provider *fakeOIDCProvider, db *sql.DB, sessions *SessionStore, cfg OIDCConfig) *OIDCLogin {
+	t.Helper()
+	cfg.IssuerURL = provider.issuer()
+	cfg.ClientID = "tesserarr-test-client"
+	cfg.ClientSecret = config.Secret("test-client-secret-does-not-matter")
+	cfg.RedirectURL = "http://tesserarr.example/api/v1/app/login/oidc/callback"
+
+	login, err := NewOIDCLogin(context.Background(), db, sessions, cfg)
 	if err != nil {
 		t.Fatalf("NewOIDCLogin() returned error: %v", err)
 	}
@@ -965,4 +977,62 @@ func TestOIDCLoginCreateUserFromInviteChoosesDisplayName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreateUserFromInviteSetsDefaultRoleAndEmail is Aufgabe 4's proof that
+// the role system is not forward-auth-specific: a brand-new OIDC user gets
+// email and role written at creation too, exactly like a brand-new
+// forward-auth user (forwardauth.go's createUserFromInvite) — otherwise
+// "tesserarr user promote" (Aufgabe 10) would have nothing to promote for a
+// deployment that never configures a guard at all, which the design doc
+// explicitly rules out ("um überhaupt den ersten Administrator zu haben,
+// bevor irgendein Wächter konfiguriert ist").
+func TestCreateUserFromInviteSetsDefaultRoleAndEmail(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "familie")
+	inviteToken := createTestInvite(t, db)
+
+	_, err := login.resolveUser("new-subject", "friend@example.org", inviteToken)
+	if err != nil {
+		t.Fatalf("resolveUser() returned error: %v", err)
+	}
+
+	var email sql.NullString
+	var role string
+	if err := db.QueryRow(
+		`SELECT email, role FROM users WHERE id = (SELECT user_id FROM identities WHERE provider = 'oidc' AND subject = 'new-subject')`,
+	).Scan(&email, &role); err != nil {
+		t.Fatalf("read created user: %v", err)
+	}
+	if !email.Valid || email.String != "friend@example.org" {
+		t.Errorf("email = %+v, want friend@example.org", email)
+	}
+	if role != "familie" {
+		t.Errorf("role = %q, want familie", role)
+	}
+}
+
+// newOIDCLoginWithDefaultRole is newTestOIDCLogin plus an OIDCConfig.DefaultRole
+// override — its own fresh provider and session store, since defaultRole is
+// fixed for the lifetime of an OIDCLogin (see NewOIDCLogin) and no other
+// test in this file needs one configured.
+func newOIDCLoginWithDefaultRole(t *testing.T, defaultRole string) (*sql.DB, *SessionStore, *OIDCLogin) {
+	t.Helper()
+	sessions, db := newTestSessionStore(t, time.Hour)
+	provider := newFakeOIDCProvider(t)
+	login := newTestOIDCLoginWithConfig(t, provider, db, sessions, OIDCConfig{DefaultRole: defaultRole})
+	return db, sessions, login
+}
+
+// createTestInvite is a one-line wrapper around invite.Create with a
+// zero TTL (never expires) — the same call every other test in this file
+// already repeats inline; named here purely so
+// TestCreateUserFromInviteSetsDefaultRoleAndEmail reads as "get me a valid
+// invite" rather than repeating the invite package's own signature.
+func createTestInvite(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	token, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	return token
 }
