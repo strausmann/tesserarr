@@ -133,6 +133,55 @@ func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	}
 }
 
+// TestHandleLoginOIDCCallbackAlsoMintsCSRFCookie is the fix the team lead
+// flagged: without it, the CSRF cookie only ever appeared incidentally, the
+// next time a safe-method request hit the session path (ensureCSRFCookie in
+// csrf.go). That made the frontend's very first state-changing request
+// after logging in — plausibly a logout, not necessarily a catalog fetch —
+// fail once, for no reason a user could see: no CSRF cookie yet means no
+// value to echo into the double-submit header. Minting it here, in the same
+// response as the session cookie, removes the ordering dependency instead
+// of leaving it for the UI-verification task to rediscover as a flaky
+// failure.
+func TestHandleLoginOIDCCallbackAlsoMintsCSRFCookie(t *testing.T) {
+	a := newTestAPI(t)
+	createTestUserWithOIDCIdentity(t, a, "user-1", "returning-subject")
+
+	beginReq := httptest.NewRequest(http.MethodGet, LoginOIDCPath, nil)
+	beginRec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(beginRec, beginReq)
+	authURL := beginRec.Header().Get("Location")
+
+	state, code := completeFakeLogin(t, authURL, "returning-subject")
+
+	// The callback request deliberately carries no CSRF cookie of its own —
+	// exactly the state a browser is in on its very first request after
+	// being redirected back from the provider.
+	callbackReq := httptest.NewRequest(http.MethodGet,
+		LoginOIDCCallbackPath+"?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	callbackRec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(callbackRec, callbackReq)
+
+	if callbackRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", callbackRec.Code, http.StatusFound)
+	}
+
+	if cookie := findSetCookie(callbackRec.Result(), a.cfg.SessionCookieName); cookie == nil {
+		t.Error("response carries no session cookie")
+	}
+
+	csrf := findSetCookie(callbackRec.Result(), csrfCookieName)
+	if csrf == nil {
+		t.Fatal("response carries no CSRF cookie — the frontend's first state-changing request after login would fail")
+	}
+	if csrf.Value == "" {
+		t.Error("minted CSRF cookie has an empty value")
+	}
+	if csrf.HttpOnly {
+		t.Error("CSRF cookie is HttpOnly — the frontend must be able to read it via JavaScript (see ensureCSRFCookie in csrf.go)")
+	}
+}
+
 // TestHandleLoginOIDCCallbackWithWrongStateIsRejectedWithoutCookie proves
 // the callback route rejects a forged or replayed state before setting any
 // cookie — and, following identity.OIDCLogin.Callback's own contract (see

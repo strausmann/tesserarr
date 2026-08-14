@@ -143,6 +143,24 @@ Alles erneut geprüft: `go build`/`vet`/`gofmt`/`golangci-lint` weiterhin sauber
 `GOLANGCI_LINT_CACHE`, wie empfohlen), `go test ./... -race` grün, `docker compose config
 --quiet` für alle fünf Vorlagen grün, `commitlint` auf den beiden neuen Commits geprüft.
 
+## Nachtrag 2: Fälschungsschutz-Cookie im Rückruf mitsetzen
+
+Nach der Zusammenführung ins Integrationsbuch ein weiterer Punkt: Das Fälschungsschutz-Cookie
+wurde bislang nur **beiläufig** gemintet — beim ersten lesenden Zugriff auf dem Sitzungspfad
+(`ensureCSRFCookie` in `csrf.go`). Solange es keine Anmeldung gab, war das folgenlos. Jetzt gibt
+es einen bestimmten Moment, in dem eine Sitzung entsteht — und die erste ändernde Aktion danach
+(z. B. ein Abmelden direkt nach dem Anmelden, ohne vorherigen Katalog-Abruf) hätte kein Cookie
+zum Zurückspiegeln gehabt und wäre einmal, ohne erkennbaren Grund, gescheitert.
+
+Testgetrieben behoben: `TestHandleLoginOIDCCallbackAlsoMintsCSRFCookie` in `login_test.go` zuerst
+scheitern lassen (kein Fälschungsschutz-Cookie in der Rückruf-Antwort), dann
+`handleLoginOIDCCallback` um einen `ensureCSRFCookie(w, r)`-Aufruf direkt neben dem
+Sitzungs-Cookie ergänzt (`login.go`). Der beiläufige Weg bleibt unverändert als Rückfall
+bestehen — er ist nicht falsch, nur nicht mehr die einzige Quelle.
+
+Erneut vollständig geprüft (Bau, `vet`, `gofmt`, `golangci-lint` 0 Befunde, `go test ./... -race`
+grün über alle acht Pakete, Abdeckungs-Schranken erfüllt, `commitlint` auf dem neuen Commit).
+
 ## Commits
 
 1. `feat(config): require oidc provider settings`
@@ -153,11 +171,14 @@ Alles erneut geprüft: `go build`/`vet`/`gofmt`/`golangci-lint` weiterhin sauber
 6. `fix(deploy): add the three oidc settings to every compose variant`
 7. `docs(setup): document the provider-unreachable startup failure`
 8. `docs(sdd): record the follow-up from the review message`
+9. `fix(api): mint the csrf cookie together with the session cookie`
 
 ## Offen / für die Zusammenführung
 
-- Zweig bleibt unverändert `b-login` in `/opt/repos/tesserarr-b-login`, **nicht gepusht** —
-  Anweisung war ausdrücklich, nicht zu pushen.
+- Zweig `b-login` in `/opt/repos/tesserarr-b-login`, **nicht gepusht** — Anweisung war
+  ausdrücklich, nicht zu pushen. Auf `git pull work feat/0.0.1-geruest` gebracht (Schnelllauf,
+  `4832094..786770c`), bevor der Fälschungsschutz-Nachtrag begann — der Integrationsstand von
+  `b-login` selbst war zu diesem Zeitpunkt bereits eingebaut.
 - Aufgabe 7 (Oberfläche) läuft parallel auf `b-ui`; deren Schritte 3–4 (Ausliefern der
   eingebetteten Dateien, Handprobe) sind laut Baustellenbuch bewusst zurückgestellt, um nicht in
   `router.go` zu kollidieren — dieser Zweig hat `router.go` inzwischen ein weiteres Mal

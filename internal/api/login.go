@@ -99,6 +99,15 @@ func (a *API) handleLoginOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, a.sessionCookie(sessionToken, 0))
+	// Minted here, not left to arrive incidentally on whatever safe-method
+	// request happens to hit the session path next (ensureCSRFCookie in
+	// csrf.go still does that too, for a cookie lost some other way — this
+	// is not instead of it, only ahead of it). Without this, the frontend's
+	// very first state-changing request after logging in — which need not
+	// be a catalog fetch; it could just as well be a logout — would have no
+	// CSRF cookie to echo into the double-submit header yet, and fail once
+	// for no reason a user watching the UI could point to.
+	ensureCSRFCookie(w, r)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
