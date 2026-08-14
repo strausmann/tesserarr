@@ -99,13 +99,14 @@ type Route struct {
 
 // API holds the dependencies of the HTTP surface.
 type API struct {
-	cfg       *config.Config
-	store     *store.Store
-	sessions  *identity.SessionStore
-	apiTokens *apitoken.Store
-	login     *identity.OIDCLogin
-	routes    []Route
-	mux       *http.ServeMux
+	cfg              *config.Config
+	store            *store.Store
+	sessions         *identity.SessionStore
+	apiTokens        *apitoken.Store
+	login            *identity.OIDCLogin
+	forwardAuthLogin *identity.ForwardAuthLogin
+	routes           []Route
+	mux              *http.ServeMux
 }
 
 // New builds the API and registers every route.
@@ -130,10 +131,20 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 		ClientID:     cfg.OIDCClientID,
 		ClientSecret: cfg.OIDCClientSecret,
 		RedirectURL:  strings.TrimRight(cfg.BaseURL, "/") + LoginOIDCCallbackPath,
+		DefaultRole:  cfg.DefaultRole,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("discover oidc provider: %w", err)
 	}
+
+	// No network round trip, unlike NewOIDCLogin above — a forward-auth
+	// guard's headers are trusted synchronously per request (see
+	// trustedForwardAuthSource in forward_auth_trust.go), so there is
+	// nothing here to discover at startup. Shares sessions with login above
+	// for the same reason ForwardAuthLogin's own comment gives: a
+	// forward-auth session and an OIDC session must be indistinguishable to
+	// requireSession (middleware.go).
+	forwardAuthLogin := identity.NewForwardAuthLogin(st.DB(), sessions, cfg.RoleMap, cfg.DefaultRole)
 
 	// web.FS's only failure mode (fs.Sub failing on the embedded "dist"
 	// directory) is unreachable in practice — the directory is always
@@ -146,12 +157,13 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 	}
 
 	a := &API{
-		cfg:       cfg,
-		store:     st,
-		sessions:  sessions,
-		apiTokens: apitoken.New(st.DB()),
-		login:     login,
-		mux:       http.NewServeMux(),
+		cfg:              cfg,
+		store:            st,
+		sessions:         sessions,
+		apiTokens:        apitoken.New(st.DB()),
+		login:            login,
+		forwardAuthLogin: forwardAuthLogin,
+		mux:              http.NewServeMux(),
 	}
 	a.register("/healthz", MiddlewarePublic, a.handleHealth)
 	a.register(PrefixApp+"/session", MiddlewareSession, a.handleSessionStatus)
@@ -159,6 +171,7 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 	a.register(LoginOIDCPath, MiddlewarePublic, a.handleLoginOIDC)
 	a.register(LoginOIDCCallbackPath, MiddlewarePublic, a.handleLoginOIDCCallback)
 	a.register("GET /invite/{token}", MiddlewarePublic, a.handleInviteRedeem)
+	a.register(LoginForwardAuthPath, MiddlewarePublic, a.handleLoginForwardAuth)
 	a.register("POST "+LogoutPath, MiddlewareSession, a.handleLogout)
 	// Registered last, but that has no bearing on precedence — see the
 	// package comment above: ServeMux resolves every request to its most
