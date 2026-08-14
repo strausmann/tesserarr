@@ -227,6 +227,70 @@ login links at the real oidc routes` (`auth-links.ts`). Erneut vollständig gepr
 über alle neun Pakete (`internal/web` jetzt mit dabei, 100 % Abdeckung, Schranke 60 %),
 `docker compose config --quiet` für alle fünf Vorlagen, `commitlint` auf beiden Commits.
 
+## Nachtrag 4: die vier Sicherheits-Audit-Befunde
+
+Prüflauf `~/security-audit-skill/tesserarr/run-1/findings.json` — 0 kritisch, 0 hoch, 4 mittel.
+Alle vier behoben, in genau der vom Auftraggeber vorgegebenen Reihenfolge (Nutzen pro Aufwand),
+jeder mit eigenem Commit, testgetrieben, jeder Test scheitert nachweislich vor dem jeweiligen
+Fix — siehe unten, wo geprüft, wie geprüft.
+
+1. **Einladungs-Kennzeichen-Länge begrenzt** (`maxInviteTokenLen = 128` in
+   `internal/api/login.go`). Ohne Begrenzung wanderte ein bis zu ~1-MiB-grosses Kennzeichen
+   (Gos `MaxHeaderBytes`-Grenze war die einzige vorherige Schranke) unverändert zehn Minuten in
+   den Speicher — gemessen 4 100-facher Verstärkungsfaktor, 474 MB Speicherzuwachs durch 300
+   Anfragen in 14,5 Sekunden. Echte Kennzeichen sind 64 Zeichen (32-Byte-Hex); 128 ist
+   grosszügiger Spielraum. Test: ein Kennzeichen einen Byte über der Grenze wird mit 400
+   abgelehnt, eines an der Grenze funktioniert weiter normal.
+
+2. **Sitzungs-Cookie von `SameSite=Strict` auf `SameSite=Lax`.** ADR-0007 selbst erlaubt das
+   bereits („SameSite=Strict bzw. mindestens SameSite=Lax") — keine ADR-Änderung nötig. `Strict`
+   verhinderte die Zustellung des Cookies auf dem seitenübergreifenden Rückruf vom externen
+   Anbieter (RFC 6265bis), wodurch `previousSessionToken` bei praktisch jeder echten Anmeldung
+   leer ankam und `Rotate("", userID)` nichts löschte — eine vorbestehende, anderweitig erlangte
+   Sitzung überlebte die eigene Neuanmeldung, entgegen der eigenen Kommentar-Absicht im Code.
+   `Lax` schliesst die eigentliche CSRF-Lücke weiterhin (der Doppel-Absende-Schutz in `csrf.go`
+   deckt das bereits ab). Test: direkte Prüfung des `SameSite`-Attributs — von Hand gegengeprüft,
+   dass er am unveränderten Attribut scheitert, `net/http`s Testclient modelliert echtes
+   Browser-`SameSite`-Verhalten nicht, das ist der ehrliche Grenzwert dessen, was diese Testebene
+   zeigen kann.
+
+3. **`state` an den anfragenden Browser gebunden** (`internal/api/login.go`, neues Cookie
+   `tesserarr_oauth_state`) — der gewichtigste Befund. `identity.OIDCLogin.Callback` prüfte
+   bisher nur „von uns ausgestellt" und „unverbraucht", nie welcher Browser es vorlegt. Ein
+   Angreifer mit gültiger Identität konnte die eigene, echte Anmeldung abschliessen, die
+   Rückruf-Adresse VOR dem Laden abfangen und als gewöhnlichen Link an ein Opfer weitergeben —
+   dessen Browser bekam dann eine Sitzung für das Konto des ANGREIFERS. PKCE schliesst das
+   nicht (bindet den Code an den Server, nicht an den Browser). Fix: kurzlebiges,
+   `HttpOnly`+`Secure`+`SameSite=Lax`-Cookie bei Anmeldestart, zeitkonstanter Vergleich
+   (`constantTimeEqual`, dieselbe Technik wie beim Fälschungsschutz-Cookie) beim Rückruf, vor
+   jedem Zugriff auf `Callback`. Test: den Angriff wortwörtlich nachgestellt — eigenen,
+   vollständigen Anmelde-Rundlauf als „Angreifer" abgeschlossen, das Rückruf-Ergebnis dann OHNE
+   das zugehörige Cookie eingereicht (simuliert das Opfer-Browserfenster) → muss abgelehnt
+   werden. Von Hand die Prüfung deaktiviert, Test scheitert mit `302` (Sitzung fürs
+   Angreifer-Konto würde tatsächlich gesetzt), dann wiederhergestellt.
+
+4. **Einladungs-Einlösung in derselben Transaktion wie die Kontoanlage** (`internal/invite/invite.go`,
+   `internal/identity/oidc.go`). Bisher wurden `users`/`identities` committet, BEVOR
+   `invite.Redeem` versucht wurde; scheiterte das, war die einzige Absicherung ein einzelnes,
+   nicht wiederholtes `DELETE`, dessen eigener Fehler verworfen wurde. Ein Prozessabsturz im
+   schmalen Fenster dazwischen — ein gewöhnliches Betriebsereignis bei einem selbst gehosteten
+   Dienst — liess ein Konto dauerhaft bestehen, das nie eine echte Einladung eingelöst hatte
+   (Bruch von ADR-0004). `invite.Redeem`/`explainRejection` nehmen jetzt eine Schnittstelle
+   (`execQuerier`, das `Exec`/`QueryRow`-Duo) statt eines konkreten `*sql.DB` — jeder bestehende
+   Aufrufer bleibt unverändert (`*sql.DB` erfüllt sie automatisch), aber `createUserFromInvite`
+   kann jetzt `invite.Redeem(tx, ...)` innerhalb derselben Transaktion aufrufen, vor dem Commit;
+   das gesonderte `DELETE` entfällt vollständig. Test: ein synchroner Aufruf mit erfundenem
+   Kennzeichen hätte den ursprünglichen Fehler NIE gefangen (das `DELETE` lief im Normalfall
+   korrekt) — stattdessen ein Auslöser, der das `DELETE` blockiert (Datenbank-Trigger, dieselbe
+   Technik wie die bestehenden INSERT-Fehlschlag-Tests in derselben Datei), bestätigt scheiternd
+   (verwaistes Konto bleibt bestehen) vor dem Fix, grün danach.
+
+Erneut vollständig geprüft nach jedem der vier Fixes einzeln UND am Ende gesamt: Bau, `vet`,
+`gofmt`, `golangci-lint` (0 Befunde, eigener `GOLANGCI_LINT_CACHE`), `go test ./... -race` grün
+über alle neun Pakete, Abdeckungs-Schranken erfüllt (`internal/api` 96,4 %, `internal/identity`
+99,4 %), `docker compose config --quiet` für alle fünf Vorlagen, `commitlint` auf allen vier
+Commits.
+
 ## Commits
 
 1. `feat(config): require oidc provider settings`
@@ -241,6 +305,10 @@ login links at the real oidc routes` (`auth-links.ts`). Erneut vollständig gepr
 10. `docs(sdd): record the csrf-cookie fix in the login report`
 11. `feat(api): serve the embedded web interface at "/"`
 12. `fix(web): point login links at the real oidc routes`
+13. `fix(api): cap the invite token length to close a memory-exhaustion path`
+14. `fix(api): change the session cookie's samesite from strict to lax`
+15. `fix(api): bind the oidc login state to the initiating browser`
+16. `fix(identity): redeem the invite inside the same transaction as the account`
 
 ## Offen / für die Zusammenführung
 
@@ -254,3 +322,5 @@ login links at the real oidc routes` (`auth-links.ts`). Erneut vollständig gepr
   die jetzt erfüllt ist.
 - `router.go` trägt jetzt acht registrierte Routen (sieben aus den vorigen Nachträgen plus `"/"`)
   — relevant für jeden weiteren Zweig, der dieselbe Datei anfasst.
+- Die vier Sicherheits-Audit-Befunde sind behoben (Nachtrag 4), aber **nicht selbst
+  abgenommen** — der Prüfer prüft gegen, wie angekündigt.
