@@ -29,7 +29,13 @@ jobs:
         with:
           node-version: 22
 
+      # version must be given explicitly: the action looks for a
+      # `packageManager` field in the repository-root package.json, and this
+      # repo only has one under web/ — without it the step fails with
+      # "No pnpm version is specified".
       - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
 
       - run: pnpm install --frozen-lockfile
 

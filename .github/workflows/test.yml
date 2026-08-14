@@ -48,9 +48,15 @@ jobs:
             internal/apitoken:90 \
             internal/web:60
 
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      # Installed with the job's own Go rather than through
+      # golangci-lint-action: the action ships prebuilt binaries, and the one it
+      # resolves for "latest" was built with an older Go than this module
+      # targets, which makes it refuse to load the config
+      # ("the Go language version used to build golangci-lint is lower than the
+      # targeted Go version"). Building it here uses the toolchain from go.mod,
+      # so linter and code always agree on the language version.
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+      - run: golangci-lint run ./...
 
   # Frontend-JS-Pflicht (.claude/rules/test-coverage-pflicht.md, homelab-
   # management repo): every web/ file with its own state — the CSRF cookie
@@ -71,7 +77,13 @@ jobs:
         with:
           node-version: 22
 
+      # version must be given explicitly: the action looks for a
+      # `packageManager` field in the repository-root package.json, and this
+      # repo only has one under web/ — without it the step fails with
+      # "No pnpm version is specified".
       - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
 
       - run: pnpm install --frozen-lockfile
 
