@@ -4,7 +4,9 @@
 // an authentication helper:
 //
 //   - PrefixApp ("/api/v1/app") is session-checked. Its middleware knows only
-//     the session cookie.
+//     the session cookie, and every state-changing (non-safe-method) request
+//     additionally has to pass a double-submit forgery check — see
+//     requireCSRF in csrf.go.
 //   - PrefixToken ("/api/v1") is token-checked. Its middleware knows only the
 //     Authorization header — it does not read the session cookie, not even
 //     defensively.
@@ -105,7 +107,11 @@ func (a *API) register(pattern string, mw Middleware, handler http.HandlerFunc) 
 func (a *API) wrap(mw Middleware, handler http.HandlerFunc) http.Handler {
 	switch mw {
 	case MiddlewareSession:
-		return a.requireSession(handler)
+		// requireSession runs first: a request with no valid session cookie
+		// is rejected with 401 before requireCSRF ever sees it. See the
+		// package comment above and requireCSRF's own comment in csrf.go for
+		// why the token case below never gets this second layer.
+		return a.requireSession(a.requireCSRF(handler))
 	case MiddlewareToken:
 		return a.requireToken(handler)
 	default:
@@ -113,8 +119,9 @@ func (a *API) wrap(mw Middleware, handler http.HandlerFunc) http.Handler {
 	}
 }
 
-// requireSession and requireToken are defined in middleware.go — this file
-// only ever wires them into wrap() and register(), never their bodies.
+// requireSession and requireToken are defined in middleware.go, requireCSRF
+// in csrf.go — this file only ever wires them into wrap() and register(),
+// never their bodies.
 
 // Routes returns the registered routes. The inventory test reads this from the
 // running server rather than from a hand-kept list, because a hand-kept list
