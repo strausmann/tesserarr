@@ -45,8 +45,35 @@ jobs:
             internal/api:80 \
             internal/selftest:80 \
             internal/identity:90 \
-            internal/apitoken:90
+            internal/apitoken:90 \
+            internal/web:60
 
       - uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+
+  # Frontend-JS-Pflicht (.claude/rules/test-coverage-pflicht.md, homelab-
+  # management repo): every web/ file with its own state — the CSRF cookie
+  # read (src/lib/csrf.ts), the fetch calls that use it (src/lib/api.ts),
+  # the pages that carry loading/error/confirm state — needs Vitest+jsdom
+  # coverage, gated in CI the same way the Go coverage-gate is. This job
+  # runs independently of "test" (different toolchain, different working
+  # directory) rather than as extra steps in it.
+  test-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Test with coverage
+        run: pnpm run test:coverage
