@@ -16,10 +16,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <header className="app-header">
-          <p className="app-header__title">Tesserarr</p>
+        <header className="shell__bar">
+          <p className="shell__brand">Tesserarr</p>
         </header>
-        <main className="page">{children}</main>
+        <main className="shell__main">{children}</main>
       </body>
     </html>
   );

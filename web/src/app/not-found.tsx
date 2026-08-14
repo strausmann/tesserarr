@@ -21,10 +21,10 @@
 // plain anchor never starts that prefetch, so there is nothing to abort.
 export default function NotFound() {
   return (
-    <div className="card stack">
+    <div className="section">
       <h1>Page not found</h1>
       <p className="muted">There is nothing at this address.</p>
-      <a className="button" href="/">
+      <a className="btn btn--primary" href="/">
         Back to Tesserarr
       </a>
     </div>

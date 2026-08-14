@@ -111,68 +111,6 @@ a {
   outline-offset: 2px;
 }
 
-/* ---- Legacy shell/content classes — kept, not replaced ----
-   Task 3's brief said to replace these outright, but two out-of-scope
-   consumers still read them: layout.tsx (`.page`, `.app-header`,
-   `.app-header__title` — the header/main chrome around every page) and
-   not-found.tsx (`.card`, `.stack`, `.button`, `.error-text`), neither of
-   which is in this task's file list. Deleting these rules would leave both
-   unstyled. They stay until a follow-up task moves layout.tsx and
-   not-found.tsx onto the Werkstatt classes below, at which point this whole
-   block can go. `.muted` is untouched either way (see the replacement
-   table) and lives in the Werkstatt block below instead of here, so it is
-   only declared once. */
-.page {
-  width: min(100%, 40rem);
-  margin-inline: auto;
-  padding: var(--space-3) var(--space-2);
-}
-
-.app-header {
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-2);
-}
-
-.app-header__title {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-.card {
-  background: var(--color-bg-raised);
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  padding: var(--space-3);
-}
-
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.button {
-  display: inline-block;
-  border: none;
-  border-radius: 0.375rem;
-  background: var(--color-accent);
-  color: var(--color-accent-fg);
-  padding: 0.625rem 1.25rem;
-  font-size: 1rem;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.error-text {
-  color: var(--color-danger);
-}
-
 /* ==== Werkstatt component classes (ADR-0011) ====
    `/`, `/login/` and `/logout/` are built from these. `.shell`,
    `.shell__where` and the rest of the vocabulary not yet consumed here land
