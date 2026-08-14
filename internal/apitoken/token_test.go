@@ -46,7 +46,7 @@ func TestCreateAndLookup(t *testing.T) {
 	s, db := newTestStore(t)
 	createTestUser(t, db, "user-1")
 
-	token, err := s.Create("user-1", "sonarr")
+	token, _, err := s.Create("user-1", "sonarr", 0)
 	if err != nil {
 		t.Fatalf("Create() returned error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestTokenIsNotStoredInClear(t *testing.T) {
 	s, db := newTestStore(t)
 	createTestUser(t, db, "user-1")
 
-	token, err := s.Create("user-1", "sonarr")
+	token, _, err := s.Create("user-1", "sonarr", 0)
 	if err != nil {
 		t.Fatalf("Create() returned error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestLookupRecordsLastUsed(t *testing.T) {
 	s, db := newTestStore(t)
 	createTestUser(t, db, "user-1")
 
-	token, err := s.Create("user-1", "sonarr")
+	token, _, err := s.Create("user-1", "sonarr", 0)
 	if err != nil {
 		t.Fatalf("Create() returned error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestCreateFailsOnDatabaseError(t *testing.T) {
 
 	// "ghost" was never inserted into users, so the foreign key on
 	// api_tokens.user_id rejects the insert.
-	if _, err := s.Create("ghost", "sonarr"); err == nil {
+	if _, _, err := s.Create("ghost", "sonarr", 0); err == nil {
 		t.Fatal("Create() returned no error for an unknown user, want error")
 	}
 }
@@ -184,7 +184,7 @@ func TestRevokeInvalidates(t *testing.T) {
 	s, db := newTestStore(t)
 	createTestUser(t, db, "user-1")
 
-	token, err := s.Create("user-1", "sonarr")
+	token, _, err := s.Create("user-1", "sonarr", 0)
 	if err != nil {
 		t.Fatalf("Create() returned error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestRevokeInvalidates(t *testing.T) {
 		t.Fatalf("List() returned %d tokens, want 1", len(tokens))
 	}
 
-	if err := s.Revoke(tokens[0].Hash); err != nil {
+	if err := s.Revoke("user-1", tokens[0].Hash); err != nil {
 		t.Fatalf("Revoke() returned error: %v", err)
 	}
 
@@ -213,7 +213,7 @@ func TestRevokeInvalidates(t *testing.T) {
 func TestRevokeIsIdempotent(t *testing.T) {
 	s, _ := newTestStore(t)
 
-	if err := s.Revoke("hash-that-was-never-created"); err != nil {
+	if err := s.Revoke("no-such-user", "hash-that-was-never-created"); err != nil {
 		t.Fatalf("Revoke() on an unknown hash returned error: %v", err)
 	}
 }
@@ -224,7 +224,7 @@ func TestRevokeFailsWhenDatabaseUnavailable(t *testing.T) {
 		t.Fatalf("close database: %v", err)
 	}
 
-	if err := s.Revoke("some-hash"); err == nil {
+	if err := s.Revoke("no-such-user", "some-hash"); err == nil {
 		t.Fatal("Revoke() returned no error after the database was closed, want error")
 	}
 }
@@ -238,11 +238,11 @@ func TestListDoesNotExposeTheRawToken(t *testing.T) {
 	s, db := newTestStore(t)
 	createTestUser(t, db, "user-1")
 
-	tokenA, err := s.Create("user-1", "sonarr")
+	tokenA, _, err := s.Create("user-1", "sonarr", 0)
 	if err != nil {
 		t.Fatalf("Create() returned error: %v", err)
 	}
-	tokenB, err := s.Create("user-1", "radarr")
+	tokenB, _, err := s.Create("user-1", "radarr", 0)
 	if err != nil {
 		t.Fatalf("Create() returned error: %v", err)
 	}
@@ -367,5 +367,96 @@ func TestListFailsOnMalformedLastUsedAt(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "parse last_used_at") {
 		t.Errorf("List() error = %q, want it to mention parse last_used_at", err.Error())
+	}
+}
+
+// Verifikationspunkt 5: ein abgelaufener Token liefert dasselbe Ergebnis
+// wie ein widerrufener.
+func TestLookupTreatsExpiredTokenLikeInvalid(t *testing.T) {
+	_, db := newTestStore(t)
+	createTestUser(t, db, "user-1")
+	s := New(db)
+
+	const rawToken = "already-expired-raw-token-value"
+	past := time.Now().Add(-time.Hour)
+	if err := insertToken(db, rawToken, "user-1", "sonarr", time.Now().Add(-2*time.Hour), &past); err != nil {
+		t.Fatalf("insertToken() returned error: %v", err)
+	}
+
+	if _, err := s.Lookup(rawToken); !errors.Is(err, ErrTokenInvalid) {
+		t.Errorf("Lookup() error = %v, want ErrTokenInvalid", err)
+	}
+}
+
+func TestLookupAcceptsTokenBeforeItsExpiry(t *testing.T) {
+	s, db := newTestStore(t)
+	createTestUser(t, db, "user-1")
+
+	token, _, err := s.Create("user-1", "sonarr", time.Hour)
+	if err != nil {
+		t.Fatalf("Create() returned error: %v", err)
+	}
+
+	if _, err := s.Lookup(token); err != nil {
+		t.Errorf("Lookup() before expiry returned error: %v", err)
+	}
+}
+
+func TestCreateWithZeroTTLNeverExpires(t *testing.T) {
+	s, db := newTestStore(t)
+	createTestUser(t, db, "user-1")
+
+	_, meta, err := s.Create("user-1", "sonarr", 0)
+	if err != nil {
+		t.Fatalf("Create() returned error: %v", err)
+	}
+	if meta.ExpiresAt != nil {
+		t.Errorf("ExpiresAt = %v, want nil (never expires)", meta.ExpiresAt)
+	}
+}
+
+func TestCreateReturnsMetadataMatchingTheStoredRow(t *testing.T) {
+	s, db := newTestStore(t)
+	createTestUser(t, db, "user-1")
+
+	_, meta, err := s.Create("user-1", "sonarr", time.Hour)
+	if err != nil {
+		t.Fatalf("Create() returned error: %v", err)
+	}
+	if meta.Label != "sonarr" {
+		t.Errorf("meta.Label = %q, want sonarr", meta.Label)
+	}
+	if meta.ExpiresAt == nil {
+		t.Fatal("meta.ExpiresAt = nil, want a set expiry")
+	}
+
+	tokens, err := s.List("user-1")
+	if err != nil {
+		t.Fatalf("List() returned error: %v", err)
+	}
+	if len(tokens) != 1 || tokens[0].Hash != meta.Hash {
+		t.Errorf("List() = %v, want exactly one token with hash %q", tokens, meta.Hash)
+	}
+}
+
+// Ownership scoping: revoking with the WRONG user id must not delete
+// another user's token — the HTTP layer (internal/api, Aufgabe 7) relies
+// on this to let any signed-in user call Revoke with only a hash, safely.
+func TestRevokeDoesNotDeleteAnotherUsersToken(t *testing.T) {
+	s, db := newTestStore(t)
+	createTestUser(t, db, "user-1")
+	createTestUser(t, db, "user-2")
+
+	token, meta, err := s.Create("user-1", "sonarr", 0)
+	if err != nil {
+		t.Fatalf("Create() returned error: %v", err)
+	}
+
+	if err := s.Revoke("user-2", meta.Hash); err != nil {
+		t.Fatalf("Revoke() by the wrong user returned error: %v", err)
+	}
+
+	if _, err := s.Lookup(token); err != nil {
+		t.Errorf("Lookup() after a wrong-owner Revoke() attempt returned error: %v, want the token to still work", err)
 	}
 }
