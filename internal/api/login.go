@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/strausmann/tesserarr/internal/identity"
 )
@@ -48,6 +49,55 @@ const LogoutPath = PrefixApp + "/logout"
 // MiB-per-request down to nothing worth attacking.
 const maxInviteTokenLen = 128
 
+// oauthStateCookieName binds the OAuth "state" value BeginLogin generates
+// to the browser that receives it (RFC 6749 §10.12 / RFC 9700 §4.7.1) —
+// set at redirectToProvider, checked and cleared at
+// handleLoginOIDCCallback, before identity.OIDCLogin.Callback is ever
+// consulted.
+//
+// identity.OIDCLogin.Callback (internal/identity/oidc.go) only verifies
+// that "state" was issued by this server and is unconsumed — it has no way,
+// and no reason, to know WHICH browser presents it; state travels openly in
+// the redirect URL's query string, visible to anyone who can see that URL.
+// Without this cookie, an attacker who holds any resolvable Tesserarr
+// identity (an account, or a redeemed invite) can complete their OWN
+// login, capture the exact callback URL the provider redirects their own
+// browser to WITHOUT letting it load, and hand that URL to a victim as an
+// ordinary link — the victim's browser then gets a session for the
+// ATTACKER's account (security-audit run-1, "OIDC login CSRF: state is not
+// bound to the initiating browser"). PKCE does not close this gap: it
+// binds the authorization code to the party holding the verifier (this
+// server, which stores it), not to the browser delivering the callback
+// request — those are two different things this flow would otherwise
+// conflate.
+const oauthStateCookieName = "tesserarr_oauth_state"
+
+// oauthStateCookieMaxAge, in seconds, mirrors identity.loginAttemptTTL (10
+// minutes, internal/identity/store.go — unexported, so this package cannot
+// reference it directly): there is no reason for this cookie to outlive
+// the server-side login attempt it is bound to.
+const oauthStateCookieMaxAge = 600
+
+// oauthStateCookie builds the state-binding cookie redirectToProvider sets
+// and handleLoginOIDCCallback checks (and always clears, on every outcome —
+// see oauthStateCookieName's own comment for what it defends against).
+//
+// SameSite MUST be Lax, not Strict, for the same reason sessionCookie's own
+// comment gives: this cookie has to survive the cross-site TOP-LEVEL
+// redirect back from the external OIDC provider, which a Strict cookie
+// would never do — the entire point of setting it in the first place.
+func oauthStateCookie(value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     oauthStateCookieName,
+		Value:    value,
+		Path:     LoginOIDCPath,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}
+}
+
 // handleLoginOIDC starts an ordinary login: no invitation, an existing
 // identity proving itself again (identity.OIDCLogin.BeginLogin's ""
 // case). See handleInviteRedeem for the invited person's entry point.
@@ -85,8 +135,43 @@ func (a *API) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 // the provider. Shared by handleLoginOIDC and handleInviteRedeem — the only
 // difference between an ordinary login and an invite redemption is which
 // token, if any, travels with the attempt.
+//
+// Also binds the attempt's state value to this browser via
+// oauthStateCookie, so handleLoginOIDCCallback has something to check the
+// callback request against later — see oauthStateCookieName's own comment
+// for why that binding matters.
 func redirectToProvider(w http.ResponseWriter, r *http.Request, login *identity.OIDCLogin, inviteToken string) {
-	http.Redirect(w, r, login.BeginLogin(inviteToken), http.StatusFound) //nolint:gosec // G710: gosec's taint tracking flags this because inviteToken (request-derived, from the invite path or nowhere at all) reaches an http.Redirect argument — but BeginLogin never writes inviteToken into the URL it returns. That URL's host is oauth2.Config.Endpoint.AuthURL, which identity.NewOIDCLogin fixes once at startup from the OIDC discovery document (never from a request); only the server-generated state and PKCE challenge are added to it. inviteToken is stored server-side, keyed by that state (see loginAttemptStore in identity/store.go) — it never appears in the redirect target at all, so there is nothing here for an attacker to redirect anywhere.
+	authURL := login.BeginLogin(inviteToken)
+
+	state := stateFromAuthURL(authURL)
+	if state == "" {
+		// Unreachable in practice — BeginLogin always encodes a state value
+		// into the URL it returns (oauth2.Config.AuthCodeURL never omits
+		// it). Refusing outright here, rather than redirecting without the
+		// state-binding cookie, is deliberate: silently degrading to the
+		// pre-fix behavior would reopen exactly the login-CSRF gap this
+		// cookie exists to close (security-audit run-1).
+		http.Error(w, "login failed", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, oauthStateCookie(state, oauthStateCookieMaxAge))
+
+	http.Redirect(w, r, authURL, http.StatusFound) //nolint:gosec // G710: gosec's taint tracking flags this because inviteToken (request-derived, from the invite path or nowhere at all) reaches an http.Redirect argument — but BeginLogin never writes inviteToken into the URL it returns. That URL's host is oauth2.Config.Endpoint.AuthURL, which identity.NewOIDCLogin fixes once at startup from the OIDC discovery document (never from a request); only the server-generated state and PKCE challenge are added to it. inviteToken is stored server-side, keyed by that state (see loginAttemptStore in identity/store.go) — it never appears in the redirect target at all, so there is nothing here for an attacker to redirect anywhere.
+}
+
+// stateFromAuthURL extracts the "state" query parameter oauth2.Config.AuthCodeURL
+// (called inside identity.OIDCLogin.BeginLogin) always encodes into the
+// authorization URL it returns. Parsing it back out here, rather than
+// changing BeginLogin's signature to return it separately, keeps this
+// package's own state-binding cookie mechanism entirely local to
+// login.go — identity.OIDCLogin's public contract does not need to know
+// this cookie exists at all.
+func stateFromAuthURL(authURL string) string {
+	u, err := url.Parse(authURL)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("state")
 }
 
 // handleLoginOIDCCallback completes a login the provider is redirecting
@@ -94,9 +179,29 @@ func redirectToProvider(w http.ResponseWriter, r *http.Request, login *identity.
 // see identity.ErrLoginStateInvalid and
 // identity.ErrUnknownIdentityWithoutInvite's own comments for why
 // OIDCLogin itself already collapses those reasons into one: a caller
-// probing this endpoint must not learn which guess came closer.
+// probing this endpoint must not learn which guess came closer. The
+// state-binding check below follows the same principle for the same
+// reason: a mismatched or missing oauth-state cookie gets exactly the same
+// generic rejection as a rejected code exchange.
 func (a *API) handleLoginOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+
+	// The state-binding cookie ties this callback to the browser that
+	// actually started the flow (see oauthStateCookieName's own comment on
+	// what this defends against). Checked — and cleared, on every outcome,
+	// success or failure — before Callback is ever consulted:
+	// identity.OIDCLogin.Callback only verifies "issued by us" and
+	// "unconsumed", never which browser presents the state, so this check
+	// has to happen here. constantTimeEqual (csrf.go) is the same
+	// double-submit-style comparison this package already uses for the
+	// CSRF cookie, for the same reason: both values arrive in the same
+	// potentially attacker-influenced request.
+	stateCookie, cookieErr := r.Cookie(oauthStateCookieName)
+	http.SetCookie(w, oauthStateCookie("", -1))
+	if cookieErr != nil || stateCookie.Value == "" || !constantTimeEqual(stateCookie.Value, q.Get("state")) {
+		http.Error(w, "login failed", http.StatusUnauthorized)
+		return
+	}
 
 	// previousSessionToken is whatever session cookie the browser already
 	// presents, if any — Callback rotates it away regardless of whether it
