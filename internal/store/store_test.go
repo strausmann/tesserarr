@@ -9,11 +9,12 @@ import (
 )
 
 // wantSchemaVersion is the number of migration files actually embedded under
-// migrations/ right now (0001_initial.sql, 0002_sessions.sql, ...). It is a
-// single named constant, not a literal repeated in every test below, so
-// adding the next migration only means updating this one line rather than
-// hunting down every hardcoded expectation across the file.
-const wantSchemaVersion = 2
+// migrations/ right now (0001_initial.sql, 0002_sessions.sql,
+// 0003_api_tokens.sql, ...). It is a single named constant, not a literal
+// repeated in every test below, so adding the next migration only means
+// updating this one line rather than hunting down every hardcoded
+// expectation across the file.
+const wantSchemaVersion = 3
 
 func TestOpenCreatesSchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
