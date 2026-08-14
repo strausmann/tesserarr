@@ -2,23 +2,29 @@
 //
 // Subcommands:
 //
-//	serve        start the HTTP server
-//	healthcheck  probe a locally running instance (used by the container health check)
-//	selftest     check a running instance from the outside
+//	serve         start the HTTP server
+//	healthcheck   probe a locally running instance (used by the container health check)
+//	selftest      check a running instance from the outside
+//	invite create mint a new invitation (see the package comment on "invite create" below)
 package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/strausmann/tesserarr/internal/api"
 	"github.com/strausmann/tesserarr/internal/config"
+	"github.com/strausmann/tesserarr/internal/invite"
 	"github.com/strausmann/tesserarr/internal/selftest"
 	"github.com/strausmann/tesserarr/internal/store"
 )
@@ -28,7 +34,7 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: tesserarr <serve|healthcheck|selftest|version>")
+		fmt.Fprintln(os.Stderr, "usage: tesserarr <serve|healthcheck|selftest|invite|version>")
 		os.Exit(2)
 	}
 
@@ -40,6 +46,8 @@ func main() {
 		err = runHealthcheck()
 	case "selftest":
 		err = runSelftest()
+	case "invite":
+		err = runInvite(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 		return
@@ -140,5 +148,89 @@ func runSelftest() error {
 		return fmt.Errorf("selftest found %d problem(s)", len(problems))
 	}
 	fmt.Println("selftest passed")
+	return nil
+}
+
+// runInvite dispatches the "invite" subcommands. It exists as its own
+// function, separate from main's switch, purely so tests can drive the
+// dispatch logic (unknown/missing sub-subcommand) without an os.Exit in the
+// way.
+func runInvite(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: tesserarr invite create [-ttl=<duration>]")
+	}
+	switch args[0] {
+	case "create":
+		return runInviteCreate(args[1:])
+	default:
+		return fmt.Errorf("unknown invite subcommand %q", args[0])
+	}
+}
+
+// runInviteCreate is "invite create": the operator's way to bootstrap access.
+//
+// ADR-0004 makes an invitation the sole path to an account — there is no
+// self-registration. That includes the very first account. Nothing in the
+// HTTP surface can mint that first invitation: every endpoint of consequence
+// sits behind the session check (see internal/api/router.go), and the
+// session check is unimplemented until an account already exists. Without a
+// way around that, no one could ever reach the app at all. Rather than
+// carving a bootstrap exception into the HTTP surface — which would mean a
+// second, permanently reachable way to mint invitations, right where the
+// public internet can find it — this reaches for the same access an
+// operator already has by definition (running "docker exec" against their
+// own container) and stops there.
+//
+// The actual minting is done by createInvite; runInviteCreate only wires up
+// the real environment (flags, configuration, the on-disk database) around
+// it.
+func runInviteCreate(args []string) error {
+	fs := flag.NewFlagSet("invite create", flag.ContinueOnError)
+	ttl := fs.Duration("ttl", 0, "invitation lifetime (default: "+invite.DefaultTTL.String()+")")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	return createInvite(st.DB(), cfg.BaseURL, *ttl, os.Stdout)
+}
+
+// createInvite mints one invitation and writes the plaintext token and the
+// full redeem link to out.
+//
+// This is the only moment the plaintext token exists outside the database
+// (see the package comment on invite.Create) — from here it goes straight to
+// out and nowhere else: no log line, no error message ever repeats it. out
+// is deliberately the caller's stdout, never stderr — stderr is where this
+// binary's own error/logging output goes (see runServe, runHealthcheck), and
+// mixing a secret into that stream risks it reaching a log collector that
+// nothing else printed here does.
+//
+// It is split out from runInviteCreate so it can be tested against a
+// temporary, migrated database without going through config.Load (which
+// reads real process environment variables) — see main_test.go.
+func createInvite(db *sql.DB, baseURL string, ttl time.Duration, out io.Writer) error {
+	token, err := invite.Create(db, ttl)
+	if err != nil {
+		return fmt.Errorf("create invite: %w", err)
+	}
+
+	link := strings.TrimRight(baseURL, "/") + "/invite/" + token
+	// Errors from writing to out are deliberately ignored: out is the
+	// caller's stdout (see runInviteCreate), and there is no more-honest
+	// place left to report a broken stdout to.
+	_, _ = fmt.Fprintf(out, "token:       %s\n", token)
+	_, _ = fmt.Fprintf(out, "redeem link: %s\n", link)
+	_, _ = fmt.Fprintln(out, "Until it is redeemed, this link IS the credential — hand it to your friend over a channel you trust, not a public one.")
 	return nil
 }
