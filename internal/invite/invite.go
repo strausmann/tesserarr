@@ -40,6 +40,22 @@ var (
 // comparison in SQL instead of parsing dates back out of the database.
 const timeFormat = time.RFC3339
 
+// execQuerier is the minimal subset of *sql.DB's method set Redeem and
+// explainRejection actually need. *sql.DB satisfies it without any change
+// on the caller's side (every existing call site keeps passing a *sql.DB
+// exactly as before), but so does *sql.Tx — letting a caller redeem an
+// invitation as part of a larger transaction instead of as its own,
+// separate database round trip. identity.createUserFromInvite needs
+// exactly that: ADR-0004 requires the invitation to be redeemed atomically
+// with the user row it authorizes, not committed first and cleaned up
+// afterward if redemption turns out to fail (security-audit run-1,
+// "Invite-gate bypass: an untransacted compensating DELETE can leave a
+// permanent, never-actually-redeemed account if it fails to run").
+type execQuerier interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // Create mints a new single-use invitation and returns the plaintext token.
 // This is the only place the plaintext ever exists: the database stores only
 // its SHA-256 hash (see hashToken), so a leaked backup or a compromised read
@@ -92,7 +108,7 @@ func insertInvitation(db *sql.DB, token string, createdAt, validUntil time.Time)
 // because it let every concurrent attempt "win" (see invite_test.go,
 // TestRedeemConcurrentAttemptsExactlyOneSucceeds, and the task report for
 // what that looked like).
-func Redeem(db *sql.DB, rawToken, userID string) error {
+func Redeem(db execQuerier, rawToken, userID string) error {
 	hash := hashToken(rawToken)
 	now := time.Now().UTC().Format(timeFormat)
 
@@ -129,7 +145,7 @@ func Redeem(db *sql.DB, rawToken, userID string) error {
 // caller redeemed or revoked it in between), the explanation may be a beat
 // stale, but it can never turn a redemption that did not happen into a
 // reported success.
-func explainRejection(db *sql.DB, hash, now string) error {
+func explainRejection(db execQuerier, hash, now string) error {
 	var revoked int
 	var redeemedBy sql.NullString
 	var validUntil string

@@ -787,6 +787,73 @@ func TestOIDCLoginCreateUserFromInviteFailsWhenIdentityInsertFails(t *testing.T)
 	}
 }
 
+// TestOIDCLoginCreateUserFromInviteRollsBackWhenRedeemFails is a direct
+// regression test for the security audit finding
+// (~/security-audit-skill/tesserarr/run-1/findings.json, "Invite-gate
+// bypass: an untransacted compensating DELETE can leave a permanent,
+// never-actually-redeemed account if it fails to run").
+//
+// createUserFromInvite used to commit the users/identities INSERTs first,
+// then attempt invite.Redeem, and if THAT failed, run a single, best-effort
+// `DELETE FROM users` whose own error was discarded — the only cleanup for
+// a bogus, expired, revoked or already-redeemed token. A synchronous test
+// that simply calls Callback with a bogus token could never have caught
+// the bug: on a normal call the DELETE runs and succeeds, cleaning up
+// exactly as intended. The actual vulnerability only shows up when that
+// DELETE fails to run at all (a process crash landing in the narrow window
+// between the commit and the DELETE) or fails outright (a transient DB
+// error) — this test simulates the latter with a blocking trigger, which
+// the audit itself names as a valid trigger condition alongside a crash.
+//
+// Before the fix (INSERTs committed separately from Redeem): the trigger
+// blocks the compensating DELETE, so the previously committed user row
+// survives — an orphaned account that was never authorized by a
+// successful invite redemption, in violation of ADR-0004. After the fix
+// (Redeem inside the same transaction as the INSERTs, no separate DELETE
+// needed): Redeem's failure for the bogus token means the transaction is
+// rolled back before anything is ever committed, so the blocking trigger
+// never even matters — there is nothing left to delete.
+func TestOIDCLoginCreateUserFromInviteRollsBackWhenRedeemFails(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	if _, err := db.Exec(`
+		CREATE TRIGGER block_user_delete
+		BEFORE DELETE ON users
+		BEGIN
+			SELECT RAISE(ABORT, 'test: users delete blocked');
+		END;
+	`); err != nil {
+		t.Fatalf("install blocking trigger: %v", err)
+	}
+
+	// A bogus, never-issued token — invite.Redeem will reject it
+	// deterministically (ErrNotFound).
+	authURL := login.BeginLogin("this-invite-token-was-never-created")
+	state, code := completeLogin(t, authURL, "orphan-candidate-subject", "")
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded with a bogus invite token, want an error")
+	}
+	if !errors.Is(err, ErrUnknownIdentityWithoutInvite) {
+		t.Errorf("Callback() error = %v, want it to wrap ErrUnknownIdentityWithoutInvite", err)
+	}
+
+	// The point of this test: no user (and, via the FK, no identity) must
+	// survive a rejected redemption — regardless of whether the
+	// compensating cleanup this fix removes would have succeeded.
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("users table has %d row(s) after a rejected invite redemption, want 0 — "+
+			"an account was left behind that never actually redeemed an invitation", count)
+	}
+}
+
 // TestOIDCLoginCreateUserFromInviteChoosesDisplayName exercises
 // displayName's (and, for the empty-email case, nullable's) branches
 // through the real invite-redeeming login flow, rather than calling the
