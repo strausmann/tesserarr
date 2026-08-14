@@ -1,0 +1,840 @@
+package identity
+
+import (
+	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/strausmann/tesserarr/internal/config"
+	"github.com/strausmann/tesserarr/internal/invite"
+)
+
+// --- fake OIDC provider -----------------------------------------------
+//
+// A minimal, self-contained OpenID Connect provider used only by this
+// file's tests. It implements just enough of the spec — discovery,
+// authorization with PKCE, single-use codes, RS256-signed ID tokens, a
+// JWKS endpoint — for OIDCLogin (a real client against a real provider) to
+// complete a genuine round trip against it. Signing is done with the
+// standard library only (crypto/rsa, crypto/sha256): the fake provider is
+// test-only code, never compiled into the shipped binary, and hand-rolling
+// three base64url segments is simpler to audit than reaching for a JOSE
+// library import just for this.
+
+// fakeOIDCProvider is a stand-in identity provider. Each test gets its own
+// via newFakeOIDCProvider, so tests never share authorization codes.
+type fakeOIDCProvider struct {
+	server *httptest.Server
+	key    *rsa.PrivateKey
+	kid    string
+
+	mu    sync.Mutex
+	codes map[string]*fakeAuthCode
+
+	// Test-only overrides for exercising OIDCLogin's error paths against a
+	// provider that is otherwise perfectly well-behaved. Never touched by
+	// the round-trip tests; only by the tests that specifically target one
+	// of Callback's error-wrapping branches.
+	omitIDToken      bool   // drop id_token from the token response entirely
+	forceAudience    string // non-empty overrides the id token's aud claim
+	forceEmailNumber bool   // encodes the email claim as a JSON number, which Callback's string-typed claims struct cannot decode
+}
+
+// fakeAuthCode is what the provider remembers about one /authorize
+// request, keyed by the code it issued for it.
+type fakeAuthCode struct {
+	subject             string
+	email               string
+	audience            string
+	codeChallenge       string
+	codeChallengeMethod string
+	used                bool
+}
+
+func newFakeOIDCProvider(t *testing.T) *fakeOIDCProvider {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate fake provider signing key: %v", err)
+	}
+
+	p := &fakeOIDCProvider{
+		key:   key,
+		kid:   "test-key-1",
+		codes: make(map[string]*fakeAuthCode),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", p.handleDiscovery)
+	mux.HandleFunc("/authorize", p.handleAuthorize)
+	mux.HandleFunc("/token", p.handleToken)
+	mux.HandleFunc("/jwks", p.handleJWKS)
+	p.server = httptest.NewServer(mux)
+	t.Cleanup(p.server.Close)
+
+	return p
+}
+
+func (p *fakeOIDCProvider) issuer() string { return p.server.URL }
+
+func (p *fakeOIDCProvider) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]any{
+		"issuer":                                p.server.URL,
+		"authorization_endpoint":                p.server.URL + "/authorize",
+		"token_endpoint":                        p.server.URL + "/token",
+		"jwks_uri":                              p.server.URL + "/jwks",
+		"response_types_supported":              []string{"code"},
+		"subject_types_supported":               []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"RS256"},
+		"scopes_supported":                      []string{"openid", "profile", "email"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
+		"code_challenge_methods_supported":      []string{"S256"},
+	})
+}
+
+// handleAuthorize instantly "approves" the request — there is no real user
+// interface to drive in a test, so the round trip skips straight to
+// issuing a code and redirecting back with it, exactly as a browser would
+// end up doing after a human actually logged in. Which subject and email
+// the code is for comes from the test-only test_subject/test_email query
+// parameters a test adds on top of whatever OIDCLogin.BeginLogin produced
+// (see completeLogin below) — real providers obviously have no such
+// parameters; this exists purely so each test can pick its own identity
+// without needing a shared, lockable field on the provider.
+func (p *fakeOIDCProvider) handleAuthorize(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	subject := q.Get("test_subject")
+	if subject == "" {
+		subject = "default-test-subject"
+	}
+
+	code := randHex(16)
+	p.mu.Lock()
+	p.codes[code] = &fakeAuthCode{
+		subject:             subject,
+		email:               q.Get("test_email"),
+		audience:            q.Get("client_id"),
+		codeChallenge:       q.Get("code_challenge"),
+		codeChallengeMethod: q.Get("code_challenge_method"),
+	}
+	p.mu.Unlock()
+
+	redirect, err := url.Parse(q.Get("redirect_uri"))
+	if err != nil {
+		http.Error(w, "bad redirect_uri", http.StatusBadRequest)
+		return
+	}
+	rq := redirect.Query()
+	rq.Set("code", code)
+	rq.Set("state", q.Get("state"))
+	redirect.RawQuery = rq.Encode()
+
+	// redirect_uri comes from this handler's OWN incoming request, not from
+	// an external attacker: it is httptest-server-local test code standing
+	// in for a third-party identity provider, and every caller in this
+	// file is OIDCLogin itself, sending exactly the RedirectURL it was
+	// configured with (see newTestOIDCLogin). A real OAuth provider's
+	// authorize endpoint performs the very same redirect-to-registered-URI
+	// step; it is inherent to the flow, not a defect this fake introduces.
+	http.Redirect(w, r, redirect.String(), http.StatusFound) //nolint:gosec // G710: test-only fake provider, redirect_uri is our own request's own RedirectURL, not attacker input
+}
+
+// handleToken is the one place PKCE is actually enforced (per RFC 7636,
+// the challenge is checked at token time, not at authorize time) and the
+// one place a code is consumed. It deliberately does not check client
+// authentication (Basic auth header vs. POST body — golang.org/x/oauth2
+// auto-detects between the two and this fake accepts either by not caring)
+// since client-secret validation is outside what Aufgabe 5's required
+// tests cover; production code still sends the real secret to a real
+// provider that does validate it.
+func (p *fakeOIDCProvider) handleToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, `{"error":"invalid_request"}`, http.StatusBadRequest)
+		return
+	}
+	if r.PostFormValue("grant_type") != "authorization_code" {
+		http.Error(w, `{"error":"unsupported_grant_type"}`, http.StatusBadRequest)
+		return
+	}
+
+	code := r.PostFormValue("code")
+	verifier := r.PostFormValue("code_verifier")
+
+	p.mu.Lock()
+	auth, ok := p.codes[code]
+	if ok {
+		if auth.used {
+			ok = false
+		} else {
+			auth.used = true
+		}
+	}
+	p.mu.Unlock()
+
+	if !ok {
+		http.Error(w, `{"error":"invalid_grant","error_description":"unknown or already-used code"}`, http.StatusBadRequest)
+		return
+	}
+	if auth.codeChallengeMethod != "S256" || !pkceMatches(auth.codeChallenge, verifier) {
+		http.Error(w, `{"error":"invalid_grant","error_description":"pkce verification failed"}`, http.StatusBadRequest)
+		return
+	}
+
+	resp := map[string]any{
+		"access_token": "fake-access-token",
+		"token_type":   "Bearer",
+		"expires_in":   3600,
+	}
+	if !p.omitIDToken {
+		resp["id_token"] = p.issueIDToken(auth.subject, auth.email, auth.audience)
+	}
+	writeJSON(w, resp)
+}
+
+func pkceMatches(challenge, verifier string) bool {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:]) == challenge
+}
+
+func (p *fakeOIDCProvider) handleJWKS(w http.ResponseWriter, _ *http.Request) {
+	pub := &p.key.PublicKey
+	writeJSON(w, map[string]any{
+		"keys": []map[string]any{{
+			"kty": "RSA",
+			"kid": p.kid,
+			"use": "sig",
+			"alg": "RS256",
+			"n":   base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
+			"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
+		}},
+	})
+}
+
+// issueIDToken hand-builds and RS256-signs a minimal ID token — the three
+// base64url-encoded, dot-joined segments a JWT is defined as. No JOSE
+// library is used; see the file-level comment for why.
+func (p *fakeOIDCProvider) issueIDToken(subject, email, audience string) string {
+	if p.forceAudience != "" {
+		audience = p.forceAudience
+	}
+
+	now := time.Now().UTC()
+	header := map[string]any{"alg": "RS256", "typ": "JWT", "kid": p.kid}
+	claims := map[string]any{
+		"iss": p.server.URL,
+		"sub": subject,
+		"aud": audience,
+		"iat": now.Unix(),
+		"exp": now.Add(10 * time.Minute).Unix(),
+	}
+	switch {
+	case p.forceEmailNumber:
+		// A JSON number where Callback's claims struct expects a string —
+		// idToken.Claims(&claims) must fail to decode this.
+		claims["email"] = 12345
+	case email != "":
+		claims["email"] = email
+	}
+
+	signingInput := mustB64JSON(header) + "." + mustB64JSON(claims)
+	sum := sha256.Sum256([]byte(signingInput))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, p.key, crypto.SHA256, sum[:])
+	if err != nil {
+		// A signing failure here means the test's own RSA key is broken,
+		// not something a caller can meaningfully recover from.
+		panic("fake oidc provider: sign id token: " + err.Error())
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+func mustB64JSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic("fake oidc provider: marshal claims: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func randHex(n int) string {
+	buf := make([]byte, n)
+	_, _ = rand.Read(buf)
+	const hexdigits = "0123456789abcdef"
+	out := make([]byte, 2*n)
+	for i, b := range buf {
+		out[2*i] = hexdigits[b>>4]
+		out[2*i+1] = hexdigits[b&0x0f]
+	}
+	return string(out)
+}
+
+// --- test helpers --------------------------------------------------------
+
+// newTestOIDCLogin builds an OIDCLogin discovering against provider, over
+// db and sessions. Tests reuse newTestSessionStore/createTestUser from
+// session_test.go for the database side — same package, same fixtures.
+func newTestOIDCLogin(t *testing.T, provider *fakeOIDCProvider, db *sql.DB, sessions *SessionStore) *OIDCLogin {
+	t.Helper()
+	login, err := NewOIDCLogin(context.Background(), db, sessions, OIDCConfig{
+		IssuerURL:    provider.issuer(),
+		ClientID:     "tesserarr-test-client",
+		ClientSecret: config.Secret("test-client-secret-does-not-matter"),
+		RedirectURL:  "http://tesserarr.example/api/v1/app/login/oidc/callback",
+	})
+	if err != nil {
+		t.Fatalf("NewOIDCLogin() returned error: %v", err)
+	}
+	return login
+}
+
+// seedIdentity binds subject to userID as an already-known OIDC identity,
+// simulating a user who logged in before.
+func seedIdentity(t *testing.T, db *sql.DB, userID, subject string) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject, email) VALUES (?, ?, ?, ?)`,
+		userID, oidcProviderName, subject, nil,
+	); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+}
+
+// completeLogin drives one full authorization round trip against provider
+// for authURL (as OIDCLogin.BeginLogin returns it), instructing the fake
+// provider to authenticate as subject/email (either may be "" to accept
+// the fake provider's defaults). It returns the state and authorization
+// code the provider's redirect carried back — exactly what a browser would
+// hand to Tesserarr's callback endpoint as query parameters.
+func completeLogin(t *testing.T, authURL, subject, email string) (state, code string) {
+	t.Helper()
+
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("parse auth URL %q: %v", authURL, err)
+	}
+	q := u.Query()
+	if subject != "" {
+		q.Set("test_subject", subject)
+	}
+	if email != "" {
+		q.Set("test_email", email)
+	}
+	u.RawQuery = q.Encode()
+
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Get(u.String())
+	if err != nil {
+		t.Fatalf("authorize request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		t.Fatalf("authorize response carried no Location header (status %d)", resp.StatusCode)
+	}
+	locURL, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("parse redirect location %q: %v", loc, err)
+	}
+	return locURL.Query().Get("state"), locURL.Query().Get("code")
+}
+
+// --- tests -----------------------------------------------------------
+
+func TestOIDCLoginRoundTripCreatesAndRotatesSession(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-returning")
+	seedIdentity(t, db, "user-returning", "returning-subject")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	oldToken, err := sessions.Create("user-returning")
+	if err != nil {
+		t.Fatalf("seed pre-existing session: %v", err)
+	}
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "returning-subject", "")
+
+	newToken, err := login.Callback(context.Background(), state, code, oldToken)
+	if err != nil {
+		t.Fatalf("Callback() returned error: %v", err)
+	}
+	if newToken == "" {
+		t.Fatal("Callback() returned an empty session token")
+	}
+	if newToken == oldToken {
+		t.Fatal("Callback() returned the same token that was passed in as previousSessionToken — not rotated")
+	}
+
+	if _, err := sessions.Lookup(oldToken); !errors.Is(err, ErrSessionInvalid) {
+		t.Errorf("old session token still resolves after Callback (err=%v), want ErrSessionInvalid — session was not rotated away", err)
+	}
+
+	gotUser, err := sessions.Lookup(newToken)
+	if err != nil {
+		t.Fatalf("Lookup(newToken) returned error: %v", err)
+	}
+	if gotUser != "user-returning" {
+		t.Errorf("Lookup(newToken) resolved to user %q, want %q", gotUser, "user-returning")
+	}
+}
+
+func TestOIDCLoginCallbackRejectsWrongStateWithoutRedeemingCode(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-a")
+	seedIdentity(t, db, "user-a", "subject-a")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("")
+	realState, code := completeLogin(t, authURL, "subject-a", "")
+
+	_, err := login.Callback(context.Background(), "not-the-state-beginlogin-issued", code, "")
+	if !errors.Is(err, ErrLoginStateInvalid) {
+		t.Fatalf("Callback() with a wrong state returned %v, want ErrLoginStateInvalid", err)
+	}
+
+	// Proof that the wrong-state attempt above never reached the token
+	// endpoint: the fake provider's codes are single-use (handleToken), so
+	// if it HAD exchanged the code, this second attempt — using the real
+	// state and the very same code — would now fail too.
+	token, err := login.Callback(context.Background(), realState, code, "")
+	if err != nil {
+		t.Fatalf("Callback() with the real state returned error %v, want success — the earlier wrong-state attempt must not have consumed the code", err)
+	}
+	if token == "" {
+		t.Fatal("Callback() with the real state returned an empty session token")
+	}
+}
+
+func TestOIDCLoginCallbackRejectsMissingOrWrongPKCEVerifier(t *testing.T) {
+	cases := []struct {
+		name     string
+		verifier string
+	}{
+		{"missing verifier", ""},
+		{"wrong verifier", "not-the-verifier-beginlogin-generated"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := newFakeOIDCProvider(t)
+			sessions, db := newTestSessionStore(t, time.Hour)
+			createTestUser(t, db, "user-a")
+			seedIdentity(t, db, "user-a", "subject-a")
+			login := newTestOIDCLogin(t, provider, db, sessions)
+
+			authURL := login.BeginLogin("")
+			state, code := completeLogin(t, authURL, "subject-a", "")
+
+			// White-box: corrupt the verifier BeginLogin actually stored,
+			// simulating a callback that never had (or lied about) the
+			// real PKCE proof. A real caller can never do this — Callback
+			// only ever reads the verifier back out of server-side state
+			// (store.go) — so exercising this path requires reaching into
+			// the package's own state, which same-package test files can.
+			attempt, ok := login.attempts.byState[state]
+			if !ok {
+				t.Fatalf("no pending login attempt stored for state %q", state)
+			}
+			attempt.verifier = tc.verifier
+			login.attempts.byState[state] = attempt
+
+			_, err := login.Callback(context.Background(), state, code, "")
+			if err == nil {
+				t.Fatal("Callback() succeeded with an invalid PKCE verifier, want an error")
+			}
+			if errors.Is(err, ErrLoginStateInvalid) {
+				t.Fatalf("Callback() returned ErrLoginStateInvalid for a PKCE failure (err=%v) — the state itself was valid, only the verifier was wrong", err)
+			}
+		})
+	}
+}
+
+func TestOIDCLoginCallbackRejectsExpiredLoginAttempt(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-a")
+	seedIdentity(t, db, "user-a", "subject-a")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	current := time.Now()
+	login.attempts.now = func() time.Time { return current }
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "subject-a", "")
+
+	current = current.Add(loginAttemptTTL + time.Minute)
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if !errors.Is(err, ErrLoginStateInvalid) {
+		t.Fatalf("Callback() after the login attempt expired returned %v, want ErrLoginStateInvalid", err)
+	}
+}
+
+func TestOIDCLoginCallbackRejectsUnknownIdentityWithoutInvite(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("") // no invite token
+	state, code := completeLogin(t, authURL, "never-seen-subject", "person@example.com")
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if !errors.Is(err, ErrUnknownIdentityWithoutInvite) {
+		t.Fatalf("Callback() for an unknown subject without an invite returned %v, want ErrUnknownIdentityWithoutInvite", err)
+	}
+
+	// ADR-0004 is explicit that a provider login alone never grants access
+	// — confirm no user or identity was left behind by the rejected login.
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM identities WHERE subject = ?`, "never-seen-subject").Scan(&count); err != nil {
+		t.Fatalf("count identities: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("identities table has %d row(s) for the rejected subject, want 0", count)
+	}
+}
+
+func TestOIDCLoginCallbackWithValidInviteCreatesUserAndRedeemsInvite(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	inviteToken, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+
+	authURL := login.BeginLogin(inviteToken)
+	state, code := completeLogin(t, authURL, "brand-new-subject", "person@example.com")
+
+	sessionToken, err := login.Callback(context.Background(), state, code, "")
+	if err != nil {
+		t.Fatalf("Callback() returned error: %v", err)
+	}
+	if sessionToken == "" {
+		t.Fatal("Callback() returned an empty session token")
+	}
+
+	userID, err := sessions.Lookup(sessionToken)
+	if err != nil {
+		t.Fatalf("Lookup(sessionToken) returned error: %v", err)
+	}
+
+	var storedSubject, storedEmail string
+	if err := db.QueryRow(
+		`SELECT subject, email FROM identities WHERE user_id = ? AND provider = ?`,
+		userID, oidcProviderName,
+	).Scan(&storedSubject, &storedEmail); err != nil {
+		t.Fatalf("read identity row: %v", err)
+	}
+	if storedSubject != "brand-new-subject" {
+		t.Errorf("stored subject = %q, want %q", storedSubject, "brand-new-subject")
+	}
+	if storedEmail != "person@example.com" {
+		t.Errorf("stored email = %q, want %q", storedEmail, "person@example.com")
+	}
+
+	// The invitation must now be spent.
+	if err := invite.Redeem(db, inviteToken, userID); !errors.Is(err, invite.ErrAlreadyRedeemed) {
+		t.Errorf("invite.Redeem() a second time returned %v, want invite.ErrAlreadyRedeemed", err)
+	}
+}
+
+// --- error paths ---------------------------------------------------------
+//
+// The tests above cover the flow ADR-0004/ADR-0007 actually care about.
+// These cover the remaining error-wrapping branches Callback and
+// createUserFromInvite go through when something around them — the
+// provider, the database — misbehaves, so that a genuine infrastructure
+// failure is never silently swallowed or, worse, misreported as one of the
+// two auth-relevant sentinels (ErrLoginStateInvalid,
+// ErrUnknownIdentityWithoutInvite).
+
+func TestNewOIDCLoginFailsWhenDiscoveryFails(t *testing.T) {
+	badProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.NotFound(w, nil)
+	}))
+	t.Cleanup(badProvider.Close)
+
+	sessions, db := newTestSessionStore(t, time.Hour)
+
+	_, err := NewOIDCLogin(context.Background(), db, sessions, OIDCConfig{
+		IssuerURL:    badProvider.URL,
+		ClientID:     "client",
+		ClientSecret: config.Secret("secret"),
+		RedirectURL:  "http://tesserarr.example/callback",
+	})
+	if err == nil {
+		t.Fatal("NewOIDCLogin() succeeded against a provider with no discovery document, want an error")
+	}
+}
+
+func TestOIDCLoginCallbackRejectsTokenResponseWithoutIDToken(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	provider.omitIDToken = true
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-a")
+	seedIdentity(t, db, "user-a", "subject-a")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "subject-a", "")
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded despite a token response without an id_token, want an error")
+	}
+	if !strings.Contains(err.Error(), "id_token") {
+		t.Errorf("Callback() error = %v, want it to mention the missing id_token", err)
+	}
+}
+
+func TestOIDCLoginCallbackRejectsIDTokenWithWrongAudience(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	provider.forceAudience = "someone-elses-client-id"
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-a")
+	seedIdentity(t, db, "user-a", "subject-a")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "subject-a", "")
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded with an id token issued for a different audience, want an error")
+	}
+	if errors.Is(err, ErrLoginStateInvalid) || errors.Is(err, ErrUnknownIdentityWithoutInvite) {
+		t.Errorf("Callback() returned one of the auth-decision sentinels (err=%v) for a token-verification failure — those are reserved for the state and invite checks", err)
+	}
+}
+
+func TestOIDCLoginCallbackRejectsUnparseableClaims(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	provider.forceEmailNumber = true
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-a")
+	seedIdentity(t, db, "user-a", "subject-a")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "subject-a", "")
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded despite an id token whose email claim is a number, not a string, want an error")
+	}
+	if !strings.Contains(err.Error(), "claims") {
+		t.Errorf("Callback() error = %v, want it to mention claim parsing", err)
+	}
+}
+
+// TestOIDCLoginCallbackFailsWhenIdentityLookupErrors closes the database
+// between the authorization round trip and the callback, so
+// resolveUser's lookupIdentity fails with a genuine database error rather
+// than the expected-and-handled sql.ErrNoRows a first-time subject
+// produces.
+func TestOIDCLoginCallbackFailsWhenIdentityLookupErrors(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "subject-a", "")
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded despite a closed database, want an error")
+	}
+	if errors.Is(err, ErrUnknownIdentityWithoutInvite) {
+		t.Errorf("Callback() returned ErrUnknownIdentityWithoutInvite for a database error (err=%v) — a genuine lookup failure must not be reported as a rejected login", err)
+	}
+}
+
+// TestOIDCLoginCallbackFailsWhenSessionRotationFails backs the session
+// store with an already-closed database while leaving the identity
+// database open, isolating Callback's final error-wrapping branch (around
+// SessionStore.Rotate) from every branch that runs before it.
+func TestOIDCLoginCallbackFailsWhenSessionRotationFails(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	_, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-a")
+	seedIdentity(t, db, "user-a", "subject-a")
+
+	brokenSessions, brokenSessionsDB := newTestSessionStore(t, time.Hour)
+	if err := brokenSessionsDB.Close(); err != nil {
+		t.Fatalf("close broken sessions database: %v", err)
+	}
+
+	login := newTestOIDCLogin(t, provider, db, brokenSessions)
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "subject-a", "")
+
+	_, err := login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded despite a broken session store, want an error")
+	}
+	if !strings.Contains(err.Error(), "start session") {
+		t.Errorf("Callback() error = %v, want it to mention session creation failing", err)
+	}
+}
+
+// TestOIDCLoginCreateUserFromInviteFailsWhenUserInsertFails drops the
+// users table before the invite-redeeming login runs, isolating
+// createUserFromInvite's error-wrapping branch around "INSERT INTO users"
+// from every other failure the function can hit.
+func TestOIDCLoginCreateUserFromInviteFailsWhenUserInsertFails(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	inviteToken, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	if _, err := db.Exec(`DROP TABLE users`); err != nil {
+		t.Fatalf("drop users table: %v", err)
+	}
+
+	authURL := login.BeginLogin(inviteToken)
+	state, code := completeLogin(t, authURL, "new-subject", "")
+
+	_, err = login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded despite a missing users table, want an error")
+	}
+	if errors.Is(err, ErrUnknownIdentityWithoutInvite) {
+		t.Errorf("Callback() reported ErrUnknownIdentityWithoutInvite for a schema failure (err=%v) — that sentinel is reserved for an actually rejected invitation", err)
+	}
+}
+
+// TestOIDCLoginCreateUserFromInviteFailsWhenIdentityInsertFails installs a
+// trigger that blocks every INSERT into identities while leaving SELECT
+// (and thus resolveUser's initial lookup) untouched, isolating
+// createUserFromInvite's error-wrapping branch around "INSERT INTO
+// identities". Dropping the identities table outright would not isolate
+// this branch: resolveUser's own lookup queries the same table, so a
+// missing table would be caught one branch earlier instead.
+func TestOIDCLoginCreateUserFromInviteFailsWhenIdentityInsertFails(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	inviteToken, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TRIGGER block_identity_insert
+		BEFORE INSERT ON identities
+		BEGIN
+			SELECT RAISE(ABORT, 'test: identities insert blocked');
+		END;
+	`); err != nil {
+		t.Fatalf("install blocking trigger: %v", err)
+	}
+
+	authURL := login.BeginLogin(inviteToken)
+	state, code := completeLogin(t, authURL, "new-subject", "")
+
+	_, err = login.Callback(context.Background(), state, code, "")
+	if err == nil {
+		t.Fatal("Callback() succeeded despite a trigger blocking the identity insert, want an error")
+	}
+	if errors.Is(err, ErrUnknownIdentityWithoutInvite) {
+		t.Errorf("Callback() reported ErrUnknownIdentityWithoutInvite for a schema failure (err=%v) — that sentinel is reserved for an actually rejected invitation", err)
+	}
+
+	// The transaction must have rolled back — no half-created user left
+	// behind by the failed identity insert.
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("users table has %d row(s) after a rolled-back user creation, want 0", count)
+	}
+}
+
+// TestOIDCLoginCreateUserFromInviteChoosesDisplayName exercises
+// displayName's (and, for the empty-email case, nullable's) branches
+// through the real invite-redeeming login flow, rather than calling the
+// unexported helpers directly — what ends up in users.display_name is the
+// observable behavior that actually matters.
+func TestOIDCLoginCreateUserFromInviteChoosesDisplayName(t *testing.T) {
+	const subject = "some-subject-value"
+	cases := []struct {
+		name     string
+		email    string
+		wantName string
+	}{
+		{"proper email uses the local part", "person@example.com", "person"},
+		{"email without an at sign falls back to the whole value", "not-an-email", "not-an-email"},
+		{"email starting with an at sign falls back to the whole value", "@example.com", "@example.com"},
+		{"no email falls back to the subject", "", subject},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := newFakeOIDCProvider(t)
+			sessions, db := newTestSessionStore(t, time.Hour)
+			login := newTestOIDCLogin(t, provider, db, sessions)
+
+			inviteToken, err := invite.Create(db, 0)
+			if err != nil {
+				t.Fatalf("invite.Create() returned error: %v", err)
+			}
+
+			authURL := login.BeginLogin(inviteToken)
+			state, code := completeLogin(t, authURL, subject, tc.email)
+
+			sessionToken, err := login.Callback(context.Background(), state, code, "")
+			if err != nil {
+				t.Fatalf("Callback() returned error: %v", err)
+			}
+			userID, err := sessions.Lookup(sessionToken)
+			if err != nil {
+				t.Fatalf("Lookup() returned error: %v", err)
+			}
+
+			var gotName string
+			if err := db.QueryRow(`SELECT display_name FROM users WHERE id = ?`, userID).Scan(&gotName); err != nil {
+				t.Fatalf("read display_name: %v", err)
+			}
+			if gotName != tc.wantName {
+				t.Errorf("display_name = %q, want %q", gotName, tc.wantName)
+			}
+		})
+	}
+}
