@@ -144,12 +144,31 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionCookie builds the session cookie the routes above set (login) or
-// clear (logout). Its three security attributes mirror ADR-0007 decision
-// point 1 exactly: HttpOnly (JavaScript can never read a session token,
-// unlike the CSRF double-submit cookie in csrf.go, which deliberately must
-// stay readable), Secure (never sent over plain HTTP), SameSite=Strict
-// (the browser never attaches it to a cross-site request in the first
-// place — ahead of, and independent from, the CSRF check in csrf.go).
+// clear (logout). Its security attributes mirror ADR-0007 decision point 1
+// — HttpOnly (JavaScript can never read a session token, unlike the CSRF
+// double-submit cookie in csrf.go, which deliberately must stay readable),
+// Secure (never sent over plain HTTP) — with one deliberate exception to
+// the decision's stated preference.
+//
+// SameSite is Lax, not Strict — ADR-0007 itself allows this ("SameSite=Strict
+// bzw. mindestens SameSite=Lax"), and security-audit run-1 found that Strict
+// silently breaks the flow it was meant to protect: handleLoginOIDCCallback
+// arrives via a cross-site TOP-LEVEL redirect from the external OIDC
+// provider, and per RFC 6265bis a SameSite=Strict cookie is withheld on
+// exactly that kind of request — never a Lax one. That meant
+// previousSessionToken (see handleLoginOIDCCallback) was silently empty on
+// essentially every real login against an externally-hosted provider
+// (Entra ID, Auth0, Okta, Google — all documented as supported in
+// docs/setup.md, none same-site with an operator's own domain), so
+// sessions.Rotate("", userID) deleted nothing: a pre-existing session
+// (however obtained by someone else — device sharing, malware, a future
+// frontend bug) silently survived a legitimate user's attempt to
+// re-authenticate and shake it loose. Lax still withholds the cookie on
+// cross-site subrequests and on cross-site non-idempotent (state-changing)
+// top-level requests — the CSRF exposure Strict additionally closes — which
+// is exactly what the double-submit check in csrf.go already independently
+// defends against for every state-changing session-space request; Lax does
+// not reopen that door.
 //
 // maxAge follows net/http.Cookie's own documented convention: 0 means "no
 // Max-Age attribute" (the default for a freshly issued cookie — expiry is
@@ -162,7 +181,7 @@ func (a *API) sessionCookie(value string, maxAge int) *http.Cookie {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
 	}
 }

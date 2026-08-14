@@ -90,7 +90,9 @@ func TestHandleLoginOIDCRedirectsToProviderWithState(t *testing.T) {
 // TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie is the second
 // half: completing a login the provider redirected back from sets a
 // session cookie carrying every attribute ADR-0007 decision point 1
-// requires — HttpOnly, Secure, SameSite=Strict.
+// requires — HttpOnly, Secure, SameSite=Lax (see sessionCookie's own
+// comment for why Lax rather than Strict — TestSessionCookieUsesLaxNotStrict
+// below carries the full reasoning).
 func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	a := newTestAPI(t)
 	createTestUserWithOIDCIdentity(t, a, "user-1", "returning-subject")
@@ -121,8 +123,8 @@ func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	if !cookie.Secure {
 		t.Error("session cookie is not Secure")
 	}
-	if cookie.SameSite != http.SameSiteStrictMode {
-		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteStrictMode)
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteLaxMode)
 	}
 
 	userID, err := a.sessions.Lookup(cookie.Value)
@@ -131,6 +133,36 @@ func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	}
 	if userID != "user-1" {
 		t.Errorf("session resolved to user %q, want %q", userID, "user-1")
+	}
+}
+
+// TestSessionCookieUsesLaxNotStrict is a direct regression test for the
+// security audit finding (~/security-audit-skill/tesserarr/run-1/
+// findings.json, "Session cookie's SameSite=Strict prevents delivery on the
+// OIDC callback redirect, silently disabling the re-login
+// session-invalidation defense"). It fails on the code as audited (Strict)
+// and passes with the fix (Lax).
+//
+// What this test does NOT and cannot reproduce: the actual browser
+// behavior the finding is about. handleLoginOIDCCallback arrives via a
+// cross-site TOP-LEVEL redirect from an external OIDC provider — per RFC
+// 6265bis a real browser withholds a SameSite=Strict cookie on exactly that
+// kind of request, never a Lax one, but net/http's test client (used
+// throughout this file, including completeFakeLogin) does not model
+// SameSite enforcement at all: it always attaches whatever cookie a test
+// puts on the request, regardless of this attribute's value. Confirming
+// the SameSite attribute itself is set correctly is the closest this
+// package's test suite can get to that browser behavior — see
+// sessionCookie's own comment for the full mechanism this attribute value
+// closes (Rotate("", userID) silently deleting nothing when the prior
+// session cookie is withheld).
+func TestSessionCookieUsesLaxNotStrict(t *testing.T) {
+	a := newTestAPI(t)
+
+	cookie := a.sessionCookie("some-token", 0)
+
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteLaxMode)
 	}
 }
 
