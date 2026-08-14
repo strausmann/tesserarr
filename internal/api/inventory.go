@@ -46,6 +46,24 @@ var publicPaths = []publicPath{
 		path: LoginOIDCCallbackPath,
 		why:  "the provider redirects back here with no session cookie of its own — that is the entire reason a login exists",
 	},
+	{
+		// Deliberately prefix: false (the default) — NOT the "/invite/"
+		// treatment above. This entry is checked against exactly one
+		// registered route's OWN pattern string ("/", see static.go and
+		// New in router.go), never against an incoming request's URL —
+		// isPublicPath and CheckInventory only ever see the patterns this
+		// package itself registers, not arbitrary paths a browser might
+		// request. A prefix entry here would be a very different, far
+		// more dangerous thing: since every possible path starts with
+		// "/", isPublicPath("/api/v1/app/session") would then ALSO match
+		// this entry, and every session- and token-checked route in this
+		// file would suddenly need to carry MiddlewarePublic to pass
+		// checkPairing — silently turning the entire allow-list into a
+		// rubber stamp. Exact match avoids that: it matches the literal
+		// registered pattern "/" and nothing else.
+		path: "/",
+		why:  "the embedded browser interface is a static file with no data of its own (ADR-0005) — /api/v1 is the only thing worth protecting, and the shell itself has to be reachable pre-session so an unauthenticated visitor can even reach /login/",
+	},
 }
 
 // isPublicPath reports whether path is named on publicPaths: a prefix entry

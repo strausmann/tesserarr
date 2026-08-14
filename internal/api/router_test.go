@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/strausmann/tesserarr/internal/config"
@@ -100,6 +101,48 @@ func TestUnknownPathReturnsNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+// TestRootServesEmbeddedInterface proves New actually wires the embedded
+// web interface (internal/web.FS, see static.go) into the running server at
+// "/" — not just that newStaticHandler works in isolation (static_test.go
+// already covers that against a fstest.MapFS).
+func TestRootServesEmbeddedInterface(t *testing.T) {
+	a := newTestAPI(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want a text/html prefix", ct)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("response body is empty")
+	}
+}
+
+// TestStaticRouteDoesNotShadowAPIRoutes is the ordering guarantee the
+// static catch-all at "/" (see static.go, and its own comment in New,
+// router.go) depends on: net/http.ServeMux resolves every request to its
+// MOST SPECIFIC matching pattern, so /api/v1/... always wins over "/"
+// regardless of registration order. A session-space request with no cookie
+// must still get requireSession's 401 — proof it never reaches the static
+// handler's own 404 page instead, which would look like "route
+// disappeared" rather than "credential missing".
+func TestStaticRouteDoesNotShadowAPIRoutes(t *testing.T) {
+	a := newTestAPI(t)
+
+	req := httptest.NewRequest(http.MethodGet, PrefixApp+"/session", nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d — the static route at \"/\" swallowed a session-space request", rec.Code, http.StatusUnauthorized)
 	}
 }
 
