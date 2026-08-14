@@ -10,11 +10,7 @@ import (
 )
 
 // createTestUserAndSession inserts the minimal user row the sessions table's
-// foreign key requires, then mints a valid session token for it. The same
-// token is used two ways in the tests below: as a cookie value on the session
-// path, and as a bearer value on the token path — see the comment on
-// requireToken in middleware.go for why that is safe and not the "cookie OR
-// header" shortcut this package exists to rule out.
+// foreign key requires, then mints a valid session token for it.
 func createTestUserAndSession(t *testing.T, a *API, userID string) string {
 	t.Helper()
 
@@ -31,6 +27,73 @@ func createTestUserAndSession(t *testing.T, a *API, userID string) string {
 		t.Fatalf("create session: %v", err)
 	}
 	return token
+}
+
+// createTestUserAndAPIToken inserts the minimal user row api_tokens' foreign
+// key requires, then mints a valid API token for it via a.apiTokens — the
+// second, independent store TestSessionTokenAsBearerIsRejected and
+// TestAPITokenAsSessionCookieIsRejected exist to prove requireSession and
+// requireToken each resolve their own credential kind against, and neither
+// other's.
+func createTestUserAndAPIToken(t *testing.T, a *API, userID string) string {
+	t.Helper()
+
+	_, err := a.store.DB().Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		userID, "test user", time.Now().UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+
+	token, err := a.apiTokens.Create(userID, "test token")
+	if err != nil {
+		t.Fatalf("create api token: %v", err)
+	}
+	return token
+}
+
+// TestSessionTokenAsBearerIsRejected is the second barrier ADR-0007 and the
+// concept's "Anmeldung und Sitzungen" section require: a session token must
+// not authenticate the token path, even sent exactly the way a bearer token
+// is expected — because requireToken resolves it against a.apiTokens, a
+// store a session token was never written into. Before requireToken was
+// switched off a.sessions, this test failed: both middlewares resolved
+// against the same store, so a session token really did double as a bearer
+// token (see the now-removed interim comment this change replaced).
+func TestSessionTokenAsBearerIsRejected(t *testing.T) {
+	a := newTestAPI(t)
+	sessionToken := createTestUserAndSession(t, a, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, PrefixToken+"/status", nil)
+	req.Header.Set("Authorization", "Bearer "+sessionToken)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d (a valid session token must not authenticate the token path)",
+			rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestAPITokenAsSessionCookieIsRejected is the other half of the same
+// barrier: an API token must not authenticate the session path, even sent
+// exactly the way a session cookie is expected — because requireSession
+// resolves it against a.sessions, a store an API token was never written
+// into.
+func TestAPITokenAsSessionCookieIsRejected(t *testing.T) {
+	a := newTestAPI(t)
+	apiToken := createTestUserAndAPIToken(t, a, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, PrefixApp+"/session", nil)
+	req.AddCookie(&http.Cookie{Name: a.cfg.SessionCookieName, Value: apiToken}) //nolint:gosec // G124: incoming request cookie for a test client — see the comment on the other AddCookie calls in this file
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d (a valid API token must not authenticate the session path)",
+			rec.Code, http.StatusUnauthorized)
+	}
 }
 
 // TestTokenPathRejectsValidSessionCookieWithoutHeader is the first half of the
@@ -71,16 +134,22 @@ func TestSessionPathRejectsValidBearerTokenWithoutCookie(t *testing.T) {
 }
 
 // TestEachPathAcceptsOnlyItsOwnCredential is the positive counterpart to the
-// two rejection tests above: sent the way each path expects, the very same
-// token authenticates both — proving the previous two failures are about the
-// credential's PLACEMENT, not about the token being invalid.
+// rejection tests in this file: sent the way each path expects, its own
+// credential kind — a session token from a.sessions on the cookie path, an
+// API token from a.apiTokens on the header path — authenticates it. Two
+// different credentials, deliberately, not one reused both ways: since
+// requireToken switched off the shared identity.SessionStore lookup (see
+// TestSessionTokenAsBearerIsRejected), a session token no longer
+// authenticates the token path at all, so proving both paths still work at
+// all now requires minting from each store in turn.
 func TestEachPathAcceptsOnlyItsOwnCredential(t *testing.T) {
 	a := newTestAPI(t)
-	token := createTestUserAndSession(t, a, "user-1")
 
-	t.Run("session path accepts the cookie", func(t *testing.T) {
+	t.Run("session path accepts its own cookie", func(t *testing.T) {
+		sessionToken := createTestUserAndSession(t, a, "user-1")
+
 		req := httptest.NewRequest(http.MethodGet, PrefixApp+"/session", nil)
-		req.AddCookie(&http.Cookie{Name: a.cfg.SessionCookieName, Value: token}) //nolint:gosec // G124: this is an INCOMING request cookie built for a test client — AddCookie only ever serializes Name/Value onto the Cookie header, so Secure/HttpOnly/SameSite (response-cookie attributes) do not apply here
+		req.AddCookie(&http.Cookie{Name: a.cfg.SessionCookieName, Value: sessionToken}) //nolint:gosec // G124: this is an INCOMING request cookie built for a test client — AddCookie only ever serializes Name/Value onto the Cookie header, so Secure/HttpOnly/SameSite (response-cookie attributes) do not apply here
 		rec := httptest.NewRecorder()
 		a.Handler().ServeHTTP(rec, req)
 
@@ -96,9 +165,11 @@ func TestEachPathAcceptsOnlyItsOwnCredential(t *testing.T) {
 		}
 	})
 
-	t.Run("token path accepts the header", func(t *testing.T) {
+	t.Run("token path accepts its own header", func(t *testing.T) {
+		apiToken := createTestUserAndAPIToken(t, a, "user-2")
+
 		req := httptest.NewRequest(http.MethodGet, PrefixToken+"/status", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", "Bearer "+apiToken)
 		rec := httptest.NewRecorder()
 		a.Handler().ServeHTTP(rec, req)
 
@@ -109,8 +180,8 @@ func TestEachPathAcceptsOnlyItsOwnCredential(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body["user_id"] != "user-1" {
-			t.Errorf("user_id = %q, want %q", body["user_id"], "user-1")
+		if body["user_id"] != "user-2" {
+			t.Errorf("user_id = %q, want %q", body["user_id"], "user-2")
 		}
 	})
 }

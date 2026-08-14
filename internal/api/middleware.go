@@ -52,18 +52,19 @@ func (a *API) requireSession(next http.Handler) http.Handler {
 // Authorization header — and never reads the session cookie, not even to
 // glance at it: see the package comment on router.go and ADR-0007.
 //
-// It resolves the token through the very same identity.SessionStore
-// requireSession uses. That is a shared STORE, not a shared CHECK: each
-// middleware still decides, entirely on its own, which credential to look
-// for and where to find it, and neither ever inspects the other's source.
-// The shortcut this package exists to rule out is a single helper that
-// accepts "cookie OR header" in one code path — that never exists here.
-// There is exactly one place that reads a cookie (requireSession) and
-// exactly one that reads a header (requireToken); calling the same,
-// already-tested lookup afterwards does not merge them back together. A
-// dedicated, longer-lived personal API token — the kind ADR-0007 describes
-// for Prowlarr, Sonarr and Radarr — is tracked separately; until it lands, a
-// session token doubles as a bearer token when it is sent this way.
+// It resolves the token through a.apiTokens (internal/apitoken.Store), a
+// store entirely separate from the identity.SessionStore requireSession
+// resolves cookies through. That separation is not only which check runs —
+// it is which STORAGE the check runs against, and both matter: the
+// shortcut this package exists to rule out is a single helper that accepts
+// "cookie OR header" in one code path (there is exactly one place that reads
+// a cookie and exactly one that reads a header, and they stay that way), but
+// a shared store underneath two separately-coded checks would have left a
+// second, quieter version of the same problem — a session token happening to
+// double as a bearer token because both checks, however cleanly separated in
+// code, ultimately asked the same table the same question. See
+// internal/apitoken's package comment for why this is treated as the second,
+// independent barrier the concept requires, not merely a naming difference.
 func (a *API) requireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := bearerToken(r.Header.Get("Authorization"))
@@ -72,7 +73,7 @@ func (a *API) requireToken(next http.Handler) http.Handler {
 			return
 		}
 
-		userID, err := a.sessions.Lookup(token)
+		userID, err := a.apiTokens.Lookup(token)
 		if err != nil {
 			http.Error(w, "token required", http.StatusUnauthorized)
 			return
