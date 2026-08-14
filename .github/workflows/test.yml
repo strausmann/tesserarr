@@ -44,7 +44,8 @@ jobs:
             internal/store:85 \
             internal/api:80 \
             internal/selftest:80 \
-            internal/identity:90
+            internal/identity:90 \
+            internal/apitoken:90
 
       - uses: golangci/golangci-lint-action@v6
         with:
