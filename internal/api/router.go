@@ -15,6 +15,16 @@
 // automatically and a foreign page cannot add one without a CORS preflight it
 // does not get. Adding a forgery check here would break Prowlarr, Sonarr and
 // Radarr, which send no cookies at all.
+//
+// A third kind of path sits outside both spaces entirely and carries no check
+// at all: MiddlewarePublic, for routes that are deliberately reachable with
+// neither a session nor a token — an invited person redeeming an invite has
+// no session yet, for instance. It is not a general escape hatch: CheckInventory
+// (see inventory.go) only accepts it for a path named, together with its
+// reason, on the explicit publicPaths allow-list. A route that carries
+// MiddlewarePublic without being on that list is a finding, same as a route on
+// the wrong prefix. MiddlewareNone plays the identical "no check" role for the
+// health path alone, kept only because that path predates MiddlewarePublic.
 package api
 
 import (
@@ -32,8 +42,10 @@ import (
 // working on its own even if nobody notices and revokes it by hand.
 const sessionTTL = 30 * 24 * time.Hour
 
-// Path prefixes. Every registered route lives below exactly one of them — with
-// the single, tested exception of the health path.
+// Path prefixes. Every registered route lives below exactly one of them,
+// except the paths on the explicit public allow-list (see publicPaths in
+// inventory.go) — the health path (MiddlewareNone) and every other route
+// deliberately reachable without a check (MiddlewarePublic).
 const (
 	PrefixApp   = "/api/v1/app"
 	PrefixToken = "/api/v1"
@@ -44,12 +56,21 @@ const (
 type Middleware int
 
 const (
-	// MiddlewareNone guards nothing. Only the health path may use it.
+	// MiddlewareNone guards nothing. Only the health path may use it — kept
+	// for backward compatibility, because that path predates
+	// MiddlewarePublic. Every OTHER path that must be reachable without a
+	// check uses MiddlewarePublic instead.
 	MiddlewareNone Middleware = iota
 	// MiddlewareSession checks the session cookie and nothing else.
 	MiddlewareSession
 	// MiddlewareToken checks the Authorization header and nothing else.
 	MiddlewareToken
+	// MiddlewarePublic guards nothing, like MiddlewareNone, but is reserved
+	// for routes that are deliberately public. CheckInventory only accepts
+	// it for a path named, with its reason, on the publicPaths allow-list
+	// (inventory.go) — carrying MiddlewarePublic does not by itself excuse a
+	// route from that list.
+	MiddlewarePublic
 )
 
 func (m Middleware) String() string {
@@ -60,6 +81,8 @@ func (m Middleware) String() string {
 		return "session"
 	case MiddlewareToken:
 		return "token"
+	case MiddlewarePublic:
+		return "public"
 	default:
 		return "unknown"
 	}
@@ -109,6 +132,11 @@ func (a *API) wrap(mw Middleware, handler http.HandlerFunc) http.Handler {
 	case MiddlewareToken:
 		return a.requireToken(handler)
 	default:
+		// MiddlewareNone and MiddlewarePublic both guard nothing, so both
+		// fall here — same as any value outside the four known kinds, which
+		// String() likewise treats as "unknown" rather than an error.
+		// Whether a route is ALLOWED to carry MiddlewarePublic is
+		// CheckInventory's job (inventory.go), not this function's.
 		return handler
 	}
 }

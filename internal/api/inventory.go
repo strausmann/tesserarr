@@ -7,9 +7,56 @@ import (
 	"strings"
 )
 
-// healthPattern is the single route allowed to carry no check. A monitoring
-// probe has no credential, so the liveness path cannot require one.
+// healthPattern is the health path — the one entry on publicPaths below that
+// predates MiddlewarePublic and is, for backward compatibility, still also
+// accepted with the older MiddlewareNone. See publicPaths for every other
+// path deliberately reachable without a check.
 const healthPattern = "/healthz"
+
+// publicPath is one entry on the explicit allow-list of paths deliberately
+// reachable with neither a session nor a token. CheckInventory only accepts
+// MiddlewarePublic on a route whose path actually appears here — the
+// middleware kind by itself grants nothing. Each entry names, in code, the
+// reason it must be public, so a reviewer never has to go dig for it
+// elsewhere.
+type publicPath struct {
+	// path is the bare path (after splitPattern has removed an optional
+	// leading HTTP method). When prefix is true, path is matched as a
+	// PREFIX instead of exactly — for a route whose trailing segment is
+	// itself the credential, such as the invite token below.
+	path   string
+	prefix bool
+	why    string
+}
+
+var publicPaths = []publicPath{
+	{
+		path: healthPattern,
+		why:  "a monitoring probe carries no credential",
+	},
+	{
+		path:   "/invite/",
+		prefix: true,
+		why:    "the invited person has no session yet — the token in the path is the credential",
+	},
+}
+
+// isPublicPath reports whether path is named on publicPaths: a prefix entry
+// (e.g. "/invite/") matches by prefix, everything else matches exactly.
+func isPublicPath(path string) bool {
+	for _, p := range publicPaths {
+		if p.prefix {
+			if strings.HasPrefix(path, p.path) {
+				return true
+			}
+			continue
+		}
+		if path == p.path {
+			return true
+		}
+	}
+	return false
+}
 
 // CheckInventory validates every registered route two independent ways and
 // returns the union of what each finds:
@@ -50,12 +97,34 @@ func checkPairing(routes []Route) []error {
 			continue
 		}
 
-		if path == healthPattern {
-			if route.Middleware != MiddlewareNone {
+		if isPublicPath(path) {
+			switch {
+			case route.Middleware == MiddlewarePublic:
+				// The intended, forward-looking case.
+			case path == healthPattern && route.Middleware == MiddlewareNone:
+				// Backward compatibility only: the health path predates
+				// MiddlewarePublic and was, and remains, registered with
+				// MiddlewareNone (see router.go). This exception is scoped
+				// to the health path alone and is not extended to any other
+				// entry on publicPaths — those are expected to use
+				// MiddlewarePublic.
+			default:
 				problems = append(problems, fmt.Errorf(
-					"route %q is the health path and must carry no check, but carries %s",
+					"route %q is on the explicit allow-list of public paths (see publicPaths) but carries %s, want public",
 					route.Pattern, route.Middleware))
 			}
+			continue
+		}
+
+		if route.Middleware == MiddlewarePublic {
+			// The symmetric case: MiddlewarePublic claimed for a path that is
+			// NOT on the allow-list. Without this check, MiddlewarePublic
+			// would be a free pass around every prefix rule below — the very
+			// thing publicPaths exists to prevent.
+			problems = append(problems, fmt.Errorf(
+				"route %q carries public, but its path is not on the explicit allow-list of public paths "+
+					"(see publicPaths) — add it there, with a reason, before using MiddlewarePublic on it",
+				route.Pattern))
 			continue
 		}
 
