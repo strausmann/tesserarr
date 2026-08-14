@@ -20,13 +20,12 @@
 //
 // A third kind of path sits outside both spaces entirely and carries no check
 // at all: MiddlewarePublic, for routes that are deliberately reachable with
-// neither a session nor a token — an invited person redeeming an invite has
-// no session yet, for instance. It is not a general escape hatch: CheckInventory
-// (see inventory.go) only accepts it for a path named, together with its
-// reason, on the explicit publicPaths allow-list. A route that carries
-// MiddlewarePublic without being on that list is a finding, same as a route on
-// the wrong prefix. MiddlewareNone plays the identical "no check" role for the
-// health path alone, kept only because that path predates MiddlewarePublic.
+// neither a session nor a token — a monitoring probe has no credential, an
+// invited person redeeming an invite has no session yet. It is not a general
+// escape hatch: CheckInventory (see inventory.go) only accepts it for a path
+// named, together with its reason, on the explicit publicPaths allow-list. A
+// route that carries MiddlewarePublic without being on that list is a
+// finding, same as a route on the wrong prefix.
 package api
 
 import (
@@ -47,8 +46,7 @@ const sessionTTL = 30 * 24 * time.Hour
 
 // Path prefixes. Every registered route lives below exactly one of them,
 // except the paths on the explicit public allow-list (see publicPaths in
-// inventory.go) — the health path (MiddlewareNone) and every other route
-// deliberately reachable without a check (MiddlewarePublic).
+// inventory.go), which carry MiddlewarePublic instead.
 const (
 	PrefixApp   = "/api/v1/app"
 	PrefixToken = "/api/v1"
@@ -59,27 +57,20 @@ const (
 type Middleware int
 
 const (
-	// MiddlewareNone guards nothing. Only the health path may use it — kept
-	// for backward compatibility, because that path predates
-	// MiddlewarePublic. Every OTHER path that must be reachable without a
-	// check uses MiddlewarePublic instead.
-	MiddlewareNone Middleware = iota
 	// MiddlewareSession checks the session cookie and nothing else.
-	MiddlewareSession
+	MiddlewareSession Middleware = iota
 	// MiddlewareToken checks the Authorization header and nothing else.
 	MiddlewareToken
-	// MiddlewarePublic guards nothing, like MiddlewareNone, but is reserved
-	// for routes that are deliberately public. CheckInventory only accepts
-	// it for a path named, with its reason, on the publicPaths allow-list
-	// (inventory.go) — carrying MiddlewarePublic does not by itself excuse a
-	// route from that list.
+	// MiddlewarePublic guards nothing — it is reserved for routes that are
+	// deliberately public, such as the health path or an invite-redeem
+	// route. CheckInventory only accepts it for a path named, with its
+	// reason, on the publicPaths allow-list (inventory.go) — carrying
+	// MiddlewarePublic does not by itself excuse a route from that list.
 	MiddlewarePublic
 )
 
 func (m Middleware) String() string {
 	switch m {
-	case MiddlewareNone:
-		return "none"
 	case MiddlewareSession:
 		return "session"
 	case MiddlewareToken:
@@ -116,7 +107,7 @@ func New(cfg *config.Config, st *store.Store) *API {
 		apiTokens: apitoken.New(st.DB()),
 		mux:       http.NewServeMux(),
 	}
-	a.register("/healthz", MiddlewareNone, a.handleHealth)
+	a.register("/healthz", MiddlewarePublic, a.handleHealth)
 	a.register(PrefixApp+"/session", MiddlewareSession, a.handleSessionStatus)
 	a.register(PrefixToken+"/status", MiddlewareToken, a.handleTokenStatus)
 	return a
@@ -141,11 +132,11 @@ func (a *API) wrap(mw Middleware, handler http.HandlerFunc) http.Handler {
 	case MiddlewareToken:
 		return a.requireToken(handler)
 	default:
-		// MiddlewareNone and MiddlewarePublic both guard nothing, so both
-		// fall here — same as any value outside the four known kinds, which
-		// String() likewise treats as "unknown" rather than an error.
-		// Whether a route is ALLOWED to carry MiddlewarePublic is
-		// CheckInventory's job (inventory.go), not this function's.
+		// MiddlewarePublic guards nothing, so it falls here — same as any
+		// value outside the three known kinds, which String() likewise
+		// treats as "unknown" rather than an error. Whether a route is
+		// ALLOWED to carry MiddlewarePublic is CheckInventory's job
+		// (inventory.go), not this function's.
 		return handler
 	}
 }

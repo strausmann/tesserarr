@@ -70,8 +70,8 @@ func TestHealthEndpointCarriesNoAuthMiddleware(t *testing.T) {
 	a := newTestAPI(t)
 
 	for _, route := range a.Routes() {
-		if route.Pattern == "/healthz" && route.Middleware != MiddlewareNone {
-			t.Errorf("health route carries middleware %v, want %v", route.Middleware, MiddlewareNone)
+		if route.Pattern == "/healthz" && route.Middleware != MiddlewarePublic {
+			t.Errorf("health route carries middleware %v, want %v", route.Middleware, MiddlewarePublic)
 		}
 	}
 }
@@ -147,7 +147,6 @@ func TestWrapSelectsMiddlewareByKind(t *testing.T) {
 		mw   Middleware
 		want int
 	}{
-		{"none passes through", MiddlewareNone, http.StatusTeapot},
 		{"session rejects", MiddlewareSession, http.StatusUnauthorized},
 		{"token rejects", MiddlewareToken, http.StatusUnauthorized},
 		{"public passes through", MiddlewarePublic, http.StatusTeapot},
