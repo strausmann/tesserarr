@@ -175,3 +175,28 @@ func TestCreateInviteOmitsForwardAuthLinkWhenDisabled(t *testing.T) {
 		t.Errorf("output = %q, must not mention forward-auth when it is disabled", out.String())
 	}
 }
+
+func TestRunUserRejectsMissingSubcommand(t *testing.T) {
+	if err := runUser(nil); err == nil {
+		t.Fatal("runUser(nil) returned nil error, want a usage error")
+	}
+}
+
+func TestRunUserRejectsUnknownSubcommand(t *testing.T) {
+	err := runUser([]string{"bogus"})
+	if err == nil {
+		t.Fatal("runUser([\"bogus\"]) returned nil error, want an error naming the unknown subcommand")
+	}
+}
+
+func TestRunUserRemapRejectsWrongArgumentCount(t *testing.T) {
+	if err := runUser([]string{"remap", "only-one-arg"}); err == nil {
+		t.Fatal("runUser([\"remap\", \"only-one-arg\"]) returned nil error, want a usage error")
+	}
+}
+
+func TestRunUserPromoteRejectsWrongArgumentCount(t *testing.T) {
+	if err := runUser([]string{"promote", "only-one-arg"}); err == nil {
+		t.Fatal("runUser([\"promote\", \"only-one-arg\"]) returned nil error, want a usage error")
+	}
+}

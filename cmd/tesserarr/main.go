@@ -24,6 +24,7 @@ import (
 
 	"github.com/strausmann/tesserarr/internal/api"
 	"github.com/strausmann/tesserarr/internal/config"
+	"github.com/strausmann/tesserarr/internal/identity"
 	"github.com/strausmann/tesserarr/internal/invite"
 	"github.com/strausmann/tesserarr/internal/selftest"
 	"github.com/strausmann/tesserarr/internal/store"
@@ -34,7 +35,7 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: tesserarr <serve|healthcheck|selftest|invite|version>")
+		fmt.Fprintln(os.Stderr, "usage: tesserarr <serve|healthcheck|selftest|invite|user|version>")
 		os.Exit(2)
 	}
 
@@ -48,6 +49,8 @@ func main() {
 		err = runSelftest()
 	case "invite":
 		err = runInvite(os.Args[2:])
+	case "user":
+		err = runUser(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 		return
@@ -252,5 +255,66 @@ func createInvite(db *sql.DB, baseURL string, ttl time.Duration, forwardAuthEnab
 		_, _ = fmt.Fprintf(out, "redeem link (forward-auth): %s\n", forwardAuthLink)
 	}
 	_, _ = fmt.Fprintln(out, "Until it is redeemed, this link IS the credential — hand it to your friend over a channel you trust, not a public one.")
+	return nil
+}
+
+// runUser dispatches the "user" subcommands — mirroring runInvite's shape
+// exactly, for the same reason: tests drive the dispatch logic without an
+// os.Exit in the way.
+func runUser(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <email> <role>")
+	}
+	switch args[0] {
+	case "remap":
+		return runUserRemap(args[1:])
+	case "promote":
+		return runUserPromote(args[1:])
+	default:
+		return fmt.Errorf("unknown user subcommand %q", args[0])
+	}
+}
+
+func runUserRemap(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: tesserarr user remap <old-subject> <new-subject>")
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	if err := identity.RemapForwardAuthSubject(st.DB(), args[0], args[1]); err != nil {
+		return fmt.Errorf("remap user: %w", err)
+	}
+	fmt.Println("remapped.")
+	return nil
+}
+
+func runUserPromote(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: tesserarr user promote <email> <role>")
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	if err := identity.PromoteUserRole(st.DB(), args[0], args[1]); err != nil {
+		return fmt.Errorf("promote user: %w", err)
+	}
+	fmt.Println("promoted.")
 	return nil
 }
