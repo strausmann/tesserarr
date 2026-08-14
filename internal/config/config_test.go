@@ -165,7 +165,7 @@ func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
 		{"%#v value", func() string { return fmt.Sprintf("%#v", newCfg()) }},
 		{"%#v pointer", func() string { c := newCfg(); return fmt.Sprintf("%#v", &c) }},
 		{"json.Marshal value", func() string {
-			b, err := json.Marshal(newCfg())
+			b, err := json.Marshal(newCfg()) //nolint:gosec // G117: this test asserts that marshaling THIS field redacts it — flagging the marshal call names the method, not a defect
 			if err != nil {
 				t.Fatalf("json.Marshal(value) returned error: %v", err)
 			}
@@ -173,7 +173,7 @@ func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
 		}},
 		{"json.Marshal pointer", func() string {
 			c := newCfg()
-			b, err := json.Marshal(&c)
+			b, err := json.Marshal(&c) //nolint:gosec // G117: same as above, pointer variant
 			if err != nil {
 				t.Fatalf("json.Marshal(pointer) returned error: %v", err)
 			}

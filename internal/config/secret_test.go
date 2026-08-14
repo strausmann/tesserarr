@@ -15,7 +15,7 @@ func TestSecretRedactsAcrossFormattingPaths(t *testing.T) {
 	cases := map[string]string{
 		"%v":         fmt.Sprintf("%v", s),
 		"%+v":        fmt.Sprintf("%+v", s),
-		"%s":         fmt.Sprintf("%s", s),
+		"%s":         fmt.Sprintf("%s", s), //nolint:staticcheck // S1025: the point of this case is that the %s path THROUGH fmt redacts, not that String() itself returns redacted — calling s.String() directly would skip the fmt.Sprintf dispatch this test exists to verify
 		"%q":         fmt.Sprintf("%q", s),
 		"%#v":        fmt.Sprintf("%#v", s),
 		"pointer %v": fmt.Sprintf("%v", &s),
