@@ -22,13 +22,22 @@ Alle Kennungen beziehen sich auf den Integrationszweig `feat/0.0.1-geruest` im K
 | zusätzlich — API-Token-Speicher | `9b257f2` | die zweite, unabhängige Schranke |
 | zusätzlich — `MiddlewarePublic` | `f12c297`, `14dbca4` | ausdrückliche Liste; `MiddlewareNone` abgeschafft |
 | zusätzlich — Erstinbetriebnahme | `11a727c` | Weg zur allerersten Einladung |
+| **Anmeldung an HTTP angebunden** (Lücke aus Aufgabe 5) | zwei Zusammenführungen von `rlogin/b-login` | vier Endpunkte; man kann sich jetzt tatsächlich anmelden |
+| zusätzlich — Doku-Prüfung Zensical | `d4415a6` | Startseiten-Mechanismus vierfach belegt widerlegt |
+| zusätzlich — Wissensspeicher-Übertrag | Bericht `64460a3` im Verwaltungsrepo | 15 Dokumente geprüft, 2 geschrieben |
 
 ## Läuft gerade
 
 | Was | Bearbeiter | Arbeitsbereich |
 |---|---|---|
-| Anmeldung an HTTP anbinden (Lücke aus Aufgabe 5) | `impl-login` | `/opt/repos/tesserarr-b-login`, Zweig `b-login` |
 | Aufgabe 7, Schritte 1–2 (Oberfläche + Einbetten + Vitest) | `impl-ui` | `/opt/repos/tesserarr-b-ui`, Zweig `b-ui` |
+
+## Beim Zusammenführen von `b-ui` beachten
+
+`router.go` wurde seit dessen Abzweig **zweimal** verändert (Abschaffung `MiddlewareNone`, vier
+Anmelde-Registrierungen). `b-ui` fasst die Datei auftragsgemäss **nicht** an, der Konflikt ist also
+unwahrscheinlich — aber die anschliessenden Schritte 3–4 (Ausliefern der eingebetteten Dateien)
+gehen genau dort hinein. Erst zusammenführen, dann verdrahten.
 
 ## Offen
 
