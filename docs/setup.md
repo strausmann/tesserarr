@@ -69,6 +69,18 @@ Bring it up:
 docker compose -f deploy/compose.yaml up -d
 ```
 
+!!! warning "Tesserarr will not start if it cannot reach the OIDC provider"
+
+    On startup Tesserarr discovers the provider named in
+    `TESSERARR_OIDC_ISSUER_URL` — one request for its
+    `.well-known/openid-configuration` document. If that request fails (wrong
+    URL, provider down, no network path from the container to it), Tesserarr
+    exits immediately rather than come up without a working sign-in. If
+    `docker compose ps` shows the container restarting instead of `healthy`
+    right after `up -d`, check the container logs for that discovery error
+    first — `TESSERARR_OIDC_ISSUER_URL` is the first thing to check, not the
+    database or the network the compose file itself sets up.
+
 ## Sign in
 
 Point your browser at `TESSERARR_BASE_URL`. You're redirected to your OIDC
