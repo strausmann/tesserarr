@@ -64,6 +64,12 @@ type OIDCConfig struct {
 	// readable display name on first login; the identity match itself
 	// always uses the subject, never the email).
 	Scopes []string
+	// DefaultRole is written into a brand-new user's role column at
+	// creation — see internal/identity/role.go and
+	// docs/superpowers/specs/2026-08-14-tesserarr-forward-auth-design.md,
+	// "Rollen". Applies to every new user regardless of login mechanism:
+	// the role system is not forward-auth-specific.
+	DefaultRole string
 }
 
 // ErrLoginStateInvalid is returned by Callback for every reason its state
@@ -93,11 +99,12 @@ var ErrUnknownIdentityWithoutInvite = errors.New("identity: unknown oidc identit
 // subject (ADR-0004) — and hands back a freshly created, rotated session
 // token (ADR-0007: the browser gets a session, never a provider token).
 type OIDCLogin struct {
-	db       *sql.DB
-	sessions *SessionStore
-	oauth    oauth2.Config
-	verifier *oidc.IDTokenVerifier
-	attempts *loginAttemptStore
+	db          *sql.DB
+	sessions    *SessionStore
+	oauth       oauth2.Config
+	verifier    *oidc.IDTokenVerifier
+	attempts    *loginAttemptStore
+	defaultRole string
 }
 
 // NewOIDCLogin discovers cfg.IssuerURL's endpoints and builds an OIDCLogin
@@ -125,8 +132,9 @@ func NewOIDCLogin(ctx context.Context, db *sql.DB, sessions *SessionStore, cfg O
 			Endpoint:     provider.Endpoint(),
 			Scopes:       scopes,
 		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		attempts: newLoginAttemptStore(),
+		verifier:    provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		attempts:    newLoginAttemptStore(),
+		defaultRole: cfg.DefaultRole,
 	}, nil
 }
 
@@ -277,8 +285,8 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(
-		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
-		userID, displayName(email, subject), now,
+		`INSERT INTO users (id, display_name, created_at, email, role) VALUES (?, ?, ?, ?, ?)`,
+		userID, displayName(email, subject), now, nullable(email), o.defaultRole,
 	); err != nil {
 		_ = tx.Rollback()
 		return "", fmt.Errorf("identity: create user: %w", err)
