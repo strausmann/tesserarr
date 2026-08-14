@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/strausmann/tesserarr/internal/api"
 	"github.com/strausmann/tesserarr/internal/invite"
 	"github.com/strausmann/tesserarr/internal/store"
 )
@@ -42,7 +43,7 @@ func TestCreateInvitePrintsTokenAndRedeemLink(t *testing.T) {
 	db := newTestDB(t)
 	var out bytes.Buffer
 
-	if err := createInvite(db, "https://tesserarr.example.org", 0, &out); err != nil {
+	if err := createInvite(db, "https://tesserarr.example.org", 0, false, &out); err != nil {
 		t.Fatalf("createInvite() returned error: %v", err)
 	}
 
@@ -61,7 +62,7 @@ func TestCreateInviteTrimsTrailingSlashFromBaseURL(t *testing.T) {
 	db := newTestDB(t)
 	var out bytes.Buffer
 
-	if err := createInvite(db, "https://tesserarr.example.org/", 0, &out); err != nil {
+	if err := createInvite(db, "https://tesserarr.example.org/", 0, false, &out); err != nil {
 		t.Fatalf("createInvite() returned error: %v", err)
 	}
 
@@ -74,7 +75,7 @@ func TestCreateInviteMintedTokenIsRedeemable(t *testing.T) {
 	db := newTestDB(t)
 	var out bytes.Buffer
 
-	if err := createInvite(db, "https://tesserarr.example.org", 0, &out); err != nil {
+	if err := createInvite(db, "https://tesserarr.example.org", 0, false, &out); err != nil {
 		t.Fatalf("createInvite() returned error: %v", err)
 	}
 	token := tokenFromOutput(t, out.String())
@@ -107,7 +108,7 @@ func TestCreateInviteForwardsTTL(t *testing.T) {
 	// sub-second component createInvite's own before/after would otherwise
 	// still carry.
 	before := time.Now().UTC().Truncate(time.Second)
-	if err := createInvite(db, "https://tesserarr.example.org", ttl, &out); err != nil {
+	if err := createInvite(db, "https://tesserarr.example.org", ttl, false, &out); err != nil {
 		t.Fatalf("createInvite() returned error: %v", err)
 	}
 	after := time.Now().UTC().Truncate(time.Second).Add(time.Second)
@@ -144,5 +145,33 @@ func TestRunInviteRejectsUnknownSubcommand(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "bogus") {
 		t.Errorf("error = %q, want it to mention the unknown subcommand %q", err.Error(), "bogus")
+	}
+}
+
+func TestCreateInvitePrintsForwardAuthLinkWhenEnabled(t *testing.T) {
+	db := newTestDB(t)
+	var out bytes.Buffer
+
+	if err := createInvite(db, "https://tesserarr.example.org", 0, true, &out); err != nil {
+		t.Fatalf("createInvite() returned error: %v", err)
+	}
+
+	token := tokenFromOutput(t, out.String())
+	wantLink := "redeem link (forward-auth): https://tesserarr.example.org" + api.LoginForwardAuthPath + "?invite=" + token
+	if !strings.Contains(out.String(), wantLink) {
+		t.Errorf("output = %q, want a line containing %q", out.String(), wantLink)
+	}
+}
+
+func TestCreateInviteOmitsForwardAuthLinkWhenDisabled(t *testing.T) {
+	db := newTestDB(t)
+	var out bytes.Buffer
+
+	if err := createInvite(db, "https://tesserarr.example.org", 0, false, &out); err != nil {
+		t.Fatalf("createInvite() returned error: %v", err)
+	}
+
+	if strings.Contains(out.String(), "forward-auth") {
+		t.Errorf("output = %q, must not mention forward-auth when it is disabled", out.String())
 	}
 }

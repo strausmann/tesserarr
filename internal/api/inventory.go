@@ -47,6 +47,10 @@ var publicPaths = []publicPath{
 		why:  "the provider redirects back here with no session cookie of its own — that is the entire reason a login exists",
 	},
 	{
+		path: LoginForwardAuthPath,
+		why:  "the guard's headers ARE the credential here — there is no session yet to check, mirroring LoginOIDCPath",
+	},
+	{
 		// Deliberately prefix: false (the default) — NOT the "/invite/"
 		// treatment above. This entry is checked against exactly one
 		// registered route's OWN pattern string ("/", see static.go and

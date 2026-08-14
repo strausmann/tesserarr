@@ -210,7 +210,7 @@ func runInviteCreate(args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	return createInvite(st.DB(), cfg.BaseURL, *ttl, os.Stdout)
+	return createInvite(st.DB(), cfg.BaseURL, *ttl, cfg.ForwardAuthEnabled, os.Stdout)
 }
 
 // createInvite mints one invitation and writes the plaintext token and the
@@ -227,18 +227,30 @@ func runInviteCreate(args []string) error {
 // It is split out from runInviteCreate so it can be tested against a
 // temporary, migrated database without going through config.Load (which
 // reads real process environment variables) — see main_test.go.
-func createInvite(db *sql.DB, baseURL string, ttl time.Duration, out io.Writer) error {
+//
+// forwardAuthEnabled controls whether a SECOND link — one that redeems the
+// same token through LoginForwardAuthPath instead of the OIDC redeem flow —
+// is printed alongside the ordinary one. Passed in rather than read from
+// config here, for the same testability reason ttl and baseURL already are:
+// main_test.go exercises both the true and false case directly, without a
+// real forward-auth configuration.
+func createInvite(db *sql.DB, baseURL string, ttl time.Duration, forwardAuthEnabled bool, out io.Writer) error {
 	token, err := invite.Create(db, ttl)
 	if err != nil {
 		return fmt.Errorf("create invite: %w", err)
 	}
 
-	link := strings.TrimRight(baseURL, "/") + "/invite/" + token
+	base := strings.TrimRight(baseURL, "/")
+	link := base + "/invite/" + token
 	// Errors from writing to out are deliberately ignored: out is the
 	// caller's stdout (see runInviteCreate), and there is no more-honest
 	// place left to report a broken stdout to.
 	_, _ = fmt.Fprintf(out, "token:       %s\n", token)
 	_, _ = fmt.Fprintf(out, "redeem link: %s\n", link)
+	if forwardAuthEnabled {
+		forwardAuthLink := base + api.LoginForwardAuthPath + "?invite=" + token
+		_, _ = fmt.Fprintf(out, "redeem link (forward-auth): %s\n", forwardAuthLink)
+	}
 	_, _ = fmt.Fprintln(out, "Until it is redeemed, this link IS the credential — hand it to your friend over a channel you trust, not a public one.")
 	return nil
 }

@@ -288,3 +288,24 @@ func TestInventoryReportsHostPrefixedPatternAccurately(t *testing.T) {
 		}
 	}
 }
+
+// TestInventoryAcceptsForwardAuthLoginOnPublicAllowList and
+// TestInventoryRejectsForwardAuthLoginWithoutPublicMiddleware guard the
+// forward-auth entry path's own publicPaths entry (see forward_auth.go)
+// exactly the way the OIDC login path's own pair of tests above guards
+// LoginOIDCPath — there is deliberately no session yet to check for either.
+func TestInventoryAcceptsForwardAuthLoginOnPublicAllowList(t *testing.T) {
+	routes := []Route{{Pattern: LoginForwardAuthPath, Middleware: MiddlewarePublic}}
+
+	if errs := CheckInventory(routes); len(errs) != 0 {
+		t.Errorf("CheckInventory() reported %d problems, want none: %v", len(errs), errs)
+	}
+}
+
+func TestInventoryRejectsForwardAuthLoginWithoutPublicMiddleware(t *testing.T) {
+	routes := []Route{{Pattern: LoginForwardAuthPath, Middleware: MiddlewareSession}}
+
+	if errs := CheckInventory(routes); len(errs) == 0 {
+		t.Fatal("CheckInventory() reported no problem for the forward-auth login route without public middleware")
+	}
+}
