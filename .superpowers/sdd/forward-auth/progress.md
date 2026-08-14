@@ -10,9 +10,9 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
 
 | # | Was | Stand |
 |---|---|---|
-| 1 | Konfiguration: Schalter, Voreinstellungen, Rollen-Zuordnung | offen |
-| 2 | Vertrauenspruefung: Quell-IP und gemeinsames Geheimnis | offen |
-| 3 | Rollen-Aufloesung (reine Logik) | offen |
+| 1 | Konfiguration: Schalter, Voreinstellungen, Rollen-Zuordnung | **fertig**, zusammengefuehrt |
+| 2 | Vertrauenspruefung: Quell-IP und gemeinsames Geheimnis | **fertig**, zusammengefuehrt |
+| 3 | Rollen-Aufloesung (reine Logik) | laeuft (`fa-3-roles`) |
 | 4 | Migration + `identity.ForwardAuthLogin` | offen |
 | 5 | HTTP-Eintrittspfad | offen |
 | 6 | API-Token: Ablauf und Widerruf | offen |
@@ -21,7 +21,7 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
 | 9 | Kontoansicht Oberflaeche | offen |
 | 10 | Kommandozeile: `user remap`, `user promote` | offen |
 | 11 | Einrichtungs-Doku je Portal | offen |
-| 12 | ADR-0010 | offen |
+| 12 | ADR-0010 | laeuft (`fa-12-adr`) |
 | 13 | Abschlusspruefung | offen |
 
 ## Regeln fuer diesen Lauf
@@ -30,3 +30,18 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
 - Jeder Test einmal gegen die Fassung **ohne** den jeweiligen Schutz stellen; bleibt er gruen,
   ist das ein Ergebnis und wird gemeldet
 - Nicht selbst zusammenfuehren — die Freigabe bleibt beim Auftraggeber
+
+## Befunde, die nicht verlorengehen duerfen
+
+- **Wanderungsschritte duerfen nicht ausser der Reihe landen.** `store.go` verweigert eine
+  Wanderung, deren Nummer niedriger ist als die hoechste bereits angewandte. Aufgabe 6 (0005) darf
+  deshalb **nicht** vor Aufgabe 4 (0004) zusammengefuehrt werden -- sonst wird 0004 auf jeder
+  laufenden Instanz abgewiesen. **Keine Parallelisierung ueber Wanderungsschritte hinweg.**
+- **Ein `bool`-Feld auf `Config` bricht `go vet` bei `%q` auf dem Struct** -- vet prueft rekursiv,
+  ob jedes Feld quotierbar ist. Nicht mit `//nolint` zu erschlagen, weil CI `go vet` als eigenen
+  harten Schritt faehrt. Die `%q`-Faelle auf dem Struct sind entfallen; `%q` auf dem
+  Geheimnis-Typ selbst bleibt in `secret_test.go` geprueft.
+- **Die Commit-Nachrichten im Plan waren deutsch**, das Repo ist englisch. 17 im Plan korrigiert,
+  die drei von Aufgabe 1 bewusst stehengelassen (die zugehoerigen Commits existieren bereits).
+- **Der Commit-Haken haengt am Wurzel-`package.json`**, nicht an `web/`. Wer nur dort installiert,
+  committet ungeprueft.
