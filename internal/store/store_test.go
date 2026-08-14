@@ -8,6 +8,13 @@ import (
 	"testing/fstest"
 )
 
+// wantSchemaVersion is the number of migration files actually embedded under
+// migrations/ right now (0001_initial.sql, 0002_sessions.sql, ...). It is a
+// single named constant, not a literal repeated in every test below, so
+// adding the next migration only means updating this one line rather than
+// hunting down every hardcoded expectation across the file.
+const wantSchemaVersion = 2
+
 func TestOpenCreatesSchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
@@ -21,8 +28,8 @@ func TestOpenCreatesSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() returned error: %v", err)
 	}
-	if version != 1 {
-		t.Errorf("SchemaVersion() = %d, want 1", version)
+	if version != wantSchemaVersion {
+		t.Errorf("SchemaVersion() = %d, want %d", version, wantSchemaVersion)
 	}
 }
 
@@ -47,8 +54,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() returned error: %v", err)
 	}
-	if version != 1 {
-		t.Errorf("SchemaVersion() after reopen = %d, want 1", version)
+	if version != wantSchemaVersion {
+		t.Errorf("SchemaVersion() after reopen = %d, want %d", version, wantSchemaVersion)
 	}
 }
 
