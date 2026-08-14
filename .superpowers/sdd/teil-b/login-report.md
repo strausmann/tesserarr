@@ -161,6 +161,72 @@ bestehen — er ist nicht falsch, nur nicht mehr die einzige Quelle.
 Erneut vollständig geprüft (Bau, `vet`, `gofmt`, `golangci-lint` 0 Befunde, `go test ./... -race`
 grün über alle acht Pakete, Abdeckungs-Schranken erfüllt, `commitlint` auf dem neuen Commit).
 
+## Nachtrag 3: Oberfläche ausliefern, falsche Pfad-Annahme geraderücken
+
+`git pull work feat/0.0.1-geruest` (`786770c..ceb7e38`, Schnelllauf) — die Oberfläche (`web/`,
+`internal/web/`) war eingebaut, Aufgabe 7 Schritte 3–4 waren absichtlich offen gelassen, damit
+zwei parallele Bearbeiter nicht in `router.go` kollidieren.
+
+**Falsche Annahme in `web/src/lib/auth-links.ts`**: Der Oberflächen-Bearbeiter hatte `/auth/login`
+und `/auth/callback` **außerhalb** von `/api/v1` vermutet — analog zu `/invite/`, ausdrücklich als
+Annahme markiert. Tatsächlich liegen beide Endpunkte unter `/api/v1/app/login/oidc`, mit
+`MiddlewarePublic` statt `MiddlewareSession` — ein Pfad kann öffentlich sein und trotzdem unter
+dem Sitzungspräfix liegen, das eine folgt aus dem anderen nicht. Angeglichen: die Oberfläche folgt
+dem Code. `page.test.tsx` prüft den Link-`href` gegen die Konstante `LOGIN_START_URL`, nicht gegen
+einen wörtlichen Pfad — blieb dadurch grün, ohne selbst geändert zu werden (Vitest-Suite erneut
+vollständig gelaufen: 34 Tests, unveränderte Abdeckung 100/97,67/100/100).
+
+**Kein fachlicher Einwand nötig** — die Alternative (Anmeldung bewusst außerhalb `/api/v1`) wäre
+eine Entwurfsentscheidung für dich gewesen, aber die vorhandene Platzierung unter
+`/api/v1/app/login/oidc` mit `MiddlewarePublic` ist bereits stimmig mit dem bestehenden Muster
+(`publicPaths`-Positivliste) — kein Grund, sie infrage zu stellen.
+
+**Ausliefern der eingebetteten Dateien** (`internal/api/static.go`, neu): `newStaticHandler`
+kapselt `http.FileServerFS` um genau eine Ergänzung — ein unbekannter Pfad bekommt die **eigene**
+kompilierte `404.html` der Oberfläche bei Status 404, nicht die Katalogseite bei 200. Begründung:
+diese Anwendung ist drei getrennt gebaute statische Seiten (`trailingSlash: true`), kein
+client-geroutetes Ein-Seiten-Programm, bei dem ein unbekannter Pfad noch von einem
+Browser-Router aufgelöst werden könnte — die Katalogseite an einer fremden Adresse auszuliefern
+würde nur ihre eigene Logik (Sitzungsprüfung, Weiterleitung) an der falschen Stelle auslösen.
+
+Registriert als `"/"` — die unspezifischste Route, die `net/http.ServeMux` kennt. Kein
+Verschluckungsrisiko: jede andere Route ist spezifischer, und der Mux löst immer zur
+spezifischsten passenden Route auf, unabhängig von der Registrierungsreihenfolge.
+`TestStaticRouteDoesNotShadowAPIRoutes` hält genau das fest, nicht nur implizit über bestehende
+Tests. In `inventory.go` ein neuer `publicPaths`-Eintrag für `"/"` — **bewusst `prefix: false`**,
+anders als der bestehende `/invite/`-Eintrag: `isPublicPath` sieht nur die EINE registrierte
+Route-Pattern-Zeichenkette `"/"`, nie eine eingehende Anfrage-URL — ein Präfix-Eintrag hier wäre
+gefährlich gewesen (jeder Pfad beginnt mit `"/"`, also hätte `isPublicPath` plötzlich JEDE andere
+Route ebenfalls getroffen und `MiddlewarePublic` für sitzungs-/token-geprüfte Routen verlangt).
+Ausführlich im Code kommentiert, genau an der Stelle.
+
+**Handprobe — ehrlich, mit Grenze:** Kein registrierter OIDC-Client verfügbar in dieser Umgebung.
+Statt die Probe deshalb auszulassen: lokalen Server gegen den echten, öffentlichen
+Google-Discovery-Endpunkt (`https://accounts.google.com`) gestartet, mit einer erfundenen
+Client-Kennung. Per Playwright im echten Browser: `/` → Weiterleitung zu `/login/` (Sitzungsprüfung
+schlägt korrekt mit 401 fehl, wie erwartet für einen nicht angemeldeten Besucher) → Klick auf
+„Continue to sign in" → **landet tatsächlich bei Google**, mit korrekt gebildeten Parametern
+(`client_id`, `code_challenge`, `redirect_uri=http://127.0.0.1:8099/api/v1/app/login/oidc/callback`,
+`state`) → Googles echte Fehlerseite „Error 401: invalid_client" (erwartet — die Client-Kennung ist
+nicht real registriert). Das beweist: DNS/TLS/Netzwerk bis zum echten Anbieter funktionieren, die
+Weiterleitung ist korrekt geformt. **Was NICHT geprüft wurde**: der vollständige Rundlauf
+(Anmeldung abschließen, Rückruf, Cookie setzen) — dafür fehlt ein echter, registrierter
+OIDC-Client. Zusätzlich: unbekannter Pfad im Browser aufgerufen → Status 404, eigene `404.html`
+angezeigt (Titel „Tesserarr"), wie vorgesehen. Vollständiger Drei-Stufen-`docker build -f
+deploy/Dockerfile .` einmal komplett durchgebaut (57,9 s Node-Stufe, 86,6 s Go-Stufe, Abbild danach
+entfernt) — zusätzlich zur Handprobe, nicht als Ersatz dafür.
+
+Zwei Nebenfunde bereinigt, nicht committet: `next build` hatte `web/next-env.d.ts` und
+`web/tsconfig.json` automatisch umformatiert (Next-16-Werkzeug-Nebenwirkung, keine inhaltliche
+Änderung mit Bezug zu dieser Aufgabe) — beide vor dem Commit zurückgesetzt.
+
+Zwei neue Commits: `feat(api): serve the embedded web interface at "/"` (Go-Seite komplett:
+`static.go`, `static_test.go`, `router.go`, `router_test.go`, `inventory.go`) und `fix(web): point
+login links at the real oidc routes` (`auth-links.ts`). Erneut vollständig geprüft: Bau, `vet`,
+`gofmt`, `golangci-lint` (0 Befunde, eigener `GOLANGCI_LINT_CACHE`), `go test ./... -race` grün
+über alle neun Pakete (`internal/web` jetzt mit dabei, 100 % Abdeckung, Schranke 60 %),
+`docker compose config --quiet` für alle fünf Vorlagen, `commitlint` auf beiden Commits.
+
 ## Commits
 
 1. `feat(config): require oidc provider settings`
@@ -172,14 +238,19 @@ grün über alle acht Pakete, Abdeckungs-Schranken erfüllt, `commitlint` auf de
 7. `docs(setup): document the provider-unreachable startup failure`
 8. `docs(sdd): record the follow-up from the review message`
 9. `fix(api): mint the csrf cookie together with the session cookie`
+10. `docs(sdd): record the csrf-cookie fix in the login report`
+11. `feat(api): serve the embedded web interface at "/"`
+12. `fix(web): point login links at the real oidc routes`
 
 ## Offen / für die Zusammenführung
 
 - Zweig `b-login` in `/opt/repos/tesserarr-b-login`, **nicht gepusht** — Anweisung war
-  ausdrücklich, nicht zu pushen. Auf `git pull work feat/0.0.1-geruest` gebracht (Schnelllauf,
-  `4832094..786770c`), bevor der Fälschungsschutz-Nachtrag begann — der Integrationsstand von
-  `b-login` selbst war zu diesem Zeitpunkt bereits eingebaut.
-- Aufgabe 7 (Oberfläche) läuft parallel auf `b-ui`; deren Schritte 3–4 (Ausliefern der
-  eingebetteten Dateien, Handprobe) sind laut Baustellenbuch bewusst zurückgestellt, um nicht in
-  `router.go` zu kollidieren — dieser Zweig hat `router.go` inzwischen ein weiteres Mal
-  verändert (vier neue Registrierungen), das ist beim Zusammenführen von `b-ui` zu beachten.
+  ausdrücklich, nicht zu pushen. Zuletzt auf `git pull work feat/0.0.1-geruest` gebracht
+  (`786770c..ceb7e38`).
+- Aufgabe 7 Schritte 3–4 (Ausliefern der eingebetteten Dateien, Handprobe) sind mit diesem
+  Nachtrag erledigt — Aufgabe 7 ist damit vollständig.
+- **Offen bleibt Aufgabe 8** (Playwright-Oberflächenprüfung als hartes Tor, sieben Prüfungen,
+  Skill `ui-verification`) — ausdrücklich NICHT Teil dieser Aufgabe, setzt nur Aufgabe 7 voraus,
+  die jetzt erfüllt ist.
+- `router.go` trägt jetzt acht registrierte Routen (sieben aus den vorigen Nachträgen plus `"/"`)
+  — relevant für jeden weiteren Zweig, der dieselbe Datei anfasst.
