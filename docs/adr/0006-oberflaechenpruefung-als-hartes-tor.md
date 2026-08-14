@@ -6,7 +6,7 @@
 **Ersetzt durch:** —
 **Überarbeitet:** —
 **Überarbeitet durch:** —
-**Verwandt:** [ADR-0005](0005-go-kern-getrennte-oberflaeche-gemeinsames-abbild.md)
+**Verwandt:** [ADR-0005](0005-go-kern-getrennte-oberflaeche-gemeinsames-abbild.md), [ADR-0011](0011-design-system-werkstatt.md)
 
 ## Kontext
 
