@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -189,14 +190,20 @@ func TestRunUserRejectsUnknownSubcommand(t *testing.T) {
 	}
 }
 
+// errUsage, not just "err != nil": config.Load also fails in this test
+// process (no TESSERARR_BASE_URL set), so a deleted argument-count guard
+// still returns SOME error — errors.Is is what actually tells the guard
+// apart from that unrelated later failure. See errUsage's doc comment.
 func TestRunUserRemapRejectsWrongArgumentCount(t *testing.T) {
-	if err := runUser([]string{"remap", "only-one-arg"}); err == nil {
-		t.Fatal("runUser([\"remap\", \"only-one-arg\"]) returned nil error, want a usage error")
+	err := runUser([]string{"remap", "only-one-arg"})
+	if !errors.Is(err, errUsage) {
+		t.Fatalf("runUser([\"remap\", \"only-one-arg\"]) error = %v, want errors.Is(err, errUsage)", err)
 	}
 }
 
 func TestRunUserPromoteRejectsWrongArgumentCount(t *testing.T) {
-	if err := runUser([]string{"promote", "only-one-arg"}); err == nil {
-		t.Fatal("runUser([\"promote\", \"only-one-arg\"]) returned nil error, want a usage error")
+	err := runUser([]string{"promote", "only-one-arg"})
+	if !errors.Is(err, errUsage) {
+		t.Fatalf("runUser([\"promote\", \"only-one-arg\"]) error = %v, want errors.Is(err, errUsage)", err)
 	}
 }
