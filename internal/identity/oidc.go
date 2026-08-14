@@ -246,15 +246,28 @@ func lookupIdentity(db *sql.DB, provider, subject string) (string, error) {
 }
 
 // createUserFromInvite mints a brand-new user for a provider subject
-// Tesserarr has never seen, binds the confirmed identity to it, and then
-// redeems inviteToken against that user — in that order, because
-// invite.Redeem's redeemed_by foreign key requires the user row to already
-// exist.
+// Tesserarr has never seen, binds the confirmed identity to it, and redeems
+// inviteToken against that user — all three in the SAME transaction, so a
+// rejected redemption rolls back the whole thing atomically instead of
+// relying on a separate, best-effort compensating cleanup.
 //
-// If redemption fails, the user (and, via ON DELETE CASCADE, its identity
-// row) is removed again: without a successfully redeemed invitation there
-// is no authorization for this person to exist as a Tesserarr user at all
-// (ADR-0004), so a rejected redemption must never leave one behind.
+// This used to be two steps: commit the INSERTs, then call invite.Redeem
+// separately, and on failure attempt a single, unretried
+// `DELETE FROM users` whose own error was discarded. Security audit run-1
+// ("Invite-gate bypass: an untransacted compensating DELETE can leave a
+// permanent, never-actually-redeemed account if it fails to run") found
+// the gap: if that DELETE never ran (a process crash landing in the
+// narrow window between the commit and the DELETE) or itself failed (a
+// transient DB error), the previously committed user row survived
+// permanently — an account that existed without ever actually redeeming an
+// invitation, a direct violation of ADR-0004's "invitation is the only
+// door in" model that resolveUser's known-subject shortcut would then
+// honor on every future login for the same subject, with no further
+// check. invite.Redeem's underlying operation is already a single atomic
+// UPDATE (see its own comment); running it inside this transaction, before
+// commit, needs no separate cleanup at all — a rejected redemption is
+// undone by the same tx.Rollback() that already handles the INSERT
+// failures below.
 func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (string, error) {
 	userID := newUserID()
 
@@ -277,22 +290,18 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 		_ = tx.Rollback()
 		return "", fmt.Errorf("identity: bind oidc identity: %w", err)
 	}
+	if err := invite.Redeem(tx, inviteToken, userID); err != nil {
+		_ = tx.Rollback()
+		// The invite package's specific reason is wrapped alongside
+		// ErrUnknownIdentityWithoutInvite (Go 1.20+ supports more than one
+		// %w) purely for logs and errors.Is-based diagnostics — it changes
+		// nothing about what an eventual HTTP layer exposes externally,
+		// since that layer only ever sees "Callback returned a non-nil
+		// error", not which one.
+		return "", fmt.Errorf("%w (redeeming invite: %w)", ErrUnknownIdentityWithoutInvite, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("identity: commit user creation: %w", err)
-	}
-
-	if err := invite.Redeem(o.db, inviteToken, userID); err != nil {
-		// Best effort, and deliberately not itself the returned error: if
-		// this cleanup fails, an orphaned unauthorized user is a bug to
-		// find and fix, not a reason to hide why the login was actually
-		// rejected behind a cleanup error instead. The invite package's
-		// specific reason is wrapped alongside ErrUnknownIdentityWithoutInvite
-		// (Go 1.20+ supports more than one %w) purely for logs and
-		// errors.Is-based diagnostics — it changes nothing about what an
-		// eventual HTTP layer exposes externally, since that layer only
-		// ever sees "Callback returned a non-nil error", not which one.
-		_, _ = o.db.Exec(`DELETE FROM users WHERE id = ?`, userID)
-		return "", fmt.Errorf("%w (redeeming invite: %w)", ErrUnknownIdentityWithoutInvite, err)
 	}
 	return userID, nil
 }

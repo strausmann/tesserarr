@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,22 @@ func findSetCookie(resp *http.Response, name string) *http.Cookie {
 	return nil
 }
 
+// attachOAuthStateCookie copies the oauth-state cookie beginResp (the
+// response to a GET LoginOIDCPath or GET /invite/{token} request) carries
+// onto req — what a real browser does on its own, and what every test from
+// here on that completes a full login round trip has to do explicitly to
+// simulate "the same browser that started the flow" now that
+// handleLoginOIDCCallback checks this cookie (see oauthStateCookieName's
+// own comment).
+func attachOAuthStateCookie(t *testing.T, req *http.Request, beginResp *http.Response) {
+	t.Helper()
+	cookie := findSetCookie(beginResp, oauthStateCookieName)
+	if cookie == nil {
+		t.Fatal("begin response carries no oauth-state cookie to attach")
+	}
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: cookie.Value}) //nolint:gosec // G124: see the comment on the AddCookie call in TestRequireCSRFRejectsMissingHeader (csrf_test.go)
+}
+
 // TestHandleLoginOIDCRedirectsToProviderWithState is the first half of the
 // brief: starting an ordinary login sends the browser to the provider with
 // a non-empty, single-use state value — the thing Callback later checks
@@ -86,10 +103,129 @@ func TestHandleLoginOIDCRedirectsToProviderWithState(t *testing.T) {
 	}
 }
 
+// TestHandleLoginOIDCSetsOAuthStateCookie is the setup half of the fix for
+// the login-CSRF finding (~/security-audit-skill/tesserarr/run-1/
+// findings.json, "OIDC login CSRF: state is not bound to the initiating
+// browser"): starting a login also binds the state value to THIS browser
+// via a cookie, so handleLoginOIDCCallback has something to check the
+// callback request against later.
+func TestHandleLoginOIDCSetsOAuthStateCookie(t *testing.T) {
+	a := newTestAPI(t)
+
+	req := httptest.NewRequest(http.MethodGet, LoginOIDCPath, nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+	loc, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse Location header: %v", err)
+	}
+	wantState := loc.Query().Get("state")
+	if wantState == "" {
+		t.Fatal("redirect URL carries no state parameter")
+	}
+
+	cookie := findSetCookie(rec.Result(), oauthStateCookieName)
+	if cookie == nil {
+		t.Fatal("response carries no oauth-state cookie")
+	}
+	if cookie.Value != wantState {
+		t.Errorf("oauth-state cookie value = %q, want %q (the same state as the redirect URL)", cookie.Value, wantState)
+	}
+	if !cookie.HttpOnly {
+		t.Error("oauth-state cookie is not HttpOnly")
+	}
+	if !cookie.Secure {
+		t.Error("oauth-state cookie is not Secure")
+	}
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("oauth-state cookie SameSite = %v, want %v — it must survive the cross-site top-level redirect back from the provider", cookie.SameSite, http.SameSiteLaxMode)
+	}
+}
+
+// TestHandleLoginOIDCCallbackRejectsStateFromDifferentBrowser is the attack
+// itself, reproduced directly: an attacker completes their OWN real login
+// round trip (steps 1-2 of the finding's instructions — indistinguishable
+// here from a legitimate completeFakeLogin call), obtains a genuine,
+// unconsumed (state, code) pair, and hands the resulting callback URL to a
+// victim. The victim's browser follows it as an ordinary top-level
+// navigation — carrying whatever cookies THAT browser already has, which
+// does not include the attacker's oauth-state cookie (a different browser
+// entirely, simulated here simply by never attaching it to this request).
+// Before the fix, identity.OIDCLogin.Callback would accept this state/code
+// pair regardless — it only checks "issued by us" and "unconsumed" — and
+// hand the victim's browser a session for the attacker's account. After
+// the fix, the missing state-binding cookie is caught before Callback is
+// ever invoked.
+func TestHandleLoginOIDCCallbackRejectsStateFromDifferentBrowser(t *testing.T) {
+	a := newTestAPI(t)
+	createTestUserWithOIDCIdentity(t, a, "attacker-user", "attacker-subject")
+
+	beginReq := httptest.NewRequest(http.MethodGet, LoginOIDCPath, nil)
+	beginRec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(beginRec, beginReq)
+	authURL := beginRec.Header().Get("Location")
+
+	// The attacker's own completed round trip — genuine state and code,
+	// never consumed yet.
+	state, code := completeFakeLogin(t, authURL, "attacker-subject")
+
+	// The victim's browser: a callback request carrying the captured
+	// state+code, but deliberately NO oauth-state cookie at all — exactly
+	// what a browser that never initiated this particular flow presents.
+	victimReq := httptest.NewRequest(http.MethodGet,
+		LoginOIDCCallbackPath+"?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	victimRec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(victimRec, victimReq)
+
+	if victimRec.Code == http.StatusFound {
+		t.Fatalf("status = %d, want a rejection — the victim's browser must not be logged into the attacker's account", victimRec.Code)
+	}
+	if cookie := findSetCookie(victimRec.Result(), a.cfg.SessionCookieName); cookie != nil {
+		t.Errorf("response carries a session cookie despite the missing state-binding cookie: %v", cookie)
+	}
+}
+
+// TestHandleLoginOIDCCallbackRejectsMismatchedStateCookie covers the other
+// half of the binding check: a legitimate browser that DOES carry an
+// oauth-state cookie, but whose value does not match the state in the
+// callback's own query string (e.g. a stale cookie left over from an
+// earlier, abandoned login attempt). The mismatch must be caught the same
+// way an entirely absent cookie is.
+func TestHandleLoginOIDCCallbackRejectsMismatchedStateCookie(t *testing.T) {
+	a := newTestAPI(t)
+	createTestUserWithOIDCIdentity(t, a, "user-1", "returning-subject")
+
+	beginReq := httptest.NewRequest(http.MethodGet, LoginOIDCPath, nil)
+	beginRec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(beginRec, beginReq)
+	authURL := beginRec.Header().Get("Location")
+
+	state, code := completeFakeLogin(t, authURL, "returning-subject")
+
+	req := httptest.NewRequest(http.MethodGet,
+		LoginOIDCCallbackPath+"?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "a-completely-different-state"}) //nolint:gosec // G124: see the comment on the AddCookie call in TestRequireCSRFRejectsMissingHeader (csrf_test.go)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusFound {
+		t.Fatalf("status = %d, want a rejection", rec.Code)
+	}
+	if cookie := findSetCookie(rec.Result(), a.cfg.SessionCookieName); cookie != nil {
+		t.Errorf("response carries a session cookie despite the mismatched state cookie: %v", cookie)
+	}
+}
+
 // TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie is the second
 // half: completing a login the provider redirected back from sets a
 // session cookie carrying every attribute ADR-0007 decision point 1
-// requires — HttpOnly, Secure, SameSite=Strict.
+// requires — HttpOnly, Secure, SameSite=Lax (see sessionCookie's own
+// comment for why Lax rather than Strict — TestSessionCookieUsesLaxNotStrict
+// below carries the full reasoning).
 func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	a := newTestAPI(t)
 	createTestUserWithOIDCIdentity(t, a, "user-1", "returning-subject")
@@ -103,6 +239,7 @@ func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 
 	callbackReq := httptest.NewRequest(http.MethodGet,
 		LoginOIDCCallbackPath+"?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	attachOAuthStateCookie(t, callbackReq, beginRec.Result())
 	callbackRec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(callbackRec, callbackReq)
 
@@ -120,8 +257,8 @@ func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	if !cookie.Secure {
 		t.Error("session cookie is not Secure")
 	}
-	if cookie.SameSite != http.SameSiteStrictMode {
-		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteStrictMode)
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteLaxMode)
 	}
 
 	userID, err := a.sessions.Lookup(cookie.Value)
@@ -130,6 +267,36 @@ func TestHandleLoginOIDCCallbackWithValidCodeSetsSessionCookie(t *testing.T) {
 	}
 	if userID != "user-1" {
 		t.Errorf("session resolved to user %q, want %q", userID, "user-1")
+	}
+}
+
+// TestSessionCookieUsesLaxNotStrict is a direct regression test for the
+// security audit finding (~/security-audit-skill/tesserarr/run-1/
+// findings.json, "Session cookie's SameSite=Strict prevents delivery on the
+// OIDC callback redirect, silently disabling the re-login
+// session-invalidation defense"). It fails on the code as audited (Strict)
+// and passes with the fix (Lax).
+//
+// What this test does NOT and cannot reproduce: the actual browser
+// behavior the finding is about. handleLoginOIDCCallback arrives via a
+// cross-site TOP-LEVEL redirect from an external OIDC provider — per RFC
+// 6265bis a real browser withholds a SameSite=Strict cookie on exactly that
+// kind of request, never a Lax one, but net/http's test client (used
+// throughout this file, including completeFakeLogin) does not model
+// SameSite enforcement at all: it always attaches whatever cookie a test
+// puts on the request, regardless of this attribute's value. Confirming
+// the SameSite attribute itself is set correctly is the closest this
+// package's test suite can get to that browser behavior — see
+// sessionCookie's own comment for the full mechanism this attribute value
+// closes (Rotate("", userID) silently deleting nothing when the prior
+// session cookie is withheld).
+func TestSessionCookieUsesLaxNotStrict(t *testing.T) {
+	a := newTestAPI(t)
+
+	cookie := a.sessionCookie("some-token", 0)
+
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteLaxMode)
 	}
 }
 
@@ -156,9 +323,13 @@ func TestHandleLoginOIDCCallbackAlsoMintsCSRFCookie(t *testing.T) {
 
 	// The callback request deliberately carries no CSRF cookie of its own —
 	// exactly the state a browser is in on its very first request after
-	// being redirected back from the provider.
+	// being redirected back from the provider. It DOES carry the
+	// oauth-state cookie the provider's own redirect would actually deliver
+	// (that one is set by BeginLogin, not by the CSRF machinery this test
+	// is about).
 	callbackReq := httptest.NewRequest(http.MethodGet,
 		LoginOIDCCallbackPath+"?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	attachOAuthStateCookie(t, callbackReq, beginRec.Result())
 	callbackRec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(callbackRec, callbackReq)
 
@@ -186,7 +357,10 @@ func TestHandleLoginOIDCCallbackAlsoMintsCSRFCookie(t *testing.T) {
 // the callback route rejects a forged or replayed state before setting any
 // cookie — and, following identity.OIDCLogin.Callback's own contract (see
 // ErrLoginStateInvalid), before the code the request carried is ever spent:
-// the real state and the very same code still work afterward.
+// the real state and the very same code still work afterward, when
+// resubmitted with the matching oauth-state cookie a genuine browser would
+// still be carrying (see TestHandleLoginOIDCCallbackRejectsMismatchedStateCookie
+// for the case where a browser carries the WRONG cookie rather than none).
 func TestHandleLoginOIDCCallbackWithWrongStateIsRejectedWithoutCookie(t *testing.T) {
 	a := newTestAPI(t)
 	createTestUserWithOIDCIdentity(t, a, "user-1", "returning-subject")
@@ -212,6 +386,7 @@ func TestHandleLoginOIDCCallbackWithWrongStateIsRejectedWithoutCookie(t *testing
 
 	realReq := httptest.NewRequest(http.MethodGet,
 		LoginOIDCCallbackPath+"?state="+url.QueryEscape(realState)+"&code="+url.QueryEscape(code), nil)
+	attachOAuthStateCookie(t, realReq, beginRec.Result())
 	realRec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(realRec, realReq)
 
@@ -276,6 +451,7 @@ func TestHandleInviteRedeemCarriesTheTokenThroughToSignup(t *testing.T) {
 
 	callbackReq := httptest.NewRequest(http.MethodGet,
 		LoginOIDCCallbackPath+"?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	attachOAuthStateCookie(t, callbackReq, redeemRec.Result())
 	callbackRec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(callbackRec, callbackReq)
 
@@ -314,6 +490,58 @@ func TestHandleInviteRedeemRejectsEmptyToken(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestHandleInviteRedeemRejectsOverlongToken reproduces the memory-
+// exhaustion finding from the security audit
+// (~/security-audit-skill/tesserarr/run-1/findings.json, "Unauthenticated
+// memory-exhaustion DoS via unbounded invite-token amplification"): without
+// a length cap, an unauthenticated caller can drive a near-1-MiB path
+// segment (Go's own http.Server default MaxHeaderBytes is the only prior
+// limit) all the way into identity.OIDCLogin.BeginLogin, which retains it
+// verbatim in the in-process loginAttemptStore for a full 10-minute TTL —
+// measured at ~4,100x amplification and 474 MB of real RSS growth from 300
+// single-connection requests in 14.5 seconds. Real invite tokens are a
+// fixed 32-byte-hex (64 characters); maxInviteTokenLen leaves generous
+// headroom without opening the amplification path at all.
+func TestHandleInviteRedeemRejectsOverlongToken(t *testing.T) {
+	a := newTestAPI(t)
+
+	overlong := strings.Repeat("a", maxInviteTokenLen+1)
+	req := httptest.NewRequest(http.MethodGet, "/invite/"+overlong, nil)
+	req.SetPathValue("token", overlong)
+	rec := httptest.NewRecorder()
+	a.handleInviteRedeem(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestHandleInviteRedeemAcceptsTokenAtTheLengthLimit is the boundary case
+// TestHandleInviteRedeemRejectsOverlongToken's ">" needs alongside it: a
+// real 64-character token — well within maxInviteTokenLen — must still
+// redirect normally. Exercised through the real route (not called
+// directly), so it also proves ServeMux's {token} wildcard still delivers
+// an ordinary invite token to the handler with the length check in place.
+func TestHandleInviteRedeemAcceptsTokenAtTheLengthLimit(t *testing.T) {
+	a := newTestAPI(t)
+
+	token, err := invite.Create(a.store.DB(), 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	if len(token) > maxInviteTokenLen {
+		t.Fatalf("test fixture assumption broken: invite.Create() token is %d bytes, want <= %d", len(token), maxInviteTokenLen)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/invite/"+token, nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
 }
 
