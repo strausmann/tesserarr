@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/strausmann/tesserarr/internal/apitoken"
 	"github.com/strausmann/tesserarr/internal/config"
 	"github.com/strausmann/tesserarr/internal/identity"
 	"github.com/strausmann/tesserarr/internal/store"
@@ -73,20 +74,22 @@ type Route struct {
 
 // API holds the dependencies of the HTTP surface.
 type API struct {
-	cfg      *config.Config
-	store    *store.Store
-	sessions *identity.SessionStore
-	routes   []Route
-	mux      *http.ServeMux
+	cfg       *config.Config
+	store     *store.Store
+	sessions  *identity.SessionStore
+	apiTokens *apitoken.Store
+	routes    []Route
+	mux       *http.ServeMux
 }
 
 // New builds the API and registers every route.
 func New(cfg *config.Config, st *store.Store) *API {
 	a := &API{
-		cfg:      cfg,
-		store:    st,
-		sessions: identity.NewSessionStore(st.DB(), identity.SessionConfig{TTL: sessionTTL}),
-		mux:      http.NewServeMux(),
+		cfg:       cfg,
+		store:     st,
+		sessions:  identity.NewSessionStore(st.DB(), identity.SessionConfig{TTL: sessionTTL}),
+		apiTokens: apitoken.New(st.DB()),
+		mux:       http.NewServeMux(),
 	}
 	a.register("/healthz", MiddlewareNone, a.handleHealth)
 	a.register(PrefixApp+"/session", MiddlewareSession, a.handleSessionStatus)
