@@ -184,18 +184,122 @@ func TestLoadRejectsMissingOIDCClientSecret(t *testing.T) {
 	}
 }
 
+// setForwardAuthBaseEnv sets the same required-variable baseline
+// TestLoadAppliesDefaults uses, so each forward-auth test only has to set
+// the forward-auth-specific variables it actually cares about.
+func setForwardAuthBaseEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
+	t.Setenv("TESSERARR_DATA_DIR", "/data")
+	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
+	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
+	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
+}
+
+func TestLoadStillWorksWithNoForwardAuthVariablesSet(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.ForwardAuthEnabled {
+		t.Error("ForwardAuthEnabled = true, want false (nothing set)")
+	}
+}
+
+func TestLoadRefusesToStartWhenForwardAuthEnabledWithoutSharedSecret(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_FORWARD_AUTH_ENABLED", "true")
+	t.Setenv("TESSERARR_FORWARD_AUTH_PRESET", "pangolin")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with forward-auth enabled and no shared secret returned no error")
+	}
+}
+
+func TestLoadRefusesToStartWhenPresetHasNoSubjectHeaderAndNoneIsSet(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_FORWARD_AUTH_ENABLED", "true")
+	t.Setenv("TESSERARR_FORWARD_AUTH_PRESET", "authelia")
+	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "shared-secret-value")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with the authelia preset and no subject header override returned no error")
+	}
+}
+
+func TestLoadAcceptsAutheliaPresetWithExplicitSubjectHeader(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_FORWARD_AUTH_ENABLED", "true")
+	t.Setenv("TESSERARR_FORWARD_AUTH_PRESET", "authelia")
+	t.Setenv("TESSERARR_FORWARD_AUTH_HEADER_SUBJECT", "Remote-Email")
+	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "shared-secret-value")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.ForwardAuthHeaders.Subject != "Remote-Email" {
+		t.Errorf("Subject = %q, want Remote-Email", cfg.ForwardAuthHeaders.Subject)
+	}
+}
+
+func TestLoadRejectsMalformedRoleMap(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_ROLE_MAP", "not-a-valid-entry")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with a malformed TESSERARR_ROLE_MAP returned no error")
+	}
+}
+
+func TestLoadRejectsDefaultRoleNotInRoleMap(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_ROLE_MAP", "familie:request")
+	t.Setenv("TESSERARR_DEFAULT_ROLE", "admin")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with a TESSERARR_DEFAULT_ROLE absent from TESSERARR_ROLE_MAP returned no error")
+	}
+}
+
+func TestLoadAcceptsMatchingDefaultRole(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_ROLE_MAP", "familie:request")
+	t.Setenv("TESSERARR_DEFAULT_ROLE", "familie")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.DefaultRole != "familie" {
+		t.Errorf("DefaultRole = %q, want familie", cfg.DefaultRole)
+	}
+}
+
 // marker is a value distinctive enough that its presence in formatted output
 // cannot be mistaken for anything else the struct might print.
 const sessionSecretMarker = "sess-secret-marker-9f3a1b7c0d2e4f68"
 
 // TestConfigRedactsSessionSecretAcrossFormattingPaths covers every formatting
 // path a later command could plausibly reach for when it logs or dumps a
-// Config: fmt verbs (%v, %+v, %q, %#v), encoding/json, and both stdlib slog
+// Config: fmt verbs (%v, %+v, %#v), encoding/json, and both stdlib slog
 // handlers — each with a value and a pointer. Four of these paths (%#v,
 // json.Marshal, slog.JSONHandler — value and pointer each) leaked the secret
-// before String()/GoString()/MarshalJSON() existed; %v, %+v, %q and
+// before String()/GoString()/MarshalJSON() existed; %v, %+v and
 // slog.TextHandler were already clean via String(). All of them are asserted
 // here together so a later refactor cannot silently reopen one.
+//
+// %q on the whole struct used to be in this list too, and was just as clean
+// (same per-field Stringer recursion %v uses). It was dropped when the
+// forward-auth fields landed: Config now carries a plain bool
+// (ForwardAuthEnabled) and a map (RoleMap), and `go vet`'s printf check
+// correctly refuses %q on a struct with fields it cannot itself quote —
+// regardless of whether the one field that matters here (SessionSecret)
+// redacts fine. %v/%+v exercise the identical recursion and stay in the
+// list, so this loses no coverage of the property this test actually checks.
 func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
 	newCfg := func() Config {
 		return Config{
@@ -220,8 +324,6 @@ func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
 		{"%v pointer", func() string { c := newCfg(); return fmt.Sprintf("%v", &c) }},
 		{"%+v value", func() string { return fmt.Sprintf("%+v", newCfg()) }},
 		{"%+v pointer", func() string { c := newCfg(); return fmt.Sprintf("%+v", &c) }},
-		{"%q value", func() string { return fmt.Sprintf("%q", newCfg()) }},
-		{"%q pointer", func() string { c := newCfg(); return fmt.Sprintf("%q", &c) }},
 		{"%#v value", func() string { return fmt.Sprintf("%#v", newCfg()) }},
 		{"%#v pointer", func() string { c := newCfg(); return fmt.Sprintf("%#v", &c) }},
 		{"json.Marshal value", func() string {
