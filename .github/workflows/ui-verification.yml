@@ -42,6 +42,16 @@ jobs:
       # webServer in playwright.config.ts builds ./cmd/tesserarr itself
       # (see that file's comment for why a build+run beats `go run` here) —
       # only the browser binary needs a separate install step.
+      # Build the real interface into internal/web/dist BEFORE compiling the
+      # server. Without this the Go build embeds the placeholder that ships in
+      # git (see internal/web/dist/index.html), the server serves a page with
+      # no application code, and every check fails for the same reason -- the
+      # catalog never redirects, because there is nothing there to redirect.
+      # deploy/Dockerfile does the equivalent copy inside its build container;
+      # this job needs its own.
+      - run: ./scripts/build-web.sh
+        working-directory: .
+
       # Compile ahead of Playwright: webServer in playwright.config.ts runs
       # the same `go build`, and on a cold runner that compilation alone can
       # outlast the server-start budget. Building here puts it in its own
