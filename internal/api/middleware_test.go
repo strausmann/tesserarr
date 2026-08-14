@@ -46,7 +46,11 @@ func createTestUserAndAPIToken(t *testing.T, a *API, userID string) string {
 		t.Fatalf("insert test user: %v", err)
 	}
 
-	token, err := a.apiTokens.Create(userID, "test token")
+	// ttl 0 means "no expiry" (apitoken.Store.Create): these helpers hand out a
+	// credential for the duration of one test, and an expiry would only add a
+	// clock the test does not need. The second return value is the stored
+	// token's metadata, which no caller here inspects.
+	token, _, err := a.apiTokens.Create(userID, "test token", 0)
 	if err != nil {
 		t.Fatalf("create api token: %v", err)
 	}
