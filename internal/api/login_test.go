@@ -181,8 +181,8 @@ func TestHandleLoginOIDCCallbackRejectsStateFromDifferentBrowser(t *testing.T) {
 	victimRec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(victimRec, victimReq)
 
-	if victimRec.Code == http.StatusFound {
-		t.Fatalf("status = %d, want a rejection — the victim's browser must not be logged into the attacker's account", victimRec.Code)
+	if victimRec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d — the victim's browser must not be logged into the attacker's account", victimRec.Code, http.StatusUnauthorized)
 	}
 	if cookie := findSetCookie(victimRec.Result(), a.cfg.SessionCookieName); cookie != nil {
 		t.Errorf("response carries a session cookie despite the missing state-binding cookie: %v", cookie)
@@ -212,8 +212,8 @@ func TestHandleLoginOIDCCallbackRejectsMismatchedStateCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(rec, req)
 
-	if rec.Code == http.StatusFound {
-		t.Fatalf("status = %d, want a rejection", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 	if cookie := findSetCookie(rec.Result(), a.cfg.SessionCookieName); cookie != nil {
 		t.Errorf("response carries a session cookie despite the mismatched state cookie: %v", cookie)
@@ -297,6 +297,16 @@ func TestSessionCookieUsesLaxNotStrict(t *testing.T) {
 
 	if cookie.SameSite != http.SameSiteLaxMode {
 		t.Errorf("session cookie SameSite = %v, want %v", cookie.SameSite, http.SameSiteLaxMode)
+	}
+	// Counter-review addition: Lax must not come at the cost of the two
+	// attributes ADR-0007 does insist stay in place regardless of
+	// SameSite — cheap insurance against the same edit accidentally
+	// touching HttpOnly/Secure too.
+	if !cookie.HttpOnly {
+		t.Error("session cookie is not HttpOnly")
+	}
+	if !cookie.Secure {
+		t.Error("session cookie is not Secure")
 	}
 }
 
@@ -542,6 +552,29 @@ func TestHandleInviteRedeemAcceptsTokenAtTheLengthLimit(t *testing.T) {
 
 	if rec.Code != http.StatusFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+}
+
+// TestHandleInviteRedeemAcceptsTokenAtMaxLength is the boundary
+// TestHandleInviteRedeemAcceptsTokenAtTheLengthLimit's name promises but its
+// body doesn't actually test — that test uses a real 64-character
+// invite.Create token, comfortably under maxInviteTokenLen, not the limit
+// itself. This test checks the actual edge: exactly maxInviteTokenLen (128)
+// characters must still be accepted — only maxInviteTokenLen+1 (already
+// covered by TestHandleInviteRedeemRejectsOverlongToken) may be rejected.
+// Counter-review addition, ported from an independent second
+// implementation of the same audit fix, which had this exact boundary
+// covered where this file did not.
+func TestHandleInviteRedeemAcceptsTokenAtMaxLength(t *testing.T) {
+	a := newTestAPI(t)
+
+	exactly128 := strings.Repeat("a", maxInviteTokenLen)
+	req := httptest.NewRequest(http.MethodGet, "/invite/"+exactly128, nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("status = %d, want %d — a token exactly at maxInviteTokenLen must still be accepted", rec.Code, http.StatusFound)
 	}
 }
 
