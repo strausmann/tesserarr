@@ -11,3 +11,9 @@ web/playwright-report/
 web/tsconfig.tsbuildinfo
 /site/
 /.venv-docs-build/
+
+# npm is used at the repository root only to install the commit hooks (husky +
+# commitlint); CI installs them with --no-save. A lockfile from a local
+# `npm install` is therefore an artifact, not a dependency record -- the web
+# interface pins its own with pnpm under web/.
+/package-lock.json
