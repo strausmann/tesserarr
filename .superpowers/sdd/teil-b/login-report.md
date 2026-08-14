@@ -113,12 +113,46 @@ erneut vollständig geprüft: Bau, `go vet`, `gofmt -l .`, `golangci-lint run ./
 `internal/config` 98,4 % ≥ 60 %), `commitlint` rückwirkend auf allen drei eigenen Commits (0
 Befunde, nach `pnpm install` — der Haken war im frischen Klon zunächst nicht aktiv).
 
+## Nachtrag: drei Punkte aus der Freigabe-Nachricht
+
+Nach dem ersten Abschluss kamen drei verspätete Nachrichten (Antwort auf meine
+Vorab-Ankündigung, vor meinem Fertig-Bericht abgeschickt, aber erst danach zugestellt) mit drei
+konkreten Punkten:
+
+1. **Betriebsfolge von `New()`s Netzwerkzugriff dokumentieren.** Ergänzt in `docs/setup.md`:
+   eigener Warnhinweis direkt nach dem `docker compose up -d`-Befehl — scheitert die
+   Anbieter-Erkundung, startet der Dienst gar nicht, `docker compose ps` zeigt „restarting" statt
+   „healthy", und das sieht ohne diesen Hinweis nach einem Datenbank- oder Netzwerkproblem aus,
+   nicht nach `TESSERARR_OIDC_ISSUER_URL`.
+2. **Fünf Compose-Dateien, nicht nur die eine in `docs/setup.md` gezeigte.** Nachgeprüft: **vier
+   von fünf** `deploy/compose*.yaml` führten die drei neuen Pflichtvariablen gar nicht —
+   `compose.caddy.yaml`, `compose.pangolin.yaml`, `compose.syncthing.yaml`,
+   `compose.traefik.yaml`. Jede davon hätte nach dieser Aufgabe einen Container ausgeliefert, der
+   sofort mit „TESSERARR_OIDC_ISSUER_URL is required" abbricht. Alle vier nachgezogen, exakt
+   dieselben drei Zeilen wie in `compose.yaml`. `docker compose -f <datei> config --quiet` bleibt
+   für alle fünf grün — dieser Fund wäre von der bestehenden CI-Prüfung (`compose-validate.yml`)
+   nicht gefangen worden, sie validiert nur Syntax, startet den Binary nie. Sonst keine weitere
+   Stelle gefunden, die die Variablenliste führt (README.md nennt keine, keine `.env`-Vorlage im
+   Repo) — selbst nachgesehen, nicht nur der Zahl in der Nachricht vertraut.
+3. **Sitzungs-Kennzeichen ist kein Bearer-Token.** Bereits erfüllt — `Callback` gibt seinen Wert
+   ausschliesslich an `sessionCookie(...)` weiter, nirgends an eine `Authorization`-Prüfung. Der
+   im ersten Bericht erwähnte, bereits von dir behobene Test (`7e76534`) betraf genau diese
+   Trennung, nur auf der Gegenseite (`requireToken`).
+
+Alles erneut geprüft: `go build`/`vet`/`gofmt`/`golangci-lint` weiterhin sauber (mit eigenem
+`GOLANGCI_LINT_CACHE`, wie empfohlen), `go test ./... -race` grün, `docker compose config
+--quiet` für alle fünf Vorlagen grün, `commitlint` auf den beiden neuen Commits geprüft.
+
 ## Commits
 
 1. `feat(config): require oidc provider settings`
 2. `feat(identity): wire the oidc login into the http surface`
 3. `docs(setup): correct the redirect uri, note the https requirement`
 4. `merge: integrate upstream feat/0.0.1-geruest`
+5. `docs(sdd): add the report for the login task`
+6. `fix(deploy): add the three oidc settings to every compose variant`
+7. `docs(setup): document the provider-unreachable startup failure`
+8. `docs(sdd): record the follow-up from the review message`
 
 ## Offen / für die Zusammenführung
 
