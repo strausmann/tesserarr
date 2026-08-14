@@ -172,6 +172,14 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 	a.register(LoginOIDCCallbackPath, MiddlewarePublic, a.handleLoginOIDCCallback)
 	a.register("GET /invite/{token}", MiddlewarePublic, a.handleInviteRedeem)
 	a.register(LoginForwardAuthPath, MiddlewarePublic, a.handleLoginForwardAuth)
+	// TokensPath carries all three verbs a signed-in user needs to manage
+	// their own API tokens (see tokens.go): mint, list, revoke. All three
+	// sit on MiddlewareSession like every other route in this block — only
+	// an authenticated browser mints or revokes a credential that then lets
+	// some OTHER client (Prowlarr, Sonarr, Radarr) skip that same check.
+	a.register("POST "+TokensPath, MiddlewareSession, a.handleCreateToken)
+	a.register("GET "+TokensPath, MiddlewareSession, a.handleListTokens)
+	a.register("DELETE "+TokensPath+"/{hash}", MiddlewareSession, a.handleRevokeToken)
 	a.register("POST "+LogoutPath, MiddlewareSession, a.handleLogout)
 	// Registered last, but that has no bearing on precedence — see the
 	// package comment above: ServeMux resolves every request to its most
