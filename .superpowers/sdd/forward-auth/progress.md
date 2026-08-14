@@ -20,8 +20,8 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
 | 8 | Kontoansicht Rueckgrat | offen |
 | 9 | Kontoansicht Oberflaeche | offen |
 | 10 | Kommandozeile: `user remap`, `user promote` | offen |
-| 11 | Einrichtungs-Doku je Portal | offen |
-| 12 | ADR-0010 | laeuft (`fa-12-adr`) |
+| 11 | Einrichtungs-Doku je Portal | offen — **plus Hinweis zur Log-Schwaerzung**, siehe unten |
+| 12 | ADR-0010 | **fertig**, zusammengefuehrt |
 | 13 | Abschlusspruefung | offen |
 
 ## Regeln fuer diesen Lauf
@@ -45,3 +45,9 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
   die drei von Aufgabe 1 bewusst stehengelassen (die zugehoerigen Commits existieren bereits).
 - **Der Commit-Haken haengt am Wurzel-`package.json`**, nicht an `web/`. Wer nur dort installiert,
   committet ungeprueft.
+- **Einladungs-Kennzeichen im Anfrageparameter** (`?invite=`) landet in Zugriffsprotokollen und
+  Referrer-Kopfzeilen. **Kein neuer Kanal** -- der bestehende Pfad `/invite/{token}` steht als Teil
+  derselben Adresse genauso darin, und das Kennzeichen ist einmalig, ein geleakter Wert nach der
+  Einloesung also wertlos. **Aufgabe 11 nimmt einen Hinweis auf**, wie man Einladungslinks im
+  Zugriffsprotokoll schwaerzt -- damit es niemand spaeter als Fund meldet, der bereits abgewogen
+  wurde.
