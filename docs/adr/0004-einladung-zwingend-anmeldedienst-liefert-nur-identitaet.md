@@ -6,7 +6,7 @@
 **Ersetzt durch:** —
 **Überarbeitet:** —
 **Überarbeitet durch:** —
-**Verwandt:** [ADR-0002](0002-usenet-nachbildung-statt-torrent.md), [ADR-0007](0007-anmeldung-sitzung-oberflaeche-token-fremdsysteme-getrennte-pfade.md), [ADR-0008](0008-widerruf-wirkt-auf-beide-wege-kopplung-am-nutzer.md)
+**Verwandt:** [ADR-0002](0002-usenet-nachbildung-statt-torrent.md), [ADR-0007](0007-anmeldung-sitzung-oberflaeche-token-fremdsysteme-getrennte-pfade.md), [ADR-0008](0008-widerruf-wirkt-auf-beide-wege-kopplung-am-nutzer.md), [ADR-0010](0010-forward-auth-als-zweiter-eintrittsweg.md)
 
 ## Kontext
 

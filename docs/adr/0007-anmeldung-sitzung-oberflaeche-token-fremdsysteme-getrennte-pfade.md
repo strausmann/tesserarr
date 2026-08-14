@@ -6,7 +6,7 @@
 **Ersetzt durch:** —
 **Überarbeitet:** —
 **Überarbeitet durch:** —
-**Verwandt:** [ADR-0002](0002-usenet-nachbildung-statt-torrent.md), [ADR-0004](0004-einladung-zwingend-anmeldedienst-liefert-nur-identitaet.md), [ADR-0005](0005-go-kern-getrennte-oberflaeche-gemeinsames-abbild.md), [ADR-0009](0009-zwei-getrennte-protokollstroeme.md)
+**Verwandt:** [ADR-0002](0002-usenet-nachbildung-statt-torrent.md), [ADR-0004](0004-einladung-zwingend-anmeldedienst-liefert-nur-identitaet.md), [ADR-0005](0005-go-kern-getrennte-oberflaeche-gemeinsames-abbild.md), [ADR-0009](0009-zwei-getrennte-protokollstroeme.md), [ADR-0010](0010-forward-auth-als-zweiter-eintrittsweg.md)
 
 ## Kontext
 
