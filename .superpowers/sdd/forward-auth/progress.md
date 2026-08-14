@@ -12,10 +12,10 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
 |---|---|---|
 | 1 | Konfiguration: Schalter, Voreinstellungen, Rollen-Zuordnung | **fertig**, zusammengefuehrt |
 | 2 | Vertrauenspruefung: Quell-IP und gemeinsames Geheimnis | **fertig**, zusammengefuehrt |
-| 3 | Rollen-Aufloesung (reine Logik) | laeuft (`fa-3-roles`) |
-| 4 | Migration + `identity.ForwardAuthLogin` | offen |
-| 5 | HTTP-Eintrittspfad | offen |
-| 6 | API-Token: Ablauf und Widerruf | offen |
+| 3 | Rollen-Aufloesung (reine Logik) | **fertig**, zusammengefuehrt |
+| 4 | Migration 0004 + `identity.ForwardAuthLogin` | **fertig** inkl. Nachtrag, Abdeckung 97,0 % |
+| 5 | HTTP-Eintrittspfad | laeuft (`fa-5-entry`) |
+| 6 | API-Token: Ablauf und Widerruf (Migration 0005) | laeuft (`fa-6-token-expiry`) |
 | 7 | Token-Verwaltung: HTTP-Endpunkte | offen |
 | 8 | Kontoansicht Rueckgrat | offen |
 | 9 | Kontoansicht Oberflaeche | offen |
@@ -51,3 +51,14 @@ zaehlt nicht. Das war der teuerste Fehler der Nacht vom 13./14.08.
   Einloesung also wertlos. **Aufgabe 11 nimmt einen Hinweis auf**, wie man Einladungslinks im
   Zugriffsprotokoll schwaerzt -- damit es niemand spaeter als Fund meldet, der bereits abgewogen
   wurde.
+- **Antrag #2 ist offen (Entwurf), Basis `feat/0.0.1-geruest`.** Grund: Die Ablaeufe loesen nur
+  bei Antraegen und Pushes nach `main` aus, **nicht bei beliebigen Zweig-Pushes**. Ohne offenen
+  Antrag sieht die Pruefkette einen Arbeitszweig nie -- genau so endete Teil B mit vier kaputten
+  Laeufen, die niemand gesehen hatte. Jetzt laeuft sie bei **jedem** Zusammenfuehren mit.
+- **Eine Gegenprobe, die nicht rot wurde** (Aufgabe 4, Verifikationspunkt 3): Der frueh gesetzte
+  Schutz ist nicht allein tragend, weil die Einloesung bei leerem Kennzeichen denselben Fehler ueber
+  einen zweiten Weg erzeugt. Schutz bleibt (Tiefenstaffelung, spiegelt den OIDC-Weg), aber Test und
+  Schutz sind jetzt **ehrlich beschriftet**, und ein neuer Test nagelt den zweiten Weg fest.
+- **Zwei Transaktions-Fehlerpfade bleiben unerreicht** (`db.Begin()`, `tx.Commit()`) -- belegt, dass
+  sie im bestehenden OIDC-Pendant genauso unerreicht sind. Ein Mock um `*sql.DB` waere
+  unverhaeltnismaessig fuer zwei Zeilen, die kein Angreifer ausloesen kann.
