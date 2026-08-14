@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -89,5 +89,23 @@ describe("the focus ring's precondition", () => {
     const match = css.match(/outline-offset:\s*([\d.]+)px/);
     expect(match, "no outline-offset declared").not.toBeNull();
     expect(Number(match![1])).toBeGreaterThan(0);
+  });
+});
+
+describe("the shipped monospace", () => {
+  it("has the font file on disk", () => {
+    const file = join(__dirname, "..", "..", "public", "fonts", "IBMPlexMono-Regular-Latin1.woff2");
+    expect(existsSync(file), `missing font file: ${file}`).toBe(true);
+  });
+
+  it("declares a @font-face that points at it", () => {
+    expect(css).toMatch(/@font-face/);
+    expect(css).toMatch(/IBMPlexMono-Regular-Latin1\.woff2/);
+  });
+
+  it("restricts the face to the range the file actually covers", () => {
+    // Without unicode-range the browser downloads the file for text it cannot
+    // render from it — the point of shipping a subset is lost.
+    expect(css).toMatch(/unicode-range:/);
   });
 });
