@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // ErrUserNotFound is returned by RemapForwardAuthSubject and
@@ -15,6 +18,17 @@ var ErrUserNotFound = errors.New("identity: no matching user")
 // shares the given email — users.email carries no uniqueness constraint,
 // so this is possible, if unusual.
 var ErrAmbiguousEmail = errors.New("identity: more than one user has this email")
+
+// ErrSubjectAlreadyBound is returned by RemapForwardAuthSubject when
+// newSubject already belongs to a DIFFERENT account. The design doc's
+// "Verwaiste Kennungen zusammenführen" is silent on this case; the plan
+// that introduced this file was too. identities' own
+// PRIMARY KEY (provider, subject) already rejects the UPDATE outright —
+// there was never a silent-merge risk — but without this, the operator
+// only ever saw a raw driver message ("constraint failed: UNIQUE
+// constraint failed: identities.provider, identities.subject (1555)")
+// instead of something they can act on.
+var ErrSubjectAlreadyBound = errors.New("identity: subject is already bound to a different account")
 
 // RemapForwardAuthSubject rebinds a forward-auth identity from oldSubject
 // to newSubject — the operator's fix for "Verwaiste Kennungen
@@ -29,6 +43,18 @@ func RemapForwardAuthSubject(db *sql.DB, oldSubject, newSubject string) error {
 		newSubject, forwardAuthProviderName, oldSubject,
 	)
 	if err != nil {
+		// A typed check, not a string match on err.Error(): identities'
+		// PRIMARY KEY (provider, subject) is what turns "newSubject
+		// already belongs to someone else" into a driver-level
+		// constraint violation, not application logic — see
+		// ErrSubjectAlreadyBound's doc comment. Confirmed empirically
+		// (not assumed) that modernc.org/sqlite wraps this as *sqlite.Error
+		// with Code() == SQLITE_CONSTRAINT_PRIMARYKEY (1555), reachable
+		// through this function's own error wrapping via errors.As.
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY {
+			return ErrSubjectAlreadyBound
+		}
 		return fmt.Errorf("identity: remap forward-auth subject: %w", err)
 	}
 	affected, err := result.RowsAffected()
