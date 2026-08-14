@@ -15,10 +15,10 @@ type contextKey struct{ name string }
 var userIDContextKey = &contextKey{name: "userID"}
 
 // userIDFromContext returns the id of the user whose credential the running
-// middleware verified, and whether one was actually set. It is unset on the
-// health path (MiddlewareNone) and on any other path deliberately reachable
-// without a check (MiddlewarePublic) — neither wraps the handler in
-// requireSession or requireToken, so neither ever populates this value.
+// middleware verified, and whether one was actually set. It is unset on
+// every MiddlewarePublic path (the health path among them) — wrap() never
+// wraps those in requireSession or requireToken, so nothing ever populates
+// this value for them.
 func userIDFromContext(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(userIDContextKey).(string)
 	return id, ok

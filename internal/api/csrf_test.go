@@ -219,9 +219,17 @@ func TestSessionPathAcceptsUnsafeMethodWithMatchingCSRF(t *testing.T) {
 // header anywhere in the request. If this test needed either of those to
 // pass, the separation this whole package is built around would already be
 // broken.
+//
+// The credential is minted through createTestUserAndAPIToken, not through
+// createTestUserAndSession: requireToken resolves bearer tokens against
+// a.apiTokens, a store no session token is ever written into. An earlier
+// version of this test handed it a session token and passed — but only on a
+// branch that predated the separate token store, where a single store still
+// answered both checks. Merging the two lines of work turned that pass into a
+// 401, which is the second barrier doing exactly its job.
 func TestTokenPathAcceptsUnsafeMethodWithoutCSRFHeader(t *testing.T) {
 	a := newTestAPI(t)
-	token := createTestUserAndSession(t, a, "user-1")
+	token := createTestUserAndAPIToken(t, a, "user-1")
 
 	req := httptest.NewRequest(http.MethodPost, PrefixToken+"/status", nil)
 	req.Header.Set("Authorization", "Bearer "+token)

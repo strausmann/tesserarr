@@ -7,10 +7,9 @@ import (
 	"strings"
 )
 
-// healthPattern is the health path — the one entry on publicPaths below that
-// predates MiddlewarePublic and is, for backward compatibility, still also
-// accepted with the older MiddlewareNone. See publicPaths for every other
-// path deliberately reachable without a check.
+// healthPattern is the health path — the first entry on publicPaths below.
+// It gets its own named constant, rather than just a string literal in the
+// list, because checkRouting (further down) also needs to name it directly.
 const healthPattern = "/healthz"
 
 // publicPath is one entry on the explicit allow-list of paths deliberately
@@ -106,17 +105,7 @@ func checkPairing(routes []Route) []error {
 		}
 
 		if isPublicPath(path) {
-			switch {
-			case route.Middleware == MiddlewarePublic:
-				// The intended, forward-looking case.
-			case path == healthPattern && route.Middleware == MiddlewareNone:
-				// Backward compatibility only: the health path predates
-				// MiddlewarePublic and was, and remains, registered with
-				// MiddlewareNone (see router.go). This exception is scoped
-				// to the health path alone and is not extended to any other
-				// entry on publicPaths — those are expected to use
-				// MiddlewarePublic.
-			default:
+			if route.Middleware != MiddlewarePublic {
 				problems = append(problems, fmt.Errorf(
 					"route %q is on the explicit allow-list of public paths (see publicPaths) but carries %s, want public",
 					route.Pattern, route.Middleware))
