@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,8 +11,15 @@ import (
 	"github.com/strausmann/tesserarr/internal/store"
 )
 
+// newTestAPI builds an API against a fresh, disposable fake OIDC provider
+// (see oidc_fake_provider_test.go) — New always discovers a provider as
+// part of building the API (see its comment in router.go), so every test in
+// this package needs one reachable, whether or not the test actually
+// exercises a login.
 func newTestAPI(t *testing.T) *API {
 	t.Helper()
+
+	provider := newFakeOIDCProvider(t)
 
 	cfg := &config.Config{
 		HTTPAddr:          "127.0.0.1:0",
@@ -19,6 +27,9 @@ func newTestAPI(t *testing.T) *API {
 		DataDir:           t.TempDir(),
 		SessionCookieName: "tesserarr_session",
 		LogLevel:          "info",
+		OIDCIssuerURL:     provider.issuer(),
+		OIDCClientID:      fakeOIDCClientID,
+		OIDCClientSecret:  config.Secret("test-client-secret-does-not-matter"),
 	}
 	cfg.DBPath = filepath.Join(cfg.DataDir, "test.db")
 
@@ -28,7 +39,11 @@ func newTestAPI(t *testing.T) *API {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	return New(cfg, st)
+	a, err := New(context.Background(), cfg, st)
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+	return a
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {
