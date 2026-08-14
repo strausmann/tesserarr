@@ -49,13 +49,15 @@ var ErrTokenInvalid = errors.New("api token invalid")
 // anywhere but the return value Create hands back — every column it writes
 // or reads is the token's hash.
 //
-// API tokens carry no expiry, unlike sessions. A session is a browser's
-// standing-in for an interactive login and is expected to lapse; a personal
-// API token is the credential Prowlarr, Sonarr and Radarr are configured
-// with once and then rely on indefinitely (ADR-0007) — forcing it to expire
-// would mean the user re-pasting a fresh value into three other services'
-// configuration on some schedule, for no security benefit an outright
-// Revoke does not already provide on demand.
+// API tokens carry an OPTIONAL expiry — Create's ttl parameter, ttl <= 0
+// meaning "never expires". That default matters: Prowlarr, Sonarr and
+// Radarr are configured with a token once and then rely on it indefinitely
+// (ADR-0007) — forcing every token to expire would mean the user
+// re-pasting a fresh value into three other services' configuration on
+// some schedule, for no security benefit an outright Revoke does not
+// already provide on demand. A caller that DOES want a token to lapse on
+// its own (see docs/superpowers/specs/2026-08-14-tesserarr-forward-auth-design.md,
+// "API-Token: Ablauf und Verwaltung") opts in with a positive ttl.
 type Store struct {
 	db *sql.DB
 }
@@ -82,23 +84,49 @@ type Token struct {
 	Label      string
 	CreatedAt  time.Time
 	LastUsedAt *time.Time // nil if the token has never been used.
+	ExpiresAt  *time.Time // nil if the token never expires.
 }
 
-// Create mints a new API token for userID under label and returns the token
-// to hand to the caller — the only place that value is ever exposed. The
-// database only ever receives its hash, exactly like
-// identity.SessionStore.Create.
-func (s *Store) Create(userID, label string) (string, error) {
+// Create mints a new API token for userID under label and returns the
+// token to hand to the caller — the only place that value is ever exposed
+// — together with the row's own metadata (Token), so a caller (see
+// internal/api's token-management endpoint) can answer "here is what was
+// just created" without a second round trip. ttl <= 0 means "never
+// expires" — the only behavior this method had before token expiry
+// existed.
+func (s *Store) Create(userID, label string, ttl time.Duration) (string, Token, error) {
 	token := generateToken()
+	createdAt := time.Now().UTC()
+	var expiresAt *time.Time
+	if ttl > 0 {
+		t := createdAt.Add(ttl)
+		expiresAt = &t
+	}
 
-	_, err := s.db.Exec(
-		`INSERT INTO api_tokens (token_hash, user_id, label, created_at, last_used_at) VALUES (?, ?, ?, ?, NULL)`,
-		hashToken(token), userID, label, formatTime(time.Now()),
+	if err := insertToken(s.db, token, userID, label, createdAt, expiresAt); err != nil {
+		return "", Token{}, err
+	}
+	return token, Token{Hash: hashToken(token), Label: label, CreatedAt: createdAt, ExpiresAt: expiresAt}, nil
+}
+
+// insertToken writes a new api_tokens row directly, bypassing Create's
+// contract that ttl <= 0 means "never expires" — split out so tests can
+// build a fixture Create cannot: an already-expired token. Mirrors
+// invite.insertInvitation (internal/invite/invite.go) for the identical
+// rationale.
+func insertToken(db *sql.DB, token, userID, label string, createdAt time.Time, expiresAt *time.Time) error {
+	var expires any
+	if expiresAt != nil {
+		expires = formatTime(*expiresAt)
+	}
+	_, err := db.Exec(
+		`INSERT INTO api_tokens (token_hash, user_id, label, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, NULL, ?)`,
+		hashToken(token), userID, label, formatTime(createdAt), expires,
 	)
 	if err != nil {
-		return "", fmt.Errorf("create api token: %w", err)
+		return fmt.Errorf("create api token: %w", err)
 	}
-	return token, nil
+	return nil
 }
 
 // Lookup resolves token to the user id it belongs to and, as a deliberate
@@ -131,9 +159,10 @@ func (s *Store) Lookup(token string) (string, error) {
 	hash := hashToken(token)
 
 	var userID string
+	var expiresAt sql.NullString
 	err := s.db.QueryRow(
-		`SELECT user_id FROM api_tokens WHERE token_hash = ?`, hash,
-	).Scan(&userID)
+		`SELECT user_id, expires_at FROM api_tokens WHERE token_hash = ?`, hash,
+	).Scan(&userID, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrTokenInvalid
 	}
@@ -141,19 +170,34 @@ func (s *Store) Lookup(token string) (string, error) {
 		return "", fmt.Errorf("lookup api token: %w", err)
 	}
 
+	// An expired token must be indistinguishable from a revoked or unknown
+	// one — see docs/superpowers/specs/2026-08-14-tesserarr-forward-auth-design.md,
+	// "API-Token: Ablauf und Verwaltung": returning a distinct error here
+	// would let a caller learn "this hash used to be valid" from the
+	// response shape alone.
+	if expiresAt.Valid {
+		expires, err := time.Parse(time.RFC3339, expiresAt.String)
+		if err != nil {
+			return "", fmt.Errorf("lookup api token: parse expiry: %w", err)
+		}
+		if time.Now().UTC().After(expires) {
+			return "", ErrTokenInvalid
+		}
+	}
+
 	_, _ = s.db.Exec(`UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?`, formatTime(time.Now()), hash)
 
 	return userID, nil
 }
 
-// Revoke invalidates the token whose hash is hash — see the Token.Hash doc
-// comment for why accepting the hash back from a caller is safe. It is
-// idempotent, for the same reason identity.SessionStore.Destroy is: revoking
-// a token that is already gone (already revoked, never existed) is not an
-// error — the caller's goal, "this token no longer authenticates anything",
-// already holds.
-func (s *Store) Revoke(hash string) error {
-	if _, err := s.db.Exec(`DELETE FROM api_tokens WHERE token_hash = ?`, hash); err != nil {
+// Revoke invalidates the token whose hash is hash — but ONLY if it belongs
+// to userID. A hash for a token that exists but belongs to someone else is
+// treated exactly like an unknown hash: zero rows affected, no error — see
+// the Token.Hash doc comment for why handing the hash back is safe, and
+// the package comment for why "idempotent, unknown is fine" already covers
+// this without a separate ownership error.
+func (s *Store) Revoke(userID, hash string) error {
+	if _, err := s.db.Exec(`DELETE FROM api_tokens WHERE token_hash = ? AND user_id = ?`, hash, userID); err != nil {
 		return fmt.Errorf("revoke api token: %w", err)
 	}
 	return nil
@@ -165,7 +209,7 @@ func (s *Store) Revoke(hash string) error {
 // caller who received it did with it.
 func (s *Store) List(userID string) ([]Token, error) {
 	rows, err := s.db.Query(
-		`SELECT token_hash, label, created_at, last_used_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC`,
+		`SELECT token_hash, label, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -176,8 +220,8 @@ func (s *Store) List(userID string) ([]Token, error) {
 	var tokens []Token
 	for rows.Next() {
 		var hash, label, createdAt string
-		var lastUsedAt sql.NullString
-		if err := rows.Scan(&hash, &label, &createdAt, &lastUsedAt); err != nil {
+		var lastUsedAt, expiresAt sql.NullString
+		if err := rows.Scan(&hash, &label, &createdAt, &lastUsedAt, &expiresAt); err != nil {
 			return nil, fmt.Errorf("scan api token: %w", err)
 		}
 
@@ -193,6 +237,13 @@ func (s *Store) List(userID string) ([]Token, error) {
 				return nil, fmt.Errorf("list api tokens: parse last_used_at: %w", err)
 			}
 			tok.LastUsedAt = &used
+		}
+		if expiresAt.Valid {
+			expires, err := time.Parse(time.RFC3339, expiresAt.String)
+			if err != nil {
+				return nil, fmt.Errorf("list api tokens: parse expires_at: %w", err)
+			}
+			tok.ExpiresAt = &expires
 		}
 		tokens = append(tokens, tok)
 	}
