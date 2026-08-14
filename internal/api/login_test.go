@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -314,6 +315,58 @@ func TestHandleInviteRedeemRejectsEmptyToken(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestHandleInviteRedeemRejectsOverlongToken reproduces the memory-
+// exhaustion finding from the security audit
+// (~/security-audit-skill/tesserarr/run-1/findings.json, "Unauthenticated
+// memory-exhaustion DoS via unbounded invite-token amplification"): without
+// a length cap, an unauthenticated caller can drive a near-1-MiB path
+// segment (Go's own http.Server default MaxHeaderBytes is the only prior
+// limit) all the way into identity.OIDCLogin.BeginLogin, which retains it
+// verbatim in the in-process loginAttemptStore for a full 10-minute TTL —
+// measured at ~4,100x amplification and 474 MB of real RSS growth from 300
+// single-connection requests in 14.5 seconds. Real invite tokens are a
+// fixed 32-byte-hex (64 characters); maxInviteTokenLen leaves generous
+// headroom without opening the amplification path at all.
+func TestHandleInviteRedeemRejectsOverlongToken(t *testing.T) {
+	a := newTestAPI(t)
+
+	overlong := strings.Repeat("a", maxInviteTokenLen+1)
+	req := httptest.NewRequest(http.MethodGet, "/invite/"+overlong, nil)
+	req.SetPathValue("token", overlong)
+	rec := httptest.NewRecorder()
+	a.handleInviteRedeem(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestHandleInviteRedeemAcceptsTokenAtTheLengthLimit is the boundary case
+// TestHandleInviteRedeemRejectsOverlongToken's ">" needs alongside it: a
+// real 64-character token — well within maxInviteTokenLen — must still
+// redirect normally. Exercised through the real route (not called
+// directly), so it also proves ServeMux's {token} wildcard still delivers
+// an ordinary invite token to the handler with the length check in place.
+func TestHandleInviteRedeemAcceptsTokenAtTheLengthLimit(t *testing.T) {
+	a := newTestAPI(t)
+
+	token, err := invite.Create(a.store.DB(), 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	if len(token) > maxInviteTokenLen {
+		t.Fatalf("test fixture assumption broken: invite.Create() token is %d bytes, want <= %d", len(token), maxInviteTokenLen)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/invite/"+token, nil)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
 }
 

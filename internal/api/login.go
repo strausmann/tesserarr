@@ -34,6 +34,20 @@ const LoginOIDCCallbackPath = LoginOIDCPath + "/callback"
 // router.go).
 const LogoutPath = PrefixApp + "/logout"
 
+// maxInviteTokenLen bounds the /invite/{token} path segment before it ever
+// reaches identity.OIDCLogin.BeginLogin, which would otherwise retain it
+// verbatim in the in-process loginAttemptStore for a full 10-minute TTL
+// (loginAttemptTTL, internal/identity/store.go) with no per-store size cap.
+// Without this bound, an unauthenticated caller could drive multi-hundred-
+// megabyte-per-minute server memory growth by repeating requests with
+// near-1-MiB tokens — Go's http.Server default MaxHeaderBytes (1 MiB) was
+// the only prior limit, and it covers the whole request line, not just this
+// one path segment. Real tokens are a fixed 32-byte-hex value (64
+// characters, see invite.Create) — 128 is generous headroom, not a tight
+// fit, while still cutting the amplification factor from roughly 1
+// MiB-per-request down to nothing worth attacking.
+const maxInviteTokenLen = 128
+
 // handleLoginOIDC starts an ordinary login: no invitation, an existing
 // identity proving itself again (identity.OIDCLogin.BeginLogin's ""
 // case). See handleInviteRedeem for the invited person's entry point.
@@ -55,9 +69,12 @@ func (a *API) handleLoginOIDC(w http.ResponseWriter, r *http.Request) {
 // otherwise treat as "no invitation at all" — that would turn a malformed
 // invite link into a confusing "you need an invite" rejection at the
 // provider, instead of an immediate, honest "that is not a valid link".
+//
+// An overlong token is rejected the same way, before it ever reaches
+// BeginLogin — see maxInviteTokenLen's own comment for why.
 func (a *API) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
-	if token == "" {
+	if token == "" || len(token) > maxInviteTokenLen {
 		http.Error(w, "invite token required", http.StatusBadRequest)
 		return
 	}
