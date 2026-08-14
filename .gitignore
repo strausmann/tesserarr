@@ -1,9 +1,13 @@
 /tesserarr
+/tesserarr-e2e-bin
 /data/
 /coverage.out
 node_modules/
 web/out/
 web/.next/
 web/coverage/
+web/test-results/
+web/playwright-report/
+web/tsconfig.tsbuildinfo
 /site/
 /.venv-docs-build/

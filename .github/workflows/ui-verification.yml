@@ -1,0 +1,56 @@
+name: ui-verification
+
+# Runs on EVERY pull request, not only ones that touch web/ — see
+# .claude/skills/ui-verification/ (homelab-management repo) for why: the
+# most dangerous case is a change to internal/api that breaks the
+# interface without a single web/ file being touched, and a
+# change-triggered run would miss exactly that.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-verification:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v6
+
+      - run: pnpm install --frozen-lockfile
+
+      # webServer in playwright.config.ts builds ./cmd/tesserarr itself
+      # (see that file's comment for why a build+run beats `go run` here) —
+      # only the browser binary needs a separate install step.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run the seven checks across three widths and both themes
+        run: pnpm run test:e2e
+
+      # Screenshots (check 7) are an artifact, never a gate — see the
+      # skill's own reasoning for why a pixel comparison never blocks this
+      # job. Uploaded on every run, not only on failure, since the whole
+      # point is that a human can look at them regardless of outcome.
+      - name: Upload screenshots and the HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-verification-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+          retention-days: 14
