@@ -51,15 +51,15 @@ export default function CatalogPage() {
 
   if (state.kind === "error") {
     return (
-      <div className="card stack">
-        <p className="error-text">Could not reach Tesserarr: {state.message}</p>
+      <div className="section">
+        <p className="form-error">Could not reach Tesserarr: {state.message}</p>
       </div>
     );
   }
 
   return (
-    <div className="stack">
-      <div className="card stack">
+    <div className="section">
+      <div className="section">
         <h1>Your catalog</h1>
         <p className="muted">
           Your catalog is empty. Tesserarr does not move any media yet — the
