@@ -13,6 +13,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"github.com/strausmann/tesserarr/internal/config"
 	"github.com/strausmann/tesserarr/internal/invite"
@@ -312,6 +314,19 @@ func lookupIdentity(db *sql.DB, provider, subject string) (string, error) {
 // commit, needs no separate cleanup at all — a rejected redemption is
 // undone by the same tx.Rollback() that already handles the INSERT
 // failures below.
+//
+// It can still LOSE a race it did not start — the exact same shape
+// ForwardAuthLogin.createUserFromInvite (forwardauth.go) documents for
+// its own identical INSERT: resolveUser only reaches here after its own
+// lookupIdentity already reported sql.ErrNoRows, but that check and this
+// function's own INSERT are not the same transaction — two callers for
+// the SAME subject (a doubled click, or the same OIDC callback URL opened
+// in two tabs) can both see "unknown" before either commits. Only one
+// INSERT into identities can win identities' PRIMARY KEY (provider,
+// subject) (migrations/0001_initial.sql); before this fix, the other
+// surfaced that raw constraint violation as Callback's own error, failing
+// a login that — from the visitor's side — looks identical to any other.
+// See resolveExistingIdentity for what the loser does instead.
 func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (string, error) {
 	userID := newUserID()
 
@@ -332,6 +347,23 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 		userID, oidcProviderName, subject, nullable(email),
 	); err != nil {
 		_ = tx.Rollback()
+		// A typed check, not a string match on err.Error() — the same
+		// pattern RemapForwardAuthSubject (admin.go) and
+		// ForwardAuthLogin.createUserFromInvite (forwardauth.go) already
+		// established for this exact constraint, confirmed empirically
+		// there that modernc.org/sqlite wraps it as *sqlite.Error with
+		// Code() == SQLITE_CONSTRAINT_PRIMARYKEY (1555).
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY {
+			// Lost the race this function's own comment describes. SQLite
+			// serializes writers (WAL, one writer transaction at a time):
+			// this INSERT could only fail on an ALREADY-COMMITTED row for
+			// the same (provider, subject), never one still in flight —
+			// so the winner's row is guaranteed visible by now, and this
+			// never spins or retries against a row that might vanish
+			// again.
+			return o.resolveExistingIdentity(subject)
+		}
 		return "", fmt.Errorf("identity: bind oidc identity: %w", err)
 	}
 	if err := invite.Redeem(tx, inviteToken, userID); err != nil {
@@ -346,6 +378,35 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 	}
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("identity: commit user creation: %w", err)
+	}
+	return userID, nil
+}
+
+// resolveExistingIdentity is what a caller that LOST the create race in
+// createUserFromInvite falls back to — the OIDC counterpart of
+// ForwardAuthLogin.resolveExistingIdentity (forwardauth.go), same
+// reasoning: look up the identity that raced ahead of it — by the time the
+// constraint violation surfaced, guaranteed committed (see
+// createUserFromInvite's own comment) — and apply the same updateRole step
+// resolveUser's own "existing identity" branch already runs for any
+// ordinary returning login. From the visitor's side, losing this race now
+// looks exactly like logging into an account that already existed, which
+// — a moment earlier — it now does.
+//
+// inviteToken is deliberately never touched here: the loser's own
+// transaction rolled back before ever reaching invite.Redeem (the INSERT
+// into identities that failed happens BEFORE that call in
+// createUserFromInvite), so the invitation this caller was handed stays
+// unredeemed — available for whoever the provider sends it to next,
+// rather than being silently spent by a request that never actually
+// needed it.
+func (o *OIDCLogin) resolveExistingIdentity(subject string) (string, error) {
+	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
+	if err != nil {
+		return "", fmt.Errorf("identity: look up oidc identity after losing create race: %w", err)
+	}
+	if err := o.updateRole(userID); err != nil {
+		return "", err
 	}
 	return userID, nil
 }
