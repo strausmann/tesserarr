@@ -4,27 +4,42 @@ import AxeBuilder from "@axe-core/playwright";
 const pages = ["/", "/login/", "/logout/"];
 
 // Both modes get the same checks: the dark mode is not a variant that may
-// degrade, it is the mode most of this tool's users will actually see.
-for (const scheme of ["light", "dark"] as const) {
-  test.describe(`${scheme} mode`, () => {
-    test.use({ colorScheme: scheme });
+// degrade, it is the mode most of this tool's users will actually see. This
+// file used to spell that out itself with its own light/dark loop — but
+// playwright.config.ts already runs every test in this directory across six
+// projects (three widths x both color schemes), so that loop only meant each
+// check ran twice as often as the project matrix alone already guarantees
+// (78 tests instead of 42, mode encoded twice: once in the project name,
+// once in the test title). Removed; `page` here inherits whichever
+// colorScheme the running project set via `test.use`, same as every other
+// spec in this directory.
+//
+// The two checks below (accessibility, 320px overflow) still run once per
+// project — six times total, three of them genuinely redundant per page,
+// since neither depends on the project's own viewport (both request their
+// dimensions explicitly) or, as far as this scaffold's CSS goes, on color
+// scheme. Left as-is rather than singled out to run once: doing that
+// without touching playwright.config.ts would mean hardcoding a project
+// name into this file as a skip condition, which is a step *more* fragile
+// than the redundancy it removes (a later rename/reorder of projects in the
+// config would silently stop the check from running anywhere, instead of
+// just running it more than strictly necessary). The six runs are cheap
+// against the local fake-OIDC + compiled-binary server this suite already
+// pays to boot once per config.
+for (const path of pages) {
+  test(`${path} has no accessibility violations`, async ({ page }) => {
+    await page.goto(path);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });
 
-    for (const path of pages) {
-      test(`${path} has no accessibility violations`, async ({ page }) => {
-        await page.goto(path);
-        const results = await new AxeBuilder({ page }).analyze();
-        expect(results.violations).toEqual([]);
-      });
-
-      test(`${path} does not scroll sideways at 320px`, async ({ page }) => {
-        await page.setViewportSize({ width: 320, height: 640 });
-        await page.goto(path);
-        const overflows = await page.evaluate(
-          () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        );
-        expect(overflows, "the page scrolls horizontally at 320px").toBe(false);
-      });
-    }
+  test(`${path} does not scroll sideways at 320px`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto(path);
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows, "the page scrolls horizontally at 320px").toBe(false);
   });
 }
 
