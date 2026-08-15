@@ -15,21 +15,40 @@ import (
 	"strings"
 )
 
-// minSessionSecretLen is the shortest accepted signing secret. 32 bytes is the
-// value the concept mandates; a shorter secret weakens session signatures
-// without any warning at runtime, so it is rejected at startup instead.
-const minSessionSecretLen = 32
+// minForwardAuthSharedSecretLen is the shortest accepted forward-auth shared
+// secret. internal/api's trustedForwardAuthSource compares every incoming
+// request's forward-auth headers against exactly this value
+// (constantTimeEqual, forward_auth_trust.go) — it is the entire trust
+// boundary between "a guard vouched for this request" and "anyone who can
+// reach this port claims to be anyone", so a short secret would weaken that
+// boundary without any warning at runtime.
+//
+// This used to be minSessionSecretLen, checked against a SessionSecret
+// field that no longer exists (see below): 32 bytes was already the right
+// bound for a value an attacker gets no better than brute force against, it
+// was just enforced on the field that did nothing.
+const minForwardAuthSharedSecretLen = 32
 
 // Config holds the resolved configuration. Fields are populated by Load and are
 // read-only afterwards.
 type Config struct {
-	HTTPAddr          string
-	BaseURL           string
-	DataDir           string
-	DBPath            string
-	OutgoingDir       string
-	IncomeDir         string
-	SessionSecret     Secret
+	HTTPAddr    string
+	BaseURL     string
+	DataDir     string
+	DBPath      string
+	OutgoingDir string
+	IncomeDir   string
+	// SessionSecret used to live here, read from TESSERARR_SESSION_SECRET
+	// and validated for a 32-byte minimum — but sessions (internal/identity/
+	// session.go) are crypto/rand tokens looked up by SHA-256 hash, never
+	// signed or encrypted with anything, so nothing in this codebase ever
+	// called Secret.Reveal() on it (grep confirmed: the only two Reveal()
+	// call sites are OIDCClientSecret and ForwardAuthSharedSecret below).
+	// A security-audit finding on the field that DOES do something —
+	// ForwardAuthSharedSecret had no minimum-length check at all — is what
+	// prompted looking for one on SessionSecret, and finding none. Removed
+	// rather than fixed: enforcing a length on a value nothing reads would
+	// have kept the illusion of a protection that was never real.
 	SessionCookieName string
 	TrustedProxies    []netip.Prefix
 	LogLevel          string
@@ -56,23 +75,23 @@ type Config struct {
 	DefaultRole             string
 }
 
-// Redaction of SessionSecret used to live here as three methods on Config
+// Redaction of secret fields used to live here as three methods on Config
 // (String, GoString, MarshalJSON), copying the struct and substituting a
 // placeholder before formatting. A review found the gap that approach could
-// not close: cfg.SessionSecret pulled out and printed on its own —
-// fmt.Println(cfg.SessionSecret), {{.SessionSecret}} in a template,
+// not close: a secret field pulled out and printed on its own —
+// fmt.Println(cfg.OIDCClientSecret), {{.OIDCClientSecret}} in a template,
 // reflection — bypassed all three, because none of them intercept direct
 // field access.
 //
-// SessionSecret is now typed as Secret (see secret.go), which redacts itself
-// across the same formatting paths regardless of where it ends up — nested in
-// Config, copied into a foreign struct, or read on its own. Config no longer
-// needs its own String/GoString/MarshalJSON for this; the field carries its
-// own protection. Verification moved with it: see
-// internal/config/secret_test.go for the formatting-path coverage, and
-// TestConfigRedactsSessionSecretAcrossFormattingPaths in config_test.go for
-// confirmation that the protection still holds when the field sits inside
-// Config.
+// Every secret-bearing field above is now typed as Secret (see secret.go),
+// which redacts itself across the same formatting paths regardless of where
+// it ends up — nested in Config, copied into a foreign struct, or read on
+// its own. Config no longer needs its own String/GoString/MarshalJSON for
+// this; each field carries its own protection. Verification moved with it:
+// see internal/config/secret_test.go for the formatting-path coverage, and
+// TestConfigRedactsSecretsAcrossFormattingPaths in config_test.go for
+// confirmation that the protection still holds when a Secret field sits
+// inside Config.
 
 // Load reads the configuration from the environment, applies defaults and
 // validates required fields. It returns an error describing the first problem
@@ -82,7 +101,6 @@ func Load() (*Config, error) {
 		HTTPAddr:          envOr("TESSERARR_HTTP_ADDR", "0.0.0.0:8080"),
 		BaseURL:           os.Getenv("TESSERARR_BASE_URL"),
 		DataDir:           os.Getenv("TESSERARR_DATA_DIR"),
-		SessionSecret:     Secret(os.Getenv("TESSERARR_SESSION_SECRET")),
 		SessionCookieName: envOr("TESSERARR_SESSION_COOKIE_NAME", "tesserarr_session"),
 		LogLevel:          envOr("TESSERARR_LOG_LEVEL", "info"),
 		OIDCIssuerURL:     os.Getenv("TESSERARR_OIDC_ISSUER_URL"),
@@ -95,9 +113,6 @@ func Load() (*Config, error) {
 	}
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("TESSERARR_DATA_DIR is required")
-	}
-	if len(cfg.SessionSecret) < minSessionSecretLen {
-		return nil, fmt.Errorf("TESSERARR_SESSION_SECRET must be at least %d bytes", minSessionSecretLen)
 	}
 	if cfg.OIDCIssuerURL == "" {
 		return nil, fmt.Errorf("TESSERARR_OIDC_ISSUER_URL is required")
@@ -155,6 +170,12 @@ func Load() (*Config, error) {
 	if cfg.ForwardAuthEnabled {
 		if len(cfg.ForwardAuthSharedSecret) == 0 {
 			return nil, fmt.Errorf("TESSERARR_FORWARD_AUTH_SHARED_SECRET is required when TESSERARR_FORWARD_AUTH_ENABLED is set")
+		}
+		// A non-empty secret is not the same guarantee as a HARD-TO-GUESS
+		// one — see minForwardAuthSharedSecretLen's own comment for why a
+		// short secret weakens the entire forward-auth trust boundary.
+		if len(cfg.ForwardAuthSharedSecret) < minForwardAuthSharedSecretLen {
+			return nil, fmt.Errorf("TESSERARR_FORWARD_AUTH_SHARED_SECRET must be at least %d bytes", minForwardAuthSharedSecretLen)
 		}
 		if cfg.ForwardAuthHeaders.Subject == "" {
 			return nil, fmt.Errorf(
