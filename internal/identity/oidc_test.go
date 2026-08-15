@@ -1245,11 +1245,14 @@ func TestResolveUserAppliesRoleRevocationOnReturningLogin(t *testing.T) {
 	}
 }
 
-// TestResolveUserFailsWhenRoleUpdateFails isolates updateRole's own
+// TestResolveUserFailsWhenRoleUpdateFails isolates updateProfile's own
 // UPDATE-statement failure branch, mirroring forwardauth_test.go's
 // TestAuthenticateFailsWhenProfileUpdateFails for the identical reason: a
 // blocking trigger fails only the write, leaving the preceding role_local
-// SELECT (currentLocalRole) untouched.
+// SELECT (currentLocalRole) untouched. Role and email are written by the
+// SAME statement (updateProfile), so this one trigger already isolates the
+// failure branch for both fields — no separate email-update-fails test is
+// needed alongside it.
 func TestResolveUserFailsWhenRoleUpdateFails(t *testing.T) {
 	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
 	createTestUser(t, db, "user-existing")
@@ -1272,7 +1275,7 @@ func TestResolveUserFailsWhenRoleUpdateFails(t *testing.T) {
 
 // TestOIDCLoginCallbackAppliesRoleThroughFullRoundTrip is the one
 // end-to-end check that Callback — not just resolveUser directly — reaches
-// updateRole, exercising the same fake-provider round trip every other
+// updateProfile, exercising the same fake-provider round trip every other
 // Callback test in this file already uses.
 func TestOIDCLoginCallbackAppliesRoleThroughFullRoundTrip(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
@@ -1290,5 +1293,130 @@ func TestOIDCLoginCallbackAppliesRoleThroughFullRoundTrip(t *testing.T) {
 
 	if got := readUserRole(t, db, "user-existing"); got != "admin" {
 		t.Errorf("role after Callback() = %q, want admin", got)
+	}
+}
+
+// --- returning OIDC login refreshes users.email --------------------------
+//
+// Before this, resolveUser's "case err == nil" branch (an already-known
+// identity) only ever called updateProfile for the role — the email claim
+// it already receives as a parameter (used by the brand-new-user branch via
+// createUserFromInvite) was silently dropped on every RETURNING login. Once
+// the self-service email write path was removed, an OIDC-only user had no
+// way left to ever correct a stale address: not through the UI (removed on
+// purpose), not through forward-auth (no such identity to log in with), and
+// — until now — not by simply logging back in via OIDC either, even though
+// the provider hands the current claim on every single login.
+//
+// readUserEmail mirrors readUserRole (forwardauth_test.go, same package):
+// a one-line helper reading back what the tests below actually assert on.
+func readUserEmail(t *testing.T, db *sql.DB, userID string) sql.NullString {
+	t.Helper()
+	var email sql.NullString
+	if err := db.QueryRow(`SELECT email FROM users WHERE id = ?`, userID).Scan(&email); err != nil {
+		t.Fatalf("read email: %v", err)
+	}
+	return email
+}
+
+// TestResolveUserRefreshesEmailOnReturningLogin proves a RETURNING oidc
+// identity (seedIdentity + createTestUser, never through
+// createUserFromInvite, so users.email starts out NULL) picks up the
+// provider's current email claim on this very login.
+func TestResolveUserRefreshesEmailOnReturningLogin(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+
+	if got := readUserEmail(t, db, "user-existing"); got.Valid {
+		t.Fatalf("email before any login = %+v, want NULL (createTestUser sets none)", got)
+	}
+
+	if _, err := login.resolveUser("returning-subject", "fresh@example.org", EmailVerificationUnknown, ""); err != nil {
+		t.Fatalf("resolveUser() returned error: %v", err)
+	}
+
+	got := readUserEmail(t, db, "user-existing")
+	if !got.Valid || got.String != "fresh@example.org" {
+		t.Errorf("email after returning oidc login = %+v, want fresh@example.org", got)
+	}
+}
+
+// TestResolveUserUpdatesEmailWhenProviderClaimChanges is the other normal
+// case: a provider that hands a DIFFERENT email than what is already
+// stored (the address changed at the identity provider) must overwrite the
+// stale one — this is a refresh, not a write-once.
+func TestResolveUserUpdatesEmailWhenProviderClaimChanges(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+
+	if _, err := login.resolveUser("returning-subject", "old@example.org", EmailVerificationUnknown, ""); err != nil {
+		t.Fatalf("first resolveUser() returned error: %v", err)
+	}
+	if got := readUserEmail(t, db, "user-existing"); !got.Valid || got.String != "old@example.org" {
+		t.Fatalf("email after first login = %+v, want old@example.org", got)
+	}
+
+	if _, err := login.resolveUser("returning-subject", "new@example.org", EmailVerificationUnknown, ""); err != nil {
+		t.Fatalf("second resolveUser() returned error: %v", err)
+	}
+	if got := readUserEmail(t, db, "user-existing"); !got.Valid || got.String != "new@example.org" {
+		t.Errorf("email after second login = %+v, want new@example.org (the provider's changed claim)", got)
+	}
+}
+
+// TestResolveUserKeepsEmailWhenClaimIsEmptyOnReturningLogin is the CASE
+// WHEN guard's whole point, mirrored from forward-auth's own
+// TestAuthenticateUpdatesNameAndEmailButKeepsEmailWhenHeaderIsEmpty
+// (forwardauth_test.go): a later login that carries NO email claim (a
+// provider that stops sending it, or a login requesting a narrower scope)
+// must not wipe an address a previous, email-bearing login already stored.
+// A naive "always overwrite with the claim" implementation would pass every
+// OTHER test in this section and still delete data here — this is the test
+// that actually distinguishes "refresh" from "clobber".
+func TestResolveUserKeepsEmailWhenClaimIsEmptyOnReturningLogin(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+
+	if _, err := login.resolveUser("returning-subject", "keep-me@example.org", EmailVerificationUnknown, ""); err != nil {
+		t.Fatalf("first resolveUser() returned error: %v", err)
+	}
+
+	if _, err := login.resolveUser("returning-subject", "", EmailVerificationUnknown, ""); err != nil { // no email claim this time
+		t.Fatalf("second resolveUser() returned error: %v", err)
+	}
+
+	got := readUserEmail(t, db, "user-existing")
+	if !got.Valid || got.String != "keep-me@example.org" {
+		t.Errorf("email after an empty-claim login = %+v, want keep-me@example.org (kept, not cleared)", got)
+	}
+}
+
+// TestOIDCLoginCallbackRefreshesEmailThroughFullRoundTrip is the one
+// end-to-end check that Callback — not just resolveUser directly — reaches
+// updateProfile's email refresh, exercising the same fake-provider round
+// trip every other Callback test in this file already uses. completeLogin's
+// email argument becomes the fake provider's id token "email" claim
+// (issueIDToken), the same claim Callback itself parses and hands to
+// resolveUser — this is the one test that proves the whole chain from an
+// actual OIDC id token through to the stored row, not just the Go-level
+// call resolveUser's own tests exercise directly.
+func TestOIDCLoginCallbackRefreshesEmailThroughFullRoundTrip(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "returning-subject", "updated@example.org")
+	if _, err := login.Callback(context.Background(), state, code, ""); err != nil {
+		t.Fatalf("Callback() returned error: %v", err)
+	}
+
+	if got := readUserEmail(t, db, "user-existing"); !got.Valid || got.String != "updated@example.org" {
+		t.Errorf("email after Callback() = %+v, want updated@example.org", got)
 	}
 }

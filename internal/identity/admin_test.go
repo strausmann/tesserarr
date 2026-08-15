@@ -79,8 +79,8 @@ func TestPromoteUserRoleSetsLocalRoleByID(t *testing.T) {
 
 	// PromoteUserRole writes role_local — NEVER role, the separate,
 	// always-recomputed effective column both login paths
-	// (internal/identity/forwardauth.go's updateProfile and oidc.go's
-	// updateRole) maintain (see currentLocalRole's own comment for why
+	// (internal/identity/forwardauth.go's updateProfile and oidc.go's own
+	// updateProfile) maintain (see currentLocalRole's own comment for why
 	// conflating the two is exactly the bug team-lead's review caught).
 	var roleLocal string
 	if err := db.QueryRow(`SELECT role_local FROM users WHERE id = ?`, "user-1").Scan(&roleLocal); err != nil {
@@ -92,8 +92,9 @@ func TestPromoteUserRoleSetsLocalRoleByID(t *testing.T) {
 
 	// role — the effective column — is UNCHANGED by PromoteUserRole alone;
 	// it only catches up on the user's NEXT login, through updateProfile
-	// (forward-auth, every entry) or updateRole (oidc.go, every RETURNING
-	// entry — createUserFromInvite covers brand-new users on both paths).
+	// (forward-auth, every entry) or oidc.go's own updateProfile (every
+	// RETURNING entry — createUserFromInvite covers brand-new users on both
+	// paths).
 	// Before Befund B's fix, a user who signs in only via OIDC had no login
 	// path that ever recomputed role at all — a genuine gap, not the
 	// deliberate asymmetry PromoteUserRole itself has between role and

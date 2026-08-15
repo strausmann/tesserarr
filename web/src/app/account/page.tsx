@@ -1,29 +1,29 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { fetchAccount, updateAccountEmail, type Account } from "@/lib/account";
+import { fetchAccount, type Account } from "@/lib/account";
 import { createToken, fetchTokens, revokeToken, type ApiToken } from "@/lib/tokens";
 
 type LoadState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready" };
-type EmailStatus = { kind: "success" | "error"; message: string };
 
 // The account view: greeting (falls back to a generic heading rather than
-// ever showing a broken "Hello, " when display_name is blank), the email
-// field, and API-token management — create (the raw value is shown exactly
-// once, right here, see justCreatedToken below), list, revoke with an
-// inline confirmation rather than a modal (ADR-0011: this component is the
-// only place in the whole interface that needs one, so the fixed-focus/
-// keyboard handling a modal requires is not worth building for it). Backed
-// by internal/api/account.go and internal/api/tokens.go; built exclusively
+// ever showing a broken "Hello, " when display_name is blank), the
+// signed-in visitor's profile (display name, email, role — entirely
+// read-only, see internal/api/account.go's AccountPath comment for why
+// email has no edit form here: it arrives exclusively from a trusted
+// source, an OIDC provider's claims or a forward-auth guard's header), and
+// API-token management — create (the raw value is shown exactly once,
+// right here, see justCreatedToken below), list, revoke with an inline
+// confirmation rather than a modal (ADR-0011: this component is the only
+// place in the whole interface that needs one, so the fixed-focus/keyboard
+// handling a modal requires is not worth building for it). Backed by
+// internal/api/account.go and internal/api/tokens.go; built exclusively
 // from the Werkstatt vocabulary in globals.css (ADR-0011) — no invented
 // colour, no invented class.
 export default function AccountPage() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [account, setAccount] = useState<Account | null>(null);
   const [tokens, setTokens] = useState<ApiToken[]>([]);
-
-  const [emailDraft, setEmailDraft] = useState("");
-  const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
 
   const [newLabel, setNewLabel] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -48,7 +48,6 @@ export default function AccountPage() {
       .then(([acct, toks]) => {
         if (cancelled) return;
         setAccount(acct);
-        setEmailDraft(acct.email);
         setTokens(toks);
         setState({ kind: "ready" });
       })
@@ -64,19 +63,6 @@ export default function AccountPage() {
       cancelled = true;
     };
   }, []);
-
-  async function handleEmailSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    try {
-      await updateAccountEmail(emailDraft);
-      setEmailStatus({ kind: "success", message: "Saved." });
-    } catch (err) {
-      setEmailStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Could not save email.",
-      });
-    }
-  }
 
   async function handleCreateToken(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -140,37 +126,8 @@ export default function AccountPage() {
       <div className="section">
         <h1>{greeting}</h1>
         <p className="muted">Role: {account?.role || "none assigned yet"}</p>
+        <p className="muted">Email: {account?.email || "none on file yet"}</p>
       </div>
-
-      <form className="section" onSubmit={handleEmailSubmit}>
-        <span className="section__label">Email</span>
-        <div className="field">
-          <label className="field__label" htmlFor="account-email">
-            Email address
-          </label>
-          <div className="field__row">
-            <input
-              id="account-email"
-              className="field__input"
-              type="email"
-              value={emailDraft}
-              onChange={(e) => setEmailDraft(e.target.value)}
-              placeholder="you@example.org"
-            />
-            <button className="btn btn--primary" type="submit">
-              Save
-            </button>
-          </div>
-        </div>
-        {emailStatus && (
-          <p
-            className={emailStatus.kind === "error" ? "form-error" : "muted"}
-            role={emailStatus.kind === "error" ? "alert" : undefined}
-          >
-            {emailStatus.message}
-          </p>
-        )}
-      </form>
 
       <div className="section">
         <span className="section__label">API tokens</span>

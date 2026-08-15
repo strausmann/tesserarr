@@ -104,6 +104,117 @@ func TestOIDCLoginSurvivesLosingCreateRaceEvenWithoutARealRace(t *testing.T) {
 	}
 }
 
+// TestOIDCLoginLosingCreateRaceRefreshesEmailLikeReturningLogin is the
+// email-refresh counterpart of TestOIDCLoginSurvivesLosingCreateRaceEvenWithoutARealRace
+// above: it proves the race LOSER's fallback doesn't just resolve to the
+// winner's account (that part is already covered), it also applies the
+// SAME email refresh an ordinary returning login gets from resolveUser's
+// "case err == nil" branch (see TestResolveUserUpdatesEmailWhenProviderClaimChanges,
+// oidc_test.go) — resolveExistingIdentity's own doc comment states the
+// loser must look exactly like a returning login, and that now includes
+// the email resolveUser itself would have refreshed had this call simply
+// found the identity already bound instead of racing into it.
+//
+// This is deliberately not folded into the existing race test above:
+// asserting only `err == nil` and `userID == winnerID` there would pass
+// just as well against a fix that resolved the account but silently
+// dropped the email claim on the floor — exactly what the pre-merge
+// updateRole (role only, no email parameter at all) would have done had
+// it still compiled. Only reading back users.email actually distinguishes
+// "resolved to the right account" from "resolved to the right account AND
+// treated it like a real returning login".
+func TestOIDCLoginLosingCreateRaceRefreshesEmailLikeReturningLogin(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	const subject = "already-bound-oidc-subject-email-refresh"
+	winnerID := newUserID()
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at, email) VALUES (?, ?, ?, ?)`,
+		winnerID, "already here", formatTime(time.Now()), "stale@example.org",
+	); err != nil {
+		t.Fatalf("plant winning user: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject) VALUES (?, ?, ?)`,
+		winnerID, oidcProviderName, subject,
+	); err != nil {
+		t.Fatalf("plant winning identity: %v", err)
+	}
+
+	token, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	// The loser's own id token carried a DIFFERENT (fresher) email claim
+	// than whatever the winner's own login stored — the same shape
+	// TestResolveUserUpdatesEmailWhenProviderClaimChanges exercises for an
+	// ordinary returning login, just reached through the race-loser path
+	// instead.
+	userID, err := login.createUserFromInvite(subject, "fresh@example.org", EmailVerificationUnknown, token)
+	if err != nil {
+		t.Fatalf("createUserFromInvite() returned error: %v, want it to fall back to the winner's account", err)
+	}
+	if userID != winnerID {
+		t.Fatalf("createUserFromInvite() userID = %q, want the planted winner %q", userID, winnerID)
+	}
+
+	got := readUserEmail(t, db, winnerID)
+	if !got.Valid || got.String != "fresh@example.org" {
+		t.Errorf("email after losing the create race = %+v, want fresh@example.org (refreshed like any returning login)", got)
+	}
+}
+
+// TestOIDCLoginLosingCreateRaceKeepsEmailWhenClaimIsEmpty is
+// TestOIDCLoginLosingCreateRaceRefreshesEmailLikeReturningLogin's CASE WHEN
+// counterpart, mirroring TestResolveUserKeepsEmailWhenClaimIsEmptyOnReturningLogin
+// for the loser path: an empty email claim must not blank out whatever the
+// winner's own login already stored. Both directions of the guard need
+// their own test the same way resolveUser's already do — a fix that always
+// overwrote unconditionally would pass the sibling test above and only
+// fail here.
+func TestOIDCLoginLosingCreateRaceKeepsEmailWhenClaimIsEmpty(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	const subject = "already-bound-oidc-subject-email-keep"
+	winnerID := newUserID()
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at, email) VALUES (?, ?, ?, ?)`,
+		winnerID, "already here", formatTime(time.Now()), "keep-me@example.org",
+	); err != nil {
+		t.Fatalf("plant winning user: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject) VALUES (?, ?, ?)`,
+		winnerID, oidcProviderName, subject,
+	); err != nil {
+		t.Fatalf("plant winning identity: %v", err)
+	}
+
+	token, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	// The loser's own claim carries NO email this time — the guard's whole
+	// point (see updateProfile's own comment): this must not clear the
+	// address the winner's login already stored.
+	userID, err := login.createUserFromInvite(subject, "", EmailVerificationUnknown, token)
+	if err != nil {
+		t.Fatalf("createUserFromInvite() returned error: %v, want it to fall back to the winner's account", err)
+	}
+	if userID != winnerID {
+		t.Fatalf("createUserFromInvite() userID = %q, want the planted winner %q", userID, winnerID)
+	}
+
+	got := readUserEmail(t, db, winnerID)
+	if !got.Valid || got.String != "keep-me@example.org" {
+		t.Errorf("email after losing the create race with an empty claim = %+v, want keep-me@example.org (kept, not cleared)", got)
+	}
+}
+
 // TestConcurrentOIDCCallbackSameSubjectExactlyOneAccountCreated drives real
 // goroutines at the real Callback, the same shape
 // TestConcurrentAuthenticateSameSubjectExactlyOneAccountCreated

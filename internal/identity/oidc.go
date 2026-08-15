@@ -247,7 +247,7 @@ func (o *OIDCLogin) resolveUser(subject, email string, emailVerified EmailVerifi
 	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
 	switch {
 	case err == nil:
-		if updateErr := o.updateRole(userID); updateErr != nil {
+		if updateErr := o.updateProfile(userID, email); updateErr != nil {
 			return "", updateErr
 		}
 		return userID, nil
@@ -261,18 +261,21 @@ func (o *OIDCLogin) resolveUser(subject, email string, emailVerified EmailVerifi
 	return o.createUserFromInvite(subject, email, emailVerified, inviteToken)
 }
 
-// updateRole recomputes and stores users.role — the CURRENTLY EFFECTIVE
-// role — for a RETURNING OIDC login, mirroring what ForwardAuthLogin's
-// updateProfile does on every forward-auth entry (forwardauth.go).
+// updateProfile recomputes and stores users.role — the CURRENTLY EFFECTIVE
+// role — and refreshes users.email, for a RETURNING OIDC login, mirroring
+// what ForwardAuthLogin's own updateProfile does on every forward-auth
+// entry (forwardauth.go). Named the same for the same reason: both apply
+// claims from an already-trusted, already-authenticated entry to an
+// existing user on every login, not just at creation.
 //
-// Before this existed, the "case err == nil" branch above returned userID
-// without touching role at all: an operator promoting OR demoting a user
-// who signs in exclusively via OIDC (never forward-auth) had no login path
-// left that would ever apply the change. PromoteUserRole only ever writes
-// role_local (admin.go); role_local governs the EFFECTIVE role only
-// through this kind of recomputation, and forward-auth's updateProfile was
-// the only place doing it — a user with just an OIDC identity has no
-// forward-auth entry to trigger that.
+// Role: before this existed, the "case err == nil" branch in resolveUser
+// returned userID without touching role at all: an operator promoting OR
+// demoting a user who signs in exclusively via OIDC (never forward-auth)
+// had no login path left that would ever apply the change. PromoteUserRole
+// only ever writes role_local (admin.go); role_local governs the
+// EFFECTIVE role only through this kind of recomputation, and
+// forward-auth's updateProfile was the only place doing it — a user with
+// just an OIDC identity has no forward-auth entry to trigger that.
 //
 // OIDC carries no role header of its own (unlike forward-auth's
 // RoleHeaderRaw) — see the design doc, "Die Rolle wird bei jedem Eintritt
@@ -282,14 +285,41 @@ func (o *OIDCLogin) resolveUser(subject, email string, emailVerified EmailVerifi
 // always falls straight to role_local — or defaultRole, if no operator has
 // ever assigned one — exactly forward-auth's own header-less-entry
 // behavior (role.go, ResolveRoleNames's case 3).
-func (o *OIDCLogin) updateRole(userID string) error {
+//
+// Email: before this, a RETURNING OIDC login never touched users.email at
+// all — only createUserFromInvite (first login) ever wrote it. Once the
+// self-service email write path was removed (this branch's own commit
+// history), OIDC-only users had no way left to ever correct a stale
+// address: not at login (this gap), not through the UI (removed on
+// purpose), and not through forward-auth (they have no forward-auth
+// identity to log in with). This mirrors forward-auth's updateProfile CASE
+// WHEN guard exactly: an empty email claim — a provider that stops sending
+// the claim, or a login that requests a narrower scope on some later visit
+// — updates nothing, so it can never overwrite an address a previous,
+// email-bearing login already stored. Same reasoning as forward-auth's own
+// "Beide werden bei jedem Eintritt aktualisiert" (design doc), applied to
+// the one field OIDC actually carries.
+//
+// display_name is deliberately NOT refreshed here, unlike forward-auth's
+// updateProfile — reported to team-lead rather than folded in silently,
+// since this function's job is the email gap specifically, not bringing
+// OIDC to full parity with forward-auth's profile fields.
+func (o *OIDCLogin) updateProfile(userID, email string) error {
 	roleLocal, err := currentLocalRole(o.db, userID)
 	if err != nil {
 		return err
 	}
 	roleNames := ResolveRoleNames("", nil, o.defaultRole, roleLocal)
-	if _, err := o.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, JoinRoleNames(roleNames), userID); err != nil {
-		return fmt.Errorf("identity: update oidc role: %w", err)
+
+	_, err = o.db.Exec(
+		`UPDATE users SET
+		   email = CASE WHEN ? != '' THEN ? ELSE email END,
+		   role  = ?
+		 WHERE id = ?`,
+		email, email, JoinRoleNames(roleNames), userID,
+	)
+	if err != nil {
+		return fmt.Errorf("identity: update oidc profile: %w", err)
 	}
 	return nil
 }
@@ -384,7 +414,7 @@ func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified Em
 			// so the winner's row is guaranteed visible by now, and this
 			// never spins or retries against a row that might vanish
 			// again.
-			return o.resolveExistingIdentity(subject)
+			return o.resolveExistingIdentity(subject, email)
 		}
 		return "", fmt.Errorf("identity: bind oidc identity: %w", err)
 	}
@@ -409,11 +439,21 @@ func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified Em
 // ForwardAuthLogin.resolveExistingIdentity (forwardauth.go), same
 // reasoning: look up the identity that raced ahead of it — by the time the
 // constraint violation surfaced, guaranteed committed (see
-// createUserFromInvite's own comment) — and apply the same updateRole step
-// resolveUser's own "existing identity" branch already runs for any
+// createUserFromInvite's own comment) — and apply the same updateProfile
+// step resolveUser's own "existing identity" branch already runs for any
 // ordinary returning login. From the visitor's side, losing this race now
 // looks exactly like logging into an account that already existed, which
-// — a moment earlier — it now does.
+// — a moment earlier — it now does — and that includes the email refresh
+// updateProfile performs on every returning login (see updateProfile's own
+// comment): the loser is not a lesser case of a returning login, it IS
+// one, just one that arrived a moment too early. email is the same claim
+// value createUserFromInvite already received from the caller (Callback's
+// idToken claims) and passes straight through here — this function has no
+// way to look it up itself, and asking the provider again would just be
+// the same value under a second round trip. updateProfile's own CASE WHEN
+// guard still applies: an empty claim updates nothing, so this can never
+// blank out whatever email the winner's own createUserFromInvite call just
+// stored.
 //
 // inviteToken is deliberately never touched here: the loser's own
 // transaction rolled back before ever reaching invite.Redeem (the INSERT
@@ -422,12 +462,12 @@ func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified Em
 // unredeemed — available for whoever the provider sends it to next,
 // rather than being silently spent by a request that never actually
 // needed it.
-func (o *OIDCLogin) resolveExistingIdentity(subject string) (string, error) {
+func (o *OIDCLogin) resolveExistingIdentity(subject, email string) (string, error) {
 	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
 	if err != nil {
 		return "", fmt.Errorf("identity: look up oidc identity after losing create race: %w", err)
 	}
-	if err := o.updateRole(userID); err != nil {
+	if err := o.updateProfile(userID, email); err != nil {
 		return "", err
 	}
 	return userID, nil

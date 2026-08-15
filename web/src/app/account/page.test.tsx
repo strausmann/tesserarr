@@ -159,66 +159,26 @@ describe("AccountPage", () => {
     await waitFor(() => expect(screen.getByText(/no api tokens yet/i)).toBeInTheDocument());
   });
 
-  it("saves the email and shows a confirmation", async () => {
-    const user = userEvent.setup();
-    mockAccountAndTokens({ display_name: "Friend", email: "old@example.org", role: "" });
+  it("shows the signed-in visitor's email as read-only text", async () => {
+    mockAccountAndTokens({ display_name: "Friend", email: "friend@example.org", role: "" });
+
     render(<AccountPage />);
-    await waitFor(() => expect(screen.getByDisplayValue("old@example.org")).toBeInTheDocument());
 
-    fetchMock.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === "/api/v1/app/account" && init?.method === "PATCH") {
-        return Promise.resolve(new Response(null, { status: 204 }));
-      }
-      if (path === "/api/v1/app/account") return Promise.resolve(jsonResponse(200, { display_name: "Friend", email: "old@example.org", role: "" }));
-      return Promise.resolve(jsonResponse(200, []));
-    });
-
-    const emailInput = screen.getByLabelText(/email address/i);
-    await user.clear(emailInput);
-    await user.type(emailInput, "new@example.org");
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => expect(screen.getByText(/saved/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/email: friend@example\.org/i)).toBeInTheDocument());
+    // No edit form for it — no input, no save button. This route has
+    // exactly one mutation-shaped control (create-token below); email is
+    // read-only end to end, see internal/api/account.go's AccountPath
+    // comment for why.
+    expect(screen.queryByRole("textbox", { name: /email/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
   });
 
-  it("shows an error when saving the email fails", async () => {
-    const user = userEvent.setup();
-    mockAccountAndTokens({ display_name: "Friend", email: "old@example.org", role: "" });
+  it("shows a placeholder when no email is on file yet", async () => {
+    mockAccountAndTokens({ display_name: "Friend", email: "", role: "" });
+
     render(<AccountPage />);
-    await waitFor(() => expect(screen.getByDisplayValue("old@example.org")).toBeInTheDocument());
 
-    fetchMock.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === "/api/v1/app/account" && init?.method === "PATCH") {
-        return Promise.resolve(new Response(null, { status: 403 }));
-      }
-      return Promise.resolve(jsonResponse(200, { display_name: "Friend", email: "old@example.org", role: "" }));
-    });
-
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => expect(screen.getByText(/could not save email|403/i)).toBeInTheDocument());
-  });
-
-  it("shows a generic message when saving the email rejects with something other than an Error", async () => {
-    // Covers the ": 'Could not save email.'" fallback branch — fetch()
-    // itself only rejects with a TypeError in real browsers, but this
-    // exercises the defensive fallback the same way page.test.tsx does for
-    // CatalogPage's equivalent branch.
-    const user = userEvent.setup();
-    mockAccountAndTokens({ display_name: "Friend", email: "old@example.org", role: "" });
-    render(<AccountPage />);
-    await waitFor(() => expect(screen.getByDisplayValue("old@example.org")).toBeInTheDocument());
-
-    fetchMock.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === "/api/v1/app/account" && init?.method === "PATCH") {
-        return Promise.reject("not an Error instance");
-      }
-      return Promise.resolve(jsonResponse(200, { display_name: "Friend", email: "old@example.org", role: "" }));
-    });
-
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => expect(screen.getByText(/could not save email\./i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/email: none on file yet/i)).toBeInTheDocument());
   });
 
   it("creates a token, shows it exactly once in a callout, and lists it afterwards", async () => {

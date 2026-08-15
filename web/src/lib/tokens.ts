@@ -65,7 +65,7 @@ interface CreateTokenBody extends TokenBody {
 /**
  * Creates a new API token with the given label. `ttlSeconds` of 0 means
  * "no expiry", matching internal/api/tokens.go's own default. A
- * state-changing POST, so it carries the CSRF header like updateAccountEmail.
+ * state-changing POST, so it carries the CSRF header like revokeToken below.
  */
 export async function createToken(
   label: string,
