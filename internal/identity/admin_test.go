@@ -328,3 +328,91 @@ func TestListUsersReturnsEmptyIdentitiesForAUserWithNone(t *testing.T) {
 		t.Errorf("Identities = %+v, want none", users[0].Identities)
 	}
 }
+
+// insertAdminTestIdentityWithEmail is insertAdminTestIdentity plus the
+// email identities.email actually carries once a real login binds one —
+// see IdentitySummary.Email's own comment for why this column, unlike
+// insertAdminTestUser's email argument, is written exactly once by
+// production code and never touched again afterward.
+func insertAdminTestIdentityWithEmail(t *testing.T, db *sql.DB, userID, provider, subject, email string) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject, email) VALUES (?, ?, ?, ?)`,
+		userID, provider, subject, email,
+	); err != nil {
+		t.Fatalf("insert test identity with email: %v", err)
+	}
+}
+
+// TestListUsersReportsEachIdentitysOwnEmail is the attribution test
+// IdentitySummary.Email needs, mirroring
+// TestListUsersReturnsIdentitiesBoundToEachUser's own reasoning for
+// Provider/Subject: a single-identity fixture, or two identities sharing
+// one email, could pass a query that accidentally merged or duplicated a
+// single email value across every identity row just as easily as a
+// correct one. Only two identities bound to the SAME account, each
+// carrying a DIFFERENT email, actually proves each row's Email came from
+// ITS OWN identities.email column rather than leaking from a neighbor —
+// exactly the scenario ADR-0004's "Verwaiste Kennungen zusammenführen"
+// describes (the same forward-auth-plus-oidc account RemapForwardAuthSubject
+// exists for), where the two emails a provider handed back really can
+// differ.
+//
+// Deliberately named without "Verified" (an earlier version of this test
+// carried that in its name, matching the mislabeled "email(verified)="
+// column a security review later caught — see
+// IdentitySummary.EmailVerification's own comment): this test only proves
+// attribution (which row's Email is which), never confirmation. Neither
+// insertAdminTestIdentityWithEmail call below sets email_verified, so both
+// identities' EmailVerification stays at its zero value, EmailVerificationUnknown
+// — the want fixture leaves that field unset for exactly that reason.
+func TestListUsersReportsEachIdentitysOwnEmail(t *testing.T) {
+	db := newAdminTestDB(t)
+	insertAdminTestUser(t, db, "user-1", "")
+	insertAdminTestIdentityWithEmail(t, db, "user-1", "forward-auth", "sub-fa-1", "guard-side@example.org")
+	insertAdminTestIdentityWithEmail(t, db, "user-1", "oidc", "sub-oidc-1", "provider-side@example.org")
+
+	users, err := ListUsers(db)
+	if err != nil {
+		t.Fatalf("ListUsers() returned error: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("ListUsers() returned %d users, want 1", len(users))
+	}
+	if len(users[0].Identities) != 2 {
+		t.Fatalf("Identities = %+v, want 2 entries", users[0].Identities)
+	}
+	want := []IdentitySummary{
+		{Provider: "forward-auth", Subject: "sub-fa-1", Email: "guard-side@example.org"},
+		{Provider: "oidc", Subject: "sub-oidc-1", Email: "provider-side@example.org"},
+	}
+	if users[0].Identities[0] != want[0] || users[0].Identities[1] != want[1] {
+		t.Errorf("Identities = %+v, want %+v — each identity must report its OWN bound email, never the other's", users[0].Identities, want)
+	}
+}
+
+// TestListUsersReportsNoIdentityEmailAsEmptyStringNotNull mirrors
+// TestListUsersReportsNoEmailAsEmptyStringNotNull (users.email) for
+// identities.email: insertAdminTestIdentity — used throughout the rest of
+// this file, including by RemapForwardAuthSubject/PromoteUserRole's own
+// tests — never sets it, leaving a genuine SQL NULL (identities.email is
+// nullable, migrations/0001_initial.sql). Without the COALESCE in
+// ListUsers' identities query, Scan would fail outright for exactly this
+// — the ordinary shape of a forward-auth identity whose guard sends no
+// email header at all.
+func TestListUsersReportsNoIdentityEmailAsEmptyStringNotNull(t *testing.T) {
+	db := newAdminTestDB(t)
+	insertAdminTestUser(t, db, "user-1", "")
+	insertAdminTestIdentity(t, db, "user-1", "forward-auth", "sub-fa-1")
+
+	users, err := ListUsers(db)
+	if err != nil {
+		t.Fatalf("ListUsers() returned error: %v", err)
+	}
+	if len(users) != 1 || len(users[0].Identities) != 1 {
+		t.Fatalf("ListUsers() = %+v, want exactly 1 user with 1 identity", users)
+	}
+	if got := users[0].Identities[0].Email; got != "" {
+		t.Errorf("Identities[0].Email = %q, want empty string for a NULL identities.email column", got)
+	}
+}

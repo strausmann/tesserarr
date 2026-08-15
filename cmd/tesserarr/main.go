@@ -6,7 +6,7 @@
 //	healthcheck       probe a locally running instance (used by the container health check)
 //	selftest          check a running instance from the outside
 //	invite create     mint a new invitation (see the package comment on "invite create" below)
-//	user list         list every user's id, role and bound identities — find the id "user promote" needs
+//	user list         list every user's id, role and bound identities (each with its own email and, for OIDC, whether the provider confirmed it) — find the id "user promote" needs
 //	user remap        rebind a forward-auth identity from an old subject to a new one
 //	user promote <id> <role>  set an operator role assignment for the user with this id
 package main
@@ -335,10 +335,14 @@ func runUserList(args []string) error {
 // listUsers prints one line per user — id, display name, an EXPLICITLY
 // unverified email, the CURRENTLY EFFECTIVE role, the operator's own
 // role_local assignment, and a count of the (provider, subject) identities
-// bound to the account — to out, followed by one further line per identity
-// (see below for why those are not folded into the account's own line). A
-// blank email or role_local prints as "-", not an empty column that would
-// be easy to misread as a parsing error.
+// bound to the account — to out, followed by one further line per identity,
+// each carrying its OWN email and, separately, whether that email was ever
+// confirmed by the source that supplied it (see below for why those are
+// not folded into the account's own line, and why "confirmed" there means
+// something the account line's email never can — and why it is its own
+// column rather than baked into the label the way an earlier version of
+// this function did). A blank email or role_local prints as "-", not an
+// empty column that would be easy to misread as a parsing error.
 //
 // The email column is labeled "email(unverified)" and, when its value is
 // shared with another account in THIS listing, additionally flagged — see
@@ -391,6 +395,30 @@ func runUserList(args []string) error {
 // (via len(), not concatenation) so an operator sees it without counting
 // rows by hand; the per-identity lines are the structural proof, the
 // count is a convenience that can never disagree with them.
+//
+// Each identity line also carries TWO further columns, "email=" and
+// "email_verified=" — deliberately NOT the single "email(verified)=" label
+// an earlier version of this function used (caught by a security review:
+// see identity.IdentitySummary.EmailVerification's own comment for the
+// false claim that label made). "email=" is the mirror image of the
+// account line's "email(unverified)=" label in exactly one respect —
+// identity.IdentitySummary.Email comes from the SAME trusted source as
+// that line's own provider/subject (the guard's header or the OIDC
+// provider's ID token), never from internal/api's account form, which is
+// exactly what the account line's OWN email can never claim (see
+// UserSummary.Email's comment) — but trusted-source is NOT the same claim
+// as provider-confirmed, and folding the two together is exactly the bug
+// the earlier label made. "email_verified=" is the SEPARATE, honest answer
+// to the confirmation question: "true"/"false" only when an OIDC provider
+// actually sent the email_verified claim at first login, "unknown" for
+// every forward-auth identity (a guard's header carries no such signal at
+// all) and for any OIDC provider that omits the optional claim — see
+// identity.EmailVerification's own doc comment for why "unknown" is
+// printed rather than silently defaulting to "false". A blank "email="
+// value prints as "-", the same placeholder the account line already uses
+// for a blank email or role_local — one convention for "nothing here", not
+// a second one an operator has to learn to tell apart. "email_verified="
+// is never blank — it always prints one of the three words above.
 func listUsers(db *sql.DB, out io.Writer) error {
 	users, err := identity.ListUsers(db)
 	if err != nil {
@@ -445,8 +473,12 @@ func listUsers(db *sql.DB, out io.Writer) error {
 		// as escaped as the account's own line, so it can never itself be
 		// mistaken for a different, unescaped id.
 		for _, id := range u.Identities {
-			_, _ = fmt.Fprintf(out, "%s\tidentity\tprovider=%s\tsubject=%s\n",
-				sanitizedID, sanitizeForLine(id.Provider), sanitizeForLine(id.Subject))
+			identityEmail := id.Email
+			if identityEmail == "" {
+				identityEmail = "-"
+			}
+			_, _ = fmt.Fprintf(out, "%s\tidentity\tprovider=%s\tsubject=%s\temail=%s\temail_verified=%s\n",
+				sanitizedID, sanitizeForLine(id.Provider), sanitizeForLine(id.Subject), sanitizeForLine(identityEmail), sanitizeForLine(id.EmailVerification.String()))
 		}
 	}
 	return nil

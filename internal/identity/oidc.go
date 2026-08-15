@@ -13,6 +13,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"github.com/strausmann/tesserarr/internal/config"
 	"github.com/strausmann/tesserarr/internal/invite"
@@ -194,12 +196,21 @@ func (o *OIDCLogin) Callback(ctx context.Context, gotState, code, previousSessio
 
 	var claims struct {
 		Email string `json:"email"`
+		// EmailVerified is OPTIONAL per the OpenID Connect spec
+		// (https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims)
+		// — a *oidcEmailVerifiedClaim stays nil when the provider omits it
+		// entirely, which is exactly the signal
+		// emailVerificationFromClaim (email_verification.go) needs to tell
+		// "never asked" apart from "asked, and the answer was no". See
+		// that type's own doc comment for why it is not a plain *bool.
+		EmailVerified *oidcEmailVerifiedClaim `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return "", fmt.Errorf("identity: parse oidc claims: %w", err)
 	}
+	emailVerified := emailVerificationFromClaim(claims.EmailVerified)
 
-	userID, err := o.resolveUser(idToken.Subject, claims.Email, attempt.inviteToken)
+	userID, err := o.resolveUser(idToken.Subject, claims.Email, emailVerified, attempt.inviteToken)
 	if err != nil {
 		return "", err
 	}
@@ -225,7 +236,14 @@ func (o *OIDCLogin) Callback(ctx context.Context, gotState, code, previousSessio
 // as the same ErrUnknownIdentityWithoutInvite — not told apart, for the
 // same reason ErrLoginStateInvalid isn't: a login endpoint must not become
 // an oracle for probing which invitation tokens are real.
-func (o *OIDCLogin) resolveUser(subject, email, inviteToken string) (string, error) {
+//
+// emailVerified is only ever consulted by createUserFromInvite, below, for
+// a BRAND-NEW identity — a returning login's "case err == nil" branch
+// deliberately never touches it, the identical staleness rule Email itself
+// already follows (see IdentitySummary.Email's own comment in admin.go):
+// identities.email_verified is written once, at first bind, never
+// refreshed on a later login.
+func (o *OIDCLogin) resolveUser(subject, email string, emailVerified EmailVerification, inviteToken string) (string, error) {
 	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
 	switch {
 	case err == nil:
@@ -240,7 +258,7 @@ func (o *OIDCLogin) resolveUser(subject, email, inviteToken string) (string, err
 	if inviteToken == "" {
 		return "", ErrUnknownIdentityWithoutInvite
 	}
-	return o.createUserFromInvite(subject, email, inviteToken)
+	return o.createUserFromInvite(subject, email, emailVerified, inviteToken)
 }
 
 // updateRole recomputes and stores users.role — the CURRENTLY EFFECTIVE
@@ -312,7 +330,26 @@ func lookupIdentity(db *sql.DB, provider, subject string) (string, error) {
 // commit, needs no separate cleanup at all — a rejected redemption is
 // undone by the same tx.Rollback() that already handles the INSERT
 // failures below.
-func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (string, error) {
+//
+// It can still LOSE a race it did not start — the exact same shape
+// ForwardAuthLogin.createUserFromInvite (forwardauth.go) documents for
+// its own identical INSERT: resolveUser only reaches here after its own
+// lookupIdentity already reported sql.ErrNoRows, but that check and this
+// function's own INSERT are not the same transaction — two callers for
+// the SAME subject (a doubled click, or the same OIDC callback URL opened
+// in two tabs) can both see "unknown" before either commits. Only one
+// INSERT into identities can win identities' PRIMARY KEY (provider,
+// subject) (migrations/0001_initial.sql); before this fix, the other
+// surfaced that raw constraint violation as Callback's own error, failing
+// a login that — from the visitor's side — looks identical to any other.
+// See resolveExistingIdentity for what the loser does instead.
+//
+// emailVerified is written into identities.email_verified in the SAME
+// INSERT as email itself, and never again afterward — see resolveUser's
+// own comment on this function's parameter for why, and
+// migrations/0006_identity_email_verification.sql for the column's own
+// NULL-means-unknown reasoning.
+func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified EmailVerification, inviteToken string) (string, error) {
 	userID := newUserID()
 
 	tx, err := o.db.Begin()
@@ -328,10 +365,27 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 		return "", fmt.Errorf("identity: create user: %w", err)
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO identities (user_id, provider, subject, email) VALUES (?, ?, ?, ?)`,
-		userID, oidcProviderName, subject, nullable(email),
+		`INSERT INTO identities (user_id, provider, subject, email, email_verified) VALUES (?, ?, ?, ?, ?)`,
+		userID, oidcProviderName, subject, nullable(email), emailVerified.sqlValue(),
 	); err != nil {
 		_ = tx.Rollback()
+		// A typed check, not a string match on err.Error() — the same
+		// pattern RemapForwardAuthSubject (admin.go) and
+		// ForwardAuthLogin.createUserFromInvite (forwardauth.go) already
+		// established for this exact constraint, confirmed empirically
+		// there that modernc.org/sqlite wraps it as *sqlite.Error with
+		// Code() == SQLITE_CONSTRAINT_PRIMARYKEY (1555).
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY {
+			// Lost the race this function's own comment describes. SQLite
+			// serializes writers (WAL, one writer transaction at a time):
+			// this INSERT could only fail on an ALREADY-COMMITTED row for
+			// the same (provider, subject), never one still in flight —
+			// so the winner's row is guaranteed visible by now, and this
+			// never spins or retries against a row that might vanish
+			// again.
+			return o.resolveExistingIdentity(subject)
+		}
 		return "", fmt.Errorf("identity: bind oidc identity: %w", err)
 	}
 	if err := invite.Redeem(tx, inviteToken, userID); err != nil {
@@ -346,6 +400,35 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 	}
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("identity: commit user creation: %w", err)
+	}
+	return userID, nil
+}
+
+// resolveExistingIdentity is what a caller that LOST the create race in
+// createUserFromInvite falls back to — the OIDC counterpart of
+// ForwardAuthLogin.resolveExistingIdentity (forwardauth.go), same
+// reasoning: look up the identity that raced ahead of it — by the time the
+// constraint violation surfaced, guaranteed committed (see
+// createUserFromInvite's own comment) — and apply the same updateRole step
+// resolveUser's own "existing identity" branch already runs for any
+// ordinary returning login. From the visitor's side, losing this race now
+// looks exactly like logging into an account that already existed, which
+// — a moment earlier — it now does.
+//
+// inviteToken is deliberately never touched here: the loser's own
+// transaction rolled back before ever reaching invite.Redeem (the INSERT
+// into identities that failed happens BEFORE that call in
+// createUserFromInvite), so the invitation this caller was handed stays
+// unredeemed — available for whoever the provider sends it to next,
+// rather than being silently spent by a request that never actually
+// needed it.
+func (o *OIDCLogin) resolveExistingIdentity(subject string) (string, error) {
+	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
+	if err != nil {
+		return "", fmt.Errorf("identity: look up oidc identity after losing create race: %w", err)
+	}
+	if err := o.updateRole(userID); err != nil {
+		return "", err
 	}
 	return userID, nil
 }
