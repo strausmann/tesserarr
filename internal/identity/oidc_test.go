@@ -1332,7 +1332,7 @@ func TestResolveUserRefreshesEmailOnReturningLogin(t *testing.T) {
 		t.Fatalf("email before any login = %+v, want NULL (createTestUser sets none)", got)
 	}
 
-	if _, err := login.resolveUser("returning-subject", "fresh@example.org", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "fresh@example.org", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("resolveUser() returned error: %v", err)
 	}
 
@@ -1351,14 +1351,14 @@ func TestResolveUserUpdatesEmailWhenProviderClaimChanges(t *testing.T) {
 	createTestUser(t, db, "user-existing")
 	seedIdentity(t, db, "user-existing", "returning-subject")
 
-	if _, err := login.resolveUser("returning-subject", "old@example.org", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "old@example.org", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("first resolveUser() returned error: %v", err)
 	}
 	if got := readUserEmail(t, db, "user-existing"); !got.Valid || got.String != "old@example.org" {
 		t.Fatalf("email after first login = %+v, want old@example.org", got)
 	}
 
-	if _, err := login.resolveUser("returning-subject", "new@example.org", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "new@example.org", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("second resolveUser() returned error: %v", err)
 	}
 	if got := readUserEmail(t, db, "user-existing"); !got.Valid || got.String != "new@example.org" {
@@ -1380,11 +1380,11 @@ func TestResolveUserKeepsEmailWhenClaimIsEmptyOnReturningLogin(t *testing.T) {
 	createTestUser(t, db, "user-existing")
 	seedIdentity(t, db, "user-existing", "returning-subject")
 
-	if _, err := login.resolveUser("returning-subject", "keep-me@example.org", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "keep-me@example.org", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("first resolveUser() returned error: %v", err)
 	}
 
-	if _, err := login.resolveUser("returning-subject", "", ""); err != nil { // no email claim this time
+	if _, err := login.resolveUser("returning-subject", "", EmailVerificationUnknown, ""); err != nil { // no email claim this time
 		t.Fatalf("second resolveUser() returned error: %v", err)
 	}
 

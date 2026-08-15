@@ -414,7 +414,7 @@ func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified Em
 			// so the winner's row is guaranteed visible by now, and this
 			// never spins or retries against a row that might vanish
 			// again.
-			return o.resolveExistingIdentity(subject)
+			return o.resolveExistingIdentity(subject, email)
 		}
 		return "", fmt.Errorf("identity: bind oidc identity: %w", err)
 	}
@@ -439,11 +439,21 @@ func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified Em
 // ForwardAuthLogin.resolveExistingIdentity (forwardauth.go), same
 // reasoning: look up the identity that raced ahead of it — by the time the
 // constraint violation surfaced, guaranteed committed (see
-// createUserFromInvite's own comment) — and apply the same updateRole step
-// resolveUser's own "existing identity" branch already runs for any
+// createUserFromInvite's own comment) — and apply the same updateProfile
+// step resolveUser's own "existing identity" branch already runs for any
 // ordinary returning login. From the visitor's side, losing this race now
 // looks exactly like logging into an account that already existed, which
-// — a moment earlier — it now does.
+// — a moment earlier — it now does — and that includes the email refresh
+// updateProfile performs on every returning login (see updateProfile's own
+// comment): the loser is not a lesser case of a returning login, it IS
+// one, just one that arrived a moment too early. email is the same claim
+// value createUserFromInvite already received from the caller (Callback's
+// idToken claims) and passes straight through here — this function has no
+// way to look it up itself, and asking the provider again would just be
+// the same value under a second round trip. updateProfile's own CASE WHEN
+// guard still applies: an empty claim updates nothing, so this can never
+// blank out whatever email the winner's own createUserFromInvite call just
+// stored.
 //
 // inviteToken is deliberately never touched here: the loser's own
 // transaction rolled back before ever reaching invite.Redeem (the INSERT
@@ -452,12 +462,12 @@ func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified Em
 // unredeemed — available for whoever the provider sends it to next,
 // rather than being silently spent by a request that never actually
 // needed it.
-func (o *OIDCLogin) resolveExistingIdentity(subject string) (string, error) {
+func (o *OIDCLogin) resolveExistingIdentity(subject, email string) (string, error) {
 	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
 	if err != nil {
 		return "", fmt.Errorf("identity: look up oidc identity after losing create race: %w", err)
 	}
-	if err := o.updateRole(userID); err != nil {
+	if err := o.updateProfile(userID, email); err != nil {
 		return "", err
 	}
 	return userID, nil
