@@ -110,9 +110,15 @@ none of those four values can be set by an account holder themselves. The person
 how many identity lines follow it as a plain number (`identities=<n>`); the two always agree,
 because that number and those lines both come straight from the database, never from splitting a
 value apart on a character the account holder could have put there themselves. The
-`email(unverified)=` column on the person's own line is exactly what its name says: any signed-in
-user can set their OWN email to anything, including a value someone else already has (Tesserarr
-flags that case in the listing when it happens, but does not prevent it) — never pick the `<id>` to
+`email(unverified)=` column on the person's own line is exactly what its name says: it comes from
+whichever trusted source last supplied it for that account — an OIDC provider's own claims, or a
+forward-auth guard's header, refreshed on every login — never from anything the account holder
+typed (an earlier version let any signed-in user set this value themselves; that write path is
+gone, see `internal/api/account.go`'s `AccountPath` doc comment). Even so, two different accounts
+can legitimately carry the SAME value: users.email has no uniqueness constraint, on purpose — two
+real accounts sharing an actual address, a family mailbox say, is the ordinary case a uniqueness
+constraint was tried and reverted for once it turned out to reject it (Tesserarr flags the
+collision in the listing when it happens, but does not prevent it) — never pick the `<id>` to
 promote off of a matching email alone.
 
 The `email=` and `email_verified=` columns on each IDENTITY line below it answer two DIFFERENT

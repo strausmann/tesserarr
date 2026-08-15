@@ -190,20 +190,25 @@ type UserSummary struct {
 	ID string
 	// DisplayName is users.display_name — never empty (NOT NULL).
 	DisplayName string
-	// Email is users.email, or "" if the user has never set one.
+	// Email is users.email, or "" if no login source has ever supplied one.
 	//
 	// UNVERIFIED — this is emphatically NOT proof of who owns this
-	// account. internal/api/account.go's handleUpdateAccount lets ANY
-	// signed-in user set it to ANY string of at most 254 bytes, including
-	// one another account already carries (users.email has no uniqueness
-	// constraint — migrations/0001_initial.sql); a forward-auth guard
-	// entry can also overwrite it on every login (see
-	// ForwardAuthLogin.updateProfile, forwardauth.go) with whatever its
-	// own email header happens to carry. An operator who reads THIS field
-	// as "this is who they are" and acts on it (e.g. to decide who to
-	// promote) can be handing a role to the wrong account entirely — see
-	// Identities below for the field that actually answers that question,
-	// and TestPromoteUserRoleTargetsExactUserEvenWhenEmailIsShared for why
+	// account. It is now written EXCLUSIVELY by a trusted source — an
+	// OIDC provider's own ID token claims, or a forward-auth guard's
+	// header — refreshed on every login (see OIDCLogin.updateProfile in
+	// oidc.go and ForwardAuthLogin.updateProfile in forwardauth.go);
+	// internal/api's account handler used to let any signed-in user set
+	// this field themselves to any string, but that write path is gone —
+	// see internal/api/account.go's AccountPath comment for why. Even so,
+	// users.email STILL carries no uniqueness constraint, on purpose
+	// (internal/store/migrations/0001_initial.sql): two real accounts
+	// legitimately sharing an actual address — a family mailbox, say — is
+	// the ordinary case a follow-up UNIQUE constraint wrongly rejected. An
+	// operator who reads THIS field as "this is who they are" and acts on
+	// it (e.g. to decide who to promote) can still be handing a role to
+	// the wrong account — see Identities below for the field that
+	// actually answers that question, and
+	// TestPromoteUserRoleTargetsExactUserEvenWhenEmailIsShared for why
 	// PromoteUserRole itself never accepts this value as a lookup key.
 	Email string
 	// Role is the CURRENTLY EFFECTIVE role (users.role) — recomputed at

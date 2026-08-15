@@ -347,30 +347,37 @@ func runUserList(args []string) error {
 // The email column is labeled "email(unverified)" and, when its value is
 // shared with another account in THIS listing, additionally flagged — see
 // identity.UserSummary.Email's own comment for why: users.email carries no
-// uniqueness constraint, and internal/api's account handler lets any
-// signed-in user set it to any string, including one somebody else already
-// claims. An operator picking an id to hand to "tesserarr user promote"
-// off of a matching email alone could promote the wrong account entirely.
-// Neither the label nor the flag stops that from being possible — only a
-// schema-level UNIQUE constraint would (tracked separately, see the
-// comment this replaced) — but they stop the collision from being
-// invisible in the one place an operator is actually looking when they
-// decide who to promote. The identity lines below the account's own line
-// are what an operator SHOULD use instead to confirm which row belongs to
-// which real person: neither a bound identity's provider nor its subject
-// value can be set by the account holder themselves
+// uniqueness constraint, on purpose — a schema-level UNIQUE constraint was
+// tried and reverted because it rejected the ordinary case of two real
+// accounts legitimately sharing an actual address (a family mailbox, say).
+// internal/api's account handler used to let any signed-in user set this
+// value to anything, including one somebody else already claimed; that
+// write path is gone (see internal/api/account.go's AccountPath comment),
+// but the collision it used to cause is still just as possible today from
+// two accounts whose trusted sources — an OIDC provider's claims or a
+// forward-auth guard's header — happen to agree. An operator picking an id
+// to hand to "tesserarr user promote" off of a matching email alone could
+// still promote the wrong account entirely. Neither the label nor the flag
+// stops that from being possible — only rejecting the legitimate shared-
+// address case would, which is worse — but they stop the collision from
+// being invisible in the one place an operator is actually looking when
+// they decide who to promote. The identity lines below the account's own
+// line are what an operator SHOULD use instead to confirm which row
+// belongs to which real person: neither a bound identity's provider nor
+// its subject value can be set by the account holder themselves
 // (identity.IdentitySummary's own comment).
 //
 // Every field printed below goes through sanitizeForLine first — not only
-// email. handleUpdateAccount (internal/api/account.go) rejects control
-// characters in a NEWLY submitted email, but that check has nothing to say
-// about rows written before it existed, and display_name /
-// identities.subject reach this function from a forward-auth guard header
-// or an OIDC provider's own claims (identity.UserSummary's field
-// comments), sources this package has no reason to assume are free of
-// control characters either. Without sanitizeForLine, a single crafted
-// field could inject a CR+LF pair that makes one database row print as
-// two terminal lines — one of them entirely fabricated, e.g. claiming
+// email. email, display_name and identities.subject all reach this
+// function from a forward-auth guard header or an OIDC provider's own ID
+// token claims (identity.UserSummary's field comments), and nothing on
+// either write path checks any of them for control characters (see
+// OIDCLogin.updateProfile/createUserFromInvite in oidc.go and
+// ForwardAuthLogin.updateProfile/createUserFromInvite in forwardauth.go),
+// so this package has no reason to assume they are free of control
+// characters either. Without sanitizeForLine, a single crafted field
+// could inject a CR+LF pair that makes one database row print as two
+// terminal lines — one of them entirely fabricated, e.g. claiming
 // role=admin for an id that does not exist — which is exactly the kind of
 // forgery an operator relying on "one line per account" (this function's
 // own doc comment, above) to decide who to promote must never see.

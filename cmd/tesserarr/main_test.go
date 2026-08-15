@@ -558,16 +558,18 @@ func identityLinesForUser(t *testing.T, output, userID string) []string {
 // TestListUsersEscapesControlCharactersInEveryField proves that no field
 // listUsers prints — not just email — can forge an extra line or otherwise
 // break the "one line per account" invariant an operator relies on to pick
-// who to promote (see runUserPromote's own comment). users.email reaches
-// this function entirely unvalidated for control characters from at least
-// one path an attacker fully controls (internal/api's handleUpdateAccount,
-// any signed-in user, any string up to 254 bytes — see UserSummary.Email's
-// comment), and display_name/identities.subject arrive from a forward-auth
-// guard header or an OIDC provider's own claims, which this package does
-// not treat as free of control characters either. A CR+LF pair inside
-// user-1's email that spells out what looks like an entire second,
-// higher-privileged row must NOT turn into a real second line, and an ESC
-// byte must never reach the operator's terminal raw.
+// who to promote (see runUserPromote's own comment). users.email,
+// display_name and identities.subject all reach this function from a
+// forward-auth guard header or an OIDC provider's own ID token claims
+// (identity.UserSummary's field comments) — and neither write path checks
+// any of them for control characters (see
+// OIDCLogin.updateProfile/createUserFromInvite in oidc.go and
+// ForwardAuthLogin.updateProfile/createUserFromInvite in forwardauth.go),
+// so this package has no reason to treat them as free of control
+// characters either. A CR+LF pair inside user-1's email that spells out
+// what looks like an entire second, higher-privileged row must NOT turn
+// into a real second line, and an ESC byte must never reach the
+// operator's terminal raw.
 func TestListUsersEscapesControlCharactersInEveryField(t *testing.T) {
 	db := newTestDB(t)
 	forgedLine := "attacker@example.org\r\nfake-admin\tForged Admin\temail(unverified)=-\trole=admin\trole_local=admin\tidentities=-"
