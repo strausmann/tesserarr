@@ -408,10 +408,13 @@ func listUsers(db *sql.DB, out io.Writer) error {
 		if roleLocal == "" {
 			roleLocal = "-"
 		}
-		identityCount := "-"
-		if len(u.Identities) > 0 {
-			identityCount = fmt.Sprintf("%d", len(u.Identities))
-		}
+		// Unlike email/role_local above, "-" is never used here: the column
+		// states a COUNT (len(u.Identities), see this function's own doc
+		// comment), and zero is a real, meaningful count — it is exactly the
+		// case where this account's identity can't be verified at all. "-"
+		// would read as "not set" and hide that from the operator deciding
+		// who to promote.
+		identityCount := fmt.Sprintf("%d", len(u.Identities))
 		// Errors from writing to out are deliberately ignored, matching
 		// createInvite's own reasoning: out is the caller's stdout, and
 		// there is no more-honest place left to report a broken stdout to.

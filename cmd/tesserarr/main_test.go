@@ -241,11 +241,11 @@ func TestListUsersPrintsEveryUserWithPlaceholdersForEmptyFields(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "user-1\tFriend\temail(unverified)=friend@example.org\trole=admin\trole_local=admin\tidentities=-\n") {
+	if !strings.Contains(got, "user-1\tFriend\temail(unverified)=friend@example.org\trole=admin\trole_local=admin\tidentities=0\n") {
 		t.Errorf("output = %q, want a line for user-1 with its email and role/role_local", got)
 	}
-	if !strings.Contains(got, "user-2\tNo Email Yet\temail(unverified)=-\trole=\trole_local=-\tidentities=-\n") {
-		t.Errorf("output = %q, want a line for user-2 with \"-\" placeholders for the unset email and role_local", got)
+	if !strings.Contains(got, "user-2\tNo Email Yet\temail(unverified)=-\trole=\trole_local=-\tidentities=0\n") {
+		t.Errorf("output = %q, want a line for user-2 with \"-\" placeholders for the unset email/role_local, but a real 0 count for identities (a count, not an unset field — see listUsers' own doc comment)", got)
 	}
 }
 
@@ -324,6 +324,41 @@ func TestListUsersPrintsIdentitiesColumn(t *testing.T) {
 	}
 	if !strings.Contains(got, "user-1\tidentity\tprovider=forward-auth\tsubject=sub-123\n") {
 		t.Errorf("output = %q, want a separate identity line for user-1's forward-auth:sub-123 identity", got)
+	}
+}
+
+// TestListUsersPrintsZeroIdentitiesAsARealCount is the regression test for
+// the bug this test accompanies fixing: an account with NO bound identities
+// used to print identities=- (the same placeholder email/role_local use for
+// an unset field), which reads as "not recorded" rather than what it
+// actually is — a real, meaningful count of zero. Zero identities is
+// precisely the case where an operator deciding who to promote (see
+// runUserPromote's own comment) cannot verify who this account belongs to
+// at all; hiding that behind a placeholder is the opposite of what the
+// column is for. identities= must always be len(u.Identities) formatted as
+// a plain decimal digit string, per listUsers' own doc comment, including
+// when that length is 0 — never "-".
+func TestListUsersPrintsZeroIdentitiesAsARealCount(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		"user-1", "No Identities Yet", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	// Deliberately no row in identities for user-1.
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+	got := out.String()
+
+	if !strings.Contains(got, "\tidentities=0\n") {
+		t.Errorf("output = %q, want the account line to state identities=0 for an account with no bound identities, not a \"-\" placeholder", got)
+	}
+	if strings.Contains(got, "\tidentities=-\n") {
+		t.Errorf("output = %q, must NOT print identities=- (that reads as \"not recorded\", not the real count of 0)", got)
 	}
 }
 
