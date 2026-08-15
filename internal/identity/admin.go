@@ -119,6 +119,25 @@ type IdentitySummary struct {
 	Provider string
 	// Subject is identities.subject — see this type's own comment.
 	Subject string
+	// Email is identities.email, or "" if this identity carried none.
+	//
+	// VERIFIED — unlike UserSummary.Email, this is written ONLY by
+	// createUserFromInvite (oidc.go, forwardauth.go), from the SAME trusted
+	// source as Provider/Subject: the guard's header or the OIDC provider's
+	// own ID token, checked before either package ever sees it. No HTTP
+	// handler and no account holder can set or change it — see this type's
+	// own package comment above for why that is what makes Provider/Subject
+	// (and now this) trustworthy in a way UserSummary.Email never is.
+	//
+	// STALE IS POSSIBLE, FORGED IS NOT — this column is written once, at the
+	// moment THIS identity is first bound, and neither updateProfile
+	// (forwardauth.go) nor updateRole (oidc.go) ever touches it again on a
+	// later login, unlike users.email which both do refresh on every entry.
+	// A provider-side email change after that first login will not be
+	// reflected here. That is a staleness question, not a trust one: the
+	// value that IS here still came from the provider, never from the
+	// account holder typing into internal/api's account form.
+	Email string
 }
 
 // UserSummary is one row of what ListUsers reports — enough for an
@@ -201,7 +220,7 @@ func ListUsers(db *sql.DB) ([]UserSummary, error) {
 	// exist for), and a JOIN would either duplicate every other column
 	// per identity row or need a database-specific aggregate — a second
 	// query keyed by user_id and merged in Go here needs neither.
-	idRows, err := db.Query(`SELECT user_id, provider, subject FROM identities ORDER BY user_id, provider, subject`)
+	idRows, err := db.Query(`SELECT user_id, provider, subject, COALESCE(email, '') FROM identities ORDER BY user_id, provider, subject`)
 	if err != nil {
 		return nil, fmt.Errorf("identity: list users: identities: %w", err)
 	}
@@ -210,7 +229,7 @@ func ListUsers(db *sql.DB) ([]UserSummary, error) {
 	for idRows.Next() {
 		var userID string
 		var id IdentitySummary
-		if err := idRows.Scan(&userID, &id.Provider, &id.Subject); err != nil {
+		if err := idRows.Scan(&userID, &id.Provider, &id.Subject, &id.Email); err != nil {
 			return nil, fmt.Errorf("identity: list users: identities: scan: %w", err)
 		}
 		// A row here for a user_id not in index would mean identities
