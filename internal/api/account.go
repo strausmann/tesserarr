@@ -80,8 +80,15 @@ type updateAccountRequest struct {
 func (a *API) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	userID, _ := userIDFromContext(r.Context())
 
+	// See maxRequestBodyBytes's own comment (middleware.go): this MUST run
+	// before Decode, not after — decoding a JSON string requires reading the
+	// whole value first, so a length check on req.Email afterwards would
+	// already be too late to bound how much of an oversized body ends up in
+	// memory.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	var req updateAccountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
