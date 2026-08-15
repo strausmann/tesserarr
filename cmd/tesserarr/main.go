@@ -104,6 +104,22 @@ func runServe() error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           a.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// ReadTimeout bounds reading the REQUEST BODY, which
+		// ReadHeaderTimeout alone does not cover (net/http.Server's own
+		// doc comment on ReadHeaderTimeout: it "does not let Handlers make
+		// per-request decisions on each request body's acceptable ...
+		// timeout"). Without it, a caller that opens a connection and then
+		// drip-feeds bytes at an arbitrarily slow rate holds a goroutine
+		// (and, for a session-space route, a database connection borrowed
+		// for the request's duration) open indefinitely — independent of
+		// and in addition to the per-handler size guard in
+		// internal/api/middleware.go's maxRequestBodyBytes, which bounds
+		// HOW MUCH a caller may send, not how slowly. 15s gives noticeably
+		// more headroom than the 10s header phase for a body capped at 4
+		// KiB (maxRequestBodyBytes) — legitimate requests finish in
+		// milliseconds; this only ever fires against a caller stalling on
+		// purpose.
+		ReadTimeout: 15 * time.Second,
 	}
 
 	errCh := make(chan error, 1)

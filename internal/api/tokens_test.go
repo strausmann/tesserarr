@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,38 @@ func TestHandleCreateTokenRejectsEmptyLabel(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestHandleCreateTokenRejectsOversizedBodyWithoutReadingItFully is the
+// tokens.go counterpart of account_test.go's
+// TestHandleUpdateAccountRejectsOversizedBodyWithoutReadingItFully — same
+// reasoning: json.Decoder must consume an entire JSON string token before it
+// can hand it back, so {"label":"<huge>"} reads every byte of an oversized
+// value no matter how far past maxTokenLabelLen (100) it is checked
+// afterwards. See that test's own comment for why oversizedBodyLen is not
+// expressed in terms of a production constant.
+func TestHandleCreateTokenRejectsOversizedBodyWithoutReadingItFully(t *testing.T) {
+	a := newTestAPI(t)
+	cookie := loginAsTestUser(t, a, "user-1")
+
+	const oversizedBodyLen = 4096 * 4 // comfortably past any sane body-size guard
+	payload := []byte(`{"label":"` + strings.Repeat("a", oversizedBodyLen) + `"}`)
+	body := &countingReader{r: bytes.NewReader(payload)}
+
+	req := httptest.NewRequest(http.MethodPost, TokensPath, body)
+	req.AddCookie(cookie)
+	ensureCSRFCookieForTest(t, a, req, cookie)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if body.read >= int64(len(payload)) {
+		t.Errorf("handler read all %d bytes of the oversized body before rejecting it (read %d) — a size guard must reject the request before the decoder consumes the whole payload", len(payload), body.read)
 	}
 }
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -62,6 +63,26 @@ func loginAsTestUser(t *testing.T, a *API, userID string) *http.Cookie {
 
 	token := createTestUserAndSession(t, a, userID)
 	return &http.Cookie{Name: a.cfg.SessionCookieName, Value: token} //nolint:gosec // G124: this is an INCOMING request cookie built for a test client — see the comment on the other AddCookie calls in middleware_test.go/csrf_test.go
+}
+
+// countingReader wraps a reader and tallies how many bytes were actually
+// pulled out of it. account_test.go's and tokens_test.go's oversized-body
+// tests use it to prove a request-body-size guard rejects an oversized
+// request WITHOUT first reading the whole thing into memory — the point of
+// http.MaxBytesReader is that it stops the caller from ever being handed the
+// rest of an over-limit body, not merely that decoding eventually fails. A
+// test that only checked the resulting status code could not tell "the guard
+// engaged early" apart from "the body was read in full and something else
+// downstream rejected it".
+type countingReader struct {
+	r    io.Reader
+	read int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read += int64(n)
+	return n, err
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {

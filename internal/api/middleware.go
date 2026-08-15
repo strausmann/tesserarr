@@ -6,6 +6,32 @@ import (
 	"strings"
 )
 
+// maxRequestBodyBytes bounds every JSON request body this package decodes
+// (handleUpdateAccount in account.go, handleCreateToken in tokens.go) before
+// json.NewDecoder(r.Body).Decode ever runs — that decode call must consume
+// an entire JSON string token before it can hand it back, so a per-field
+// length check performed only AFTER Decode (maxAccountEmailLen,
+// maxTokenLabelLen) buys nothing against an oversized value: the whole body
+// already sits in memory by the time either check runs. Measured without
+// this guard: a 512 MiB request body inflated the server process by roughly
+// 2 GiB (a ~4x amplification) and succeeded outright — an authenticated
+// caller at the LOWEST trust level (any invited user with a live session)
+// could drive that arbitrarily high, enough to OOM-kill a container with a
+// memory limit.
+//
+// Applied via http.MaxBytesReader(w, r.Body, maxRequestBodyBytes) at each
+// decode site rather than once centrally: this package's two path spaces
+// deliberately share no single request-entry funnel (see the package
+// comment on router.go) for either of its middleware chains, so there is no
+// one place upstream of both handlers to hang this on without inventing one.
+//
+// 4 KiB is generous headroom, not a tight fit — createTokenRequest needs a
+// label of at most maxTokenLabelLen (100) bytes plus a small integer, and
+// updateAccountRequest needs an email of at most maxAccountEmailLen (254)
+// bytes; both fit many times over inside this limit with plenty of room for
+// ordinary JSON formatting.
+const maxRequestBodyBytes = 4096
+
 // contextKey is a private type for the value requireSession and requireToken
 // place in the request context. Using an unexported struct type, rather than a
 // string or int, means this key can never collide with one some other package
