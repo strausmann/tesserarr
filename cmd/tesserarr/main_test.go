@@ -287,10 +287,17 @@ func TestListUsersFlagsEmailSharedBetweenAccounts(t *testing.T) {
 	}
 }
 
-// TestListUsersPrintsIdentitiesColumn proves the identities= column
-// listUsers now prints — the (provider, subject) pairs an operator can
-// actually trust, unlike the unverified email column (see
-// identity.IdentitySummary's own comment).
+// TestListUsersPrintsIdentitiesColumn proves listUsers prints both halves
+// of the identity representation: the account's own line states the
+// COUNT of bound identities (identities=1, a plain digit derived from
+// len(), see listUsers' own doc comment), and each identity gets its own
+// further line beneath it, giving the (provider, subject) pair an
+// operator can actually trust, unlike the unverified email column (see
+// identity.IdentitySummary's own comment). This changed from a single
+// comma-joined "identities=forward-auth:sub-123" field on the account's
+// own line — see TestListUsersSubjectCannotForgeAnIdentityLine below for
+// why that joined form was unsafe; this test only needs updating for the
+// new, equally simple single-identity shape, not for any new assurance.
 func TestListUsersPrintsIdentitiesColumn(t *testing.T) {
 	db := newTestDB(t)
 	if _, err := db.Exec(
@@ -310,10 +317,138 @@ func TestListUsersPrintsIdentitiesColumn(t *testing.T) {
 	if err := listUsers(db, &out); err != nil {
 		t.Fatalf("listUsers() returned error: %v", err)
 	}
+	got := out.String()
 
-	if !strings.Contains(out.String(), "identities=forward-auth:sub-123\n") {
-		t.Errorf("output = %q, want a line ending in identities=forward-auth:sub-123", out.String())
+	if !strings.Contains(got, "\tidentities=1\n") {
+		t.Errorf("output = %q, want the account line to state identities=1", got)
 	}
+	if !strings.Contains(got, "user-1\tidentity\tprovider=forward-auth\tsubject=sub-123\n") {
+		t.Errorf("output = %q, want a separate identity line for user-1's forward-auth:sub-123 identity", got)
+	}
+}
+
+// TestListUsersSubjectCannotForgeAnIdentityLine is the regression test for
+// the vulnerability the one-line-per-identity design (listUsers' own doc
+// comment) exists to close: a Subject value containing the OLD list
+// separator (',') must never change how many identity lines print, nor
+// make the account appear to own a (provider, subject) pair it does not
+// actually have bound. This is not a contrived input — a comma is
+// entirely legal in a value this package receives verbatim from a
+// forward-auth guard header or an OIDC provider's own claims
+// (identity.IdentitySummary's own comment); nothing upstream of listUsers
+// rejects it.
+//
+// forgedSubject reads, at a glance, like TWO (provider, subject) pairs —
+// the account's own real "forward-auth:mine" identity, followed by what
+// looks like a second, fabricated "oidc:victim" entry falsely claiming
+// this account owns somebody else's OIDC subject. Under the OLD
+// comma-joined design this printed as a single field,
+// identities=forward-auth:mine,oidc:victim, indistinguishable from two
+// real identities — an operator deciding who to promote could be shown a
+// binding that was never in the database.
+func TestListUsersSubjectCannotForgeAnIdentityLine(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		"user-1", "Attacker", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	const forgedSubject = "mine,oidc:victim"
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject) VALUES (?, ?, ?)`,
+		"user-1", "forward-auth", forgedSubject,
+	); err != nil {
+		t.Fatalf("insert test identity: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+	got := out.String()
+
+	// The structural invariant: exactly one identity LINE, matching the
+	// one row actually inserted above. This is driven by len(u.Identities)
+	// — an actual Go slice length — never by re-parsing the comma inside
+	// forgedSubject, so no content of that field can move this count.
+	lines := identityLinesForUser(t, got, "user-1")
+	if len(lines) != 1 {
+		t.Fatalf("listUsers() printed %d identity lines for user-1, want exactly 1 (one real identity row was inserted):\n%s", len(lines), got)
+	}
+	if lines[0] != "user-1\tidentity\tprovider=forward-auth\tsubject="+forgedSubject {
+		t.Errorf("identity line = %q, want the whole comma-containing subject preserved as ONE field, not split at the comma", lines[0])
+	}
+
+	// The account's own line must agree: identities=1 (one real row), a
+	// plain digit from len(), never inflated to identities=2 by content.
+	if !strings.Contains(got, "\tidentities=1\n") {
+		t.Errorf("output = %q, want the account line to state identities=1, not a count inflated by the comma in its subject", got)
+	}
+
+	// No line may claim the fabricated "oidc"/"victim" pair as its own,
+	// separate provider/subject fields — the exact line-count check above
+	// already rules this out structurally, this is the same property
+	// stated the way an operator would actually notice it going wrong.
+	if strings.Contains(got, "provider=oidc\tsubject=victim") {
+		t.Errorf("output = %q, contains a forged oidc:victim identity", got)
+	}
+}
+
+// TestListUsersSubjectColonCannotBeMisreadAsProviderBoundary proves the
+// second, lower-severity half of the same design change: an identity's
+// provider and subject are no longer joined with ':' on their line
+// (listUsers' own doc comment explains why that boundary is not reliable
+// either, once a Subject can contain one), so a colon inside subject can
+// no longer be misread as marking where the provider ends and the
+// subject begins.
+func TestListUsersSubjectColonCannotBeMisreadAsProviderBoundary(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		"user-1", "Friend", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject) VALUES (?, ?, ?)`,
+		"user-1", "oidc", "abc:def",
+	); err != nil {
+		t.Fatalf("insert test identity: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+	got := out.String()
+
+	lines := identityLinesForUser(t, got, "user-1")
+	if len(lines) != 1 {
+		t.Fatalf("listUsers() printed %d identity lines for user-1, want exactly 1:\n%s", len(lines), got)
+	}
+	if lines[0] != "user-1\tidentity\tprovider=oidc\tsubject=abc:def" {
+		t.Errorf("identity line = %q, want provider=oidc and subject=abc:def as separate, unambiguous fields", lines[0])
+	}
+}
+
+// identityLinesForUser returns every identity line (the
+// "<id>\tidentity\tprovider=...\tsubject=...\n" lines listUsers prints
+// below an account's own line) belonging to userID, trimmed of their
+// trailing newline. Matching on the id+"\tidentity\t" prefix — rather
+// than lineForUser's plain id+"\t" prefix, which an account's own line
+// also starts with — is what keeps this helper from conflating the two
+// line kinds when a user has both.
+func identityLinesForUser(t *testing.T, output, userID string) []string {
+	t.Helper()
+	prefix := userID + "\tidentity\t"
+	var lines []string
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 // TestListUsersEscapesControlCharactersInEveryField proves that no field

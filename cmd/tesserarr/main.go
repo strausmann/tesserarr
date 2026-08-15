@@ -318,10 +318,11 @@ func runUserList(args []string) error {
 
 // listUsers prints one line per user — id, display name, an EXPLICITLY
 // unverified email, the CURRENTLY EFFECTIVE role, the operator's own
-// role_local assignment, and the (provider, subject) identities actually
-// bound to the account — to out. A blank email or role_local prints as
-// "-", not an empty column that would be easy to misread as a parsing
-// error.
+// role_local assignment, and a count of the (provider, subject) identities
+// bound to the account — to out, followed by one further line per identity
+// (see below for why those are not folded into the account's own line). A
+// blank email or role_local prints as "-", not an empty column that would
+// be easy to misread as a parsing error.
 //
 // The email column is labeled "email(unverified)" and, when its value is
 // shared with another account in THIS listing, additionally flagged — see
@@ -334,10 +335,11 @@ func runUserList(args []string) error {
 // schema-level UNIQUE constraint would (tracked separately, see the
 // comment this replaced) — but they stop the collision from being
 // invisible in the one place an operator is actually looking when they
-// decide who to promote. The identities column is what an operator SHOULD
-// use instead to confirm which row belongs to which real person: neither
-// its provider nor its subject value can be set by the account holder
-// themselves (identity.IdentitySummary's own comment).
+// decide who to promote. The identity lines below the account's own line
+// are what an operator SHOULD use instead to confirm which row belongs to
+// which real person: neither a bound identity's provider nor its subject
+// value can be set by the account holder themselves
+// (identity.IdentitySummary's own comment).
 //
 // Every field printed below goes through sanitizeForLine first — not only
 // email. handleUpdateAccount (internal/api/account.go) rejects control
@@ -352,6 +354,27 @@ func runUserList(args []string) error {
 // role=admin for an id that does not exist — which is exactly the kind of
 // forgery an operator relying on "one line per account" (this function's
 // own doc comment, above) to decide who to promote must never see.
+//
+// The identities a user has bound are each printed on their OWN line
+// (below the account's line, prefixed with the same, trusted id — never
+// an attacker-controlled value), never joined into one delimited list.
+// An earlier version rendered them as a single comma-joined
+// "provider:subject,provider:subject,..." field, which sanitizeForLine
+// alone does not protect: neither ',' nor ':' is a control character, so
+// a Subject value containing one — e.g. "mine,oidc:victim", entirely
+// legal from an OIDC provider's own claims (IdentitySummary's comment) —
+// printed as identities=forward-auth:mine,oidc:victim, indistinguishable
+// from TWO real identities, the second one falsely claiming this account
+// owns the OIDC subject "victim". Splitting a delimited list back apart
+// can never be made safe against a value that contains the delimiter;
+// emitting one line per identity sidesteps the problem instead of trying
+// to escape around it: how many identities print is driven directly by
+// len(u.Identities), an actual Go slice length, never by re-parsing text,
+// so no field's content can change that count. The account's own line
+// additionally states that same count as a plain decimal digit string
+// (via len(), not concatenation) so an operator sees it without counting
+// rows by hand; the per-identity lines are the structural proof, the
+// count is a convenience that can never disagree with them.
 func listUsers(db *sql.DB, out io.Writer) error {
 	users, err := identity.ListUsers(db)
 	if err != nil {
@@ -385,19 +408,27 @@ func listUsers(db *sql.DB, out io.Writer) error {
 		if roleLocal == "" {
 			roleLocal = "-"
 		}
-		identities := "-"
+		identityCount := "-"
 		if len(u.Identities) > 0 {
-			parts := make([]string, len(u.Identities))
-			for i, id := range u.Identities {
-				parts[i] = sanitizeForLine(id.Provider) + ":" + sanitizeForLine(id.Subject)
-			}
-			identities = strings.Join(parts, ",")
+			identityCount = fmt.Sprintf("%d", len(u.Identities))
 		}
 		// Errors from writing to out are deliberately ignored, matching
 		// createInvite's own reasoning: out is the caller's stdout, and
 		// there is no more-honest place left to report a broken stdout to.
+		sanitizedID := sanitizeForLine(u.ID)
 		_, _ = fmt.Fprintf(out, "%s\t%s\temail(unverified)=%s\trole=%s\trole_local=%s\tidentities=%s\n",
-			sanitizeForLine(u.ID), sanitizeForLine(u.DisplayName), sanitizeForLine(email), sanitizeForLine(u.Role), sanitizeForLine(roleLocal), identities)
+			sanitizedID, sanitizeForLine(u.DisplayName), sanitizeForLine(email), sanitizeForLine(u.Role), sanitizeForLine(roleLocal), identityCount)
+		// One line per identity, never a delimited list on the account's
+		// own line — see this function's doc comment for why joining them
+		// with ',' (the earlier design) let a Subject containing one forge
+		// an extra identity. sanitizedID (not u.ID) leads every line: the
+		// prefix that ties an identity line back to its account is exactly
+		// as escaped as the account's own line, so it can never itself be
+		// mistaken for a different, unescaped id.
+		for _, id := range u.Identities {
+			_, _ = fmt.Fprintf(out, "%s\tidentity\tprovider=%s\tsubject=%s\n",
+				sanitizedID, sanitizeForLine(id.Provider), sanitizeForLine(id.Subject))
+		}
 	}
 	return nil
 }
