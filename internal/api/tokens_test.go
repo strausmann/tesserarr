@@ -120,6 +120,100 @@ func TestHandleCreateTokenRejectsOversizedBodyWithoutReadingItFully(t *testing.T
 	}
 }
 
+// TestHandleCreateTokenRejectsPaddingAfterValidBody is the tokens.go
+// counterpart of account_test.go's
+// TestHandleUpdateAccountRejectsPaddingAfterValidBody — same reasoning:
+// json.Decoder.Decode stops at the first complete JSON value and never
+// looks at what follows, so a small, valid {"label":"sonarr"} followed by
+// a large padding run sailed straight through Decode (and past
+// maxTokenLabelLen's post-decode check, which only ever sees req.Label)
+// before decodeJSONBody's second Decode call started requiring the rest of
+// the body to be empty.
+func TestHandleCreateTokenRejectsPaddingAfterValidBody(t *testing.T) {
+	a := newTestAPI(t)
+	cookie := loginAsTestUser(t, a, "user-1")
+
+	const paddingLen = 200_000 // far past maxRequestBodyBytes (4096)
+	payload := []byte(`{"label":"sonarr"}` + strings.Repeat(" ", paddingLen))
+	body := &countingReader{r: bytes.NewReader(payload)}
+
+	req := httptest.NewRequest(http.MethodPost, TokensPath, body)
+	req.AddCookie(cookie)
+	ensureCSRFCookieForTest(t, a, req, cookie)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s — a valid JSON prefix followed by unbounded padding must not be accepted just because Decode stopped at the first value", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if body.read >= int64(len(payload)) {
+		t.Errorf("handler read all %d bytes of the padded body before rejecting it (read %d) — rejecting the trailing data must not require reading all of it either", len(payload), body.read)
+	}
+
+	tokens, err := a.apiTokens.List("user-1")
+	if err != nil {
+		t.Fatalf("apiTokens.List() returned error: %v", err)
+	}
+	if len(tokens) != 0 {
+		t.Errorf("tokens = %+v, want none — a rejected request must not have minted a credential", tokens)
+	}
+}
+
+// TestHandleCreateTokenRejectsSecondJSONValueAfterValidBody is the
+// "value smuggling" sibling of the padding case above — see
+// account_test.go's TestHandleUpdateAccountRejectsSecondJSONValueAfterValidBody
+// for why a naive single-Decode check cannot distinguish this from a
+// legitimate single-value body at all.
+func TestHandleCreateTokenRejectsSecondJSONValueAfterValidBody(t *testing.T) {
+	a := newTestAPI(t)
+	cookie := loginAsTestUser(t, a, "user-1")
+
+	payload := []byte(`{"label":"sonarr"}{"label":"smuggled"}`)
+	req := httptest.NewRequest(http.MethodPost, TokensPath, bytes.NewReader(payload))
+	req.AddCookie(cookie)
+	ensureCSRFCookieForTest(t, a, req, cookie)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	tokens, err := a.apiTokens.List("user-1")
+	if err != nil {
+		t.Fatalf("apiTokens.List() returned error: %v", err)
+	}
+	if len(tokens) != 0 {
+		t.Errorf("tokens = %+v, want none — a rejected request must not have minted a credential, from either the first or the smuggled second value", tokens)
+	}
+}
+
+// TestHandleCreateTokenAllowsTrailingWhitespace is the tokens.go
+// counterpart of account_test.go's
+// TestHandleUpdateAccountAllowsTrailingWhitespace — locks in that trailing
+// whitespace after a single valid JSON value stays accepted.
+func TestHandleCreateTokenAllowsTrailingWhitespace(t *testing.T) {
+	a := newTestAPI(t)
+	cookie := loginAsTestUser(t, a, "user-1")
+
+	payload := []byte("{\"label\":\"sonarr\"}   \n")
+	req := httptest.NewRequest(http.MethodPost, TokensPath, bytes.NewReader(payload))
+	req.AddCookie(cookie)
+	ensureCSRFCookieForTest(t, a, req, cookie)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+}
+
 func TestHandleListTokensDoesNotIncludeRawToken(t *testing.T) {
 	a := newTestAPI(t)
 	cookie := loginAsTestUser(t, a, "user-1")
