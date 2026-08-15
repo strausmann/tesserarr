@@ -52,6 +52,13 @@ type fakeOIDCProvider struct {
 	omitIDToken      bool   // drop id_token from the token response entirely
 	forceAudience    string // non-empty overrides the id token's aud claim
 	forceEmailNumber bool   // encodes the email claim as a JSON number, which Callback's string-typed claims struct cannot decode
+	// forceEmailVerifiedString, if non-empty ("true" or "false"), encodes
+	// email_verified as a JSON STRING instead of the JSON boolean the spec
+	// defines — the real-provider quirk oidcEmailVerifiedClaim
+	// (email_verification.go) exists to tolerate. See
+	// TestOIDCLoginRoundTripStoresEmailVerification's "provider sends
+	// email_verified as a JSON string" subtest.
+	forceEmailVerifiedString string
 }
 
 // fakeAuthCode is what the provider remembers about one /authorize
@@ -59,6 +66,7 @@ type fakeOIDCProvider struct {
 type fakeAuthCode struct {
 	subject             string
 	email               string
+	emailVerified       string // "" (claim omitted), "true", or "false" — see handleAuthorize
 	audience            string
 	codeChallenge       string
 	codeChallengeMethod string
@@ -128,6 +136,7 @@ func (p *fakeOIDCProvider) handleAuthorize(w http.ResponseWriter, r *http.Reques
 	p.codes[code] = &fakeAuthCode{
 		subject:             subject,
 		email:               q.Get("test_email"),
+		emailVerified:       q.Get("test_email_verified"),
 		audience:            q.Get("client_id"),
 		codeChallenge:       q.Get("code_challenge"),
 		codeChallengeMethod: q.Get("code_challenge_method"),
@@ -201,7 +210,7 @@ func (p *fakeOIDCProvider) handleToken(w http.ResponseWriter, r *http.Request) {
 		"expires_in":   3600,
 	}
 	if !p.omitIDToken {
-		resp["id_token"] = p.issueIDToken(auth.subject, auth.email, auth.audience)
+		resp["id_token"] = p.issueIDToken(auth.subject, auth.email, auth.emailVerified, auth.audience)
 	}
 	writeJSON(w, resp)
 }
@@ -228,7 +237,7 @@ func (p *fakeOIDCProvider) handleJWKS(w http.ResponseWriter, _ *http.Request) {
 // issueIDToken hand-builds and RS256-signs a minimal ID token — the three
 // base64url-encoded, dot-joined segments a JWT is defined as. No JOSE
 // library is used; see the file-level comment for why.
-func (p *fakeOIDCProvider) issueIDToken(subject, email, audience string) string {
+func (p *fakeOIDCProvider) issueIDToken(subject, email, emailVerified, audience string) string {
 	if p.forceAudience != "" {
 		audience = p.forceAudience
 	}
@@ -249,6 +258,21 @@ func (p *fakeOIDCProvider) issueIDToken(subject, email, audience string) string 
 		claims["email"] = 12345
 	case email != "":
 		claims["email"] = email
+	}
+	// emailVerified == "" falls through every case below, leaving the
+	// claim out of the token entirely — exactly what a provider that never
+	// sends email_verified at all does, and what emailVerificationFromClaim
+	// must read back as EmailVerificationUnknown, not EmailVerificationFalse.
+	switch {
+	case p.forceEmailVerifiedString != "":
+		// A JSON STRING where the spec defines a JSON boolean — the AWS
+		// Cognito/Elastic quirk oidcEmailVerifiedClaim exists to tolerate
+		// (see its own doc comment in email_verification.go).
+		claims["email_verified"] = p.forceEmailVerifiedString
+	case emailVerified == "true":
+		claims["email_verified"] = true
+	case emailVerified == "false":
+		claims["email_verified"] = false
 	}
 
 	signingInput := mustB64JSON(header) + "." + mustB64JSON(claims)
@@ -338,6 +362,20 @@ func seedIdentity(t *testing.T, db *sql.DB, userID, subject string) {
 // hand to Tesserarr's callback endpoint as query parameters.
 func completeLogin(t *testing.T, authURL, subject, email string) (state, code string) {
 	t.Helper()
+	return completeLoginWithEmailVerified(t, authURL, subject, email, "")
+}
+
+// completeLoginWithEmailVerified is completeLogin plus a fourth,
+// email_verified override — "" (the claim is never sent at all), "true", or
+// "false" — for TestOIDCLoginRoundTripStoresEmailVerification, the only
+// test that needs to control it. Kept as a separate function rather than
+// widening completeLogin's own signature: every other test in this file
+// calls completeLogin with exactly its existing four arguments, and none of
+// them cares about email_verified at all — see fakeAuthCode.emailVerified
+// and issueIDToken's own comments for why "" there must mean "omitted",
+// not "false".
+func completeLoginWithEmailVerified(t *testing.T, authURL, subject, email, emailVerified string) (state, code string) {
+	t.Helper()
 
 	u, err := url.Parse(authURL)
 	if err != nil {
@@ -349,6 +387,9 @@ func completeLogin(t *testing.T, authURL, subject, email string) (state, code st
 	}
 	if email != "" {
 		q.Set("test_email", email)
+	}
+	if emailVerified != "" {
+		q.Set("test_email_verified", emailVerified)
 	}
 	u.RawQuery = q.Encode()
 
@@ -991,7 +1032,7 @@ func TestCreateUserFromInviteSetsDefaultRoleAndEmail(t *testing.T) {
 	db, _, login := newOIDCLoginWithDefaultRole(t, "familie")
 	inviteToken := createTestInvite(t, db)
 
-	_, err := login.resolveUser("new-subject", "friend@example.org", inviteToken)
+	_, err := login.resolveUser("new-subject", "friend@example.org", EmailVerificationUnknown, inviteToken)
 	if err != nil {
 		t.Fatalf("resolveUser() returned error: %v", err)
 	}
@@ -1008,6 +1049,110 @@ func TestCreateUserFromInviteSetsDefaultRoleAndEmail(t *testing.T) {
 	}
 	if role != "familie" {
 		t.Errorf("role = %q, want familie", role)
+	}
+}
+
+// TestOIDCLoginRoundTripStoresEmailVerification is the end-to-end proof
+// email_verification.go's plumbing (Callback's claims struct →
+// emailVerificationFromClaim → createUserFromInvite's INSERT → the real
+// identities.email_verified column) actually wires together through a
+// genuine Callback round trip against the fake provider — not just the
+// unit-level pieces email_verification_test.go already covers in
+// isolation. This is the regression test for the bug a security review
+// caught in an earlier version of this feature: oidc.go never read
+// email_verified from the ID token at all, so every OIDC identity's email
+// printed as "verified" (cmd/tesserarr/main.go) regardless of what — if
+// anything — the provider had actually confirmed.
+func TestOIDCLoginRoundTripStoresEmailVerification(t *testing.T) {
+	tests := []struct {
+		name                     string
+		emailVerified            string // fed to completeLoginWithEmailVerified's test_email_verified query param
+		forceEmailVerifiedString string // set on the provider instead, for the JSON-string-not-boolean subtest
+		want                     EmailVerification
+	}{
+		{"provider confirms the email", "true", "", EmailVerificationTrue},
+		{"provider explicitly denies confirmation", "false", "", EmailVerificationFalse},
+		{"provider omits the claim entirely", "", "", EmailVerificationUnknown},
+		{"provider sends email_verified as a JSON string, not a boolean", "", "true", EmailVerificationTrue},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := newFakeOIDCProvider(t)
+			provider.forceEmailVerifiedString = tc.forceEmailVerifiedString
+			sessions, db := newTestSessionStore(t, time.Hour)
+			login := newTestOIDCLogin(t, provider, db, sessions)
+
+			inviteToken, err := invite.Create(db, 0)
+			if err != nil {
+				t.Fatalf("invite.Create() returned error: %v", err)
+			}
+
+			authURL := login.BeginLogin(inviteToken)
+			const subject = "email-verification-test-subject"
+			state, code := completeLoginWithEmailVerified(t, authURL, subject, "person@example.com", tc.emailVerified)
+
+			if _, err := login.Callback(context.Background(), state, code, ""); err != nil {
+				t.Fatalf("Callback() returned error: %v", err)
+			}
+
+			var raw sql.NullInt64
+			if err := db.QueryRow(
+				`SELECT email_verified FROM identities WHERE provider = 'oidc' AND subject = ?`, subject,
+			).Scan(&raw); err != nil {
+				t.Fatalf("read identities.email_verified: %v", err)
+			}
+			if got := emailVerificationFromNullInt64(raw); got != tc.want {
+				t.Errorf("identities.email_verified = %v (raw = %+v), want %v", got, raw, tc.want)
+			}
+		})
+	}
+}
+
+// TestOIDCLoginRoundTripNeverUpdatesEmailVerificationOnReturningLogin
+// proves the staleness rule EmailVerification's own doc comment documents:
+// identities.email_verified, like identities.email itself, is written ONCE
+// at first bind and never refreshed on a later login — a RETURNING login
+// reporting a different email_verified value than the one recorded at
+// creation must not change what is stored.
+func TestOIDCLoginRoundTripNeverUpdatesEmailVerificationOnReturningLogin(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	login := newTestOIDCLogin(t, provider, db, sessions)
+
+	inviteToken, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+	const subject = "returning-email-verification-subject"
+
+	// First login: the provider confirms the email.
+	authURL := login.BeginLogin(inviteToken)
+	state, code := completeLoginWithEmailVerified(t, authURL, subject, "person@example.com", "true")
+	if _, err := login.Callback(context.Background(), state, code, ""); err != nil {
+		t.Fatalf("first Callback() returned error: %v", err)
+	}
+
+	// Second, RETURNING login: the very same fake provider now reports NO
+	// email_verified claim at all (a config change on the provider's side,
+	// or simply a provider that only sends it on first consent — either
+	// way, resolveUser's returning-identity branch must never touch the
+	// column again to reflect it). No invite token needed this time —
+	// resolveUser's "case err == nil" branch (an already-bound identity)
+	// never consults inviteToken at all, see its own doc comment.
+	authURL = login.BeginLogin("")
+	state, code = completeLoginWithEmailVerified(t, authURL, subject, "person@example.com", "")
+	if _, err := login.Callback(context.Background(), state, code, ""); err != nil {
+		t.Fatalf("second Callback() returned error: %v", err)
+	}
+
+	var raw sql.NullInt64
+	if err := db.QueryRow(
+		`SELECT email_verified FROM identities WHERE provider = 'oidc' AND subject = ?`, subject,
+	).Scan(&raw); err != nil {
+		t.Fatalf("read identities.email_verified: %v", err)
+	}
+	if got := emailVerificationFromNullInt64(raw); got != EmailVerificationTrue {
+		t.Errorf("identities.email_verified after a returning login = %v (raw = %+v), want it to still be EmailVerificationTrue from the FIRST login, unchanged", got, raw)
 	}
 }
 
@@ -1062,7 +1207,7 @@ func TestResolveUserAppliesOperatorAssignedRoleOnReturningLogin(t *testing.T) {
 	seedIdentity(t, db, "user-existing", "returning-subject")
 	setUserLocalRoleForTest(t, db, "user-existing", "admin")
 
-	if _, err := login.resolveUser("returning-subject", "", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("resolveUser() returned error: %v", err)
 	}
 
@@ -1083,7 +1228,7 @@ func TestResolveUserAppliesRoleRevocationOnReturningLogin(t *testing.T) {
 	seedIdentity(t, db, "user-existing", "returning-subject")
 	setUserLocalRoleForTest(t, db, "user-existing", "admin")
 
-	if _, err := login.resolveUser("returning-subject", "", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("first resolveUser() returned error: %v", err)
 	}
 	if got := readUserRole(t, db, "user-existing"); got != "admin" {
@@ -1092,7 +1237,7 @@ func TestResolveUserAppliesRoleRevocationOnReturningLogin(t *testing.T) {
 
 	setUserLocalRoleForTest(t, db, "user-existing", "") // the operator revokes access
 
-	if _, err := login.resolveUser("returning-subject", "", ""); err != nil {
+	if _, err := login.resolveUser("returning-subject", "", EmailVerificationUnknown, ""); err != nil {
 		t.Fatalf("second resolveUser() returned error: %v", err)
 	}
 	if got := readUserRole(t, db, "user-existing"); got != "gast" {
@@ -1123,7 +1268,7 @@ func TestResolveUserFailsWhenRoleUpdateFails(t *testing.T) {
 		t.Fatalf("install blocking trigger: %v", err)
 	}
 
-	if _, err := login.resolveUser("returning-subject", "", ""); err == nil {
+	if _, err := login.resolveUser("returning-subject", "", EmailVerificationUnknown, ""); err == nil {
 		t.Fatal("resolveUser() succeeded despite a trigger blocking the role update, want an error")
 	}
 }

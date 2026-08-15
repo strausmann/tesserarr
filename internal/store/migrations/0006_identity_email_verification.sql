@@ -1,0 +1,24 @@
+-- Schema version 6: track, per bound identity, whether the ADDRESS ITSELF
+-- was ever confirmed by the source that supplied it — not to be confused
+-- with identities.email (added in migration 0001), which only records WHO
+-- supplied the address (a trusted guard header or an OIDC provider's own
+-- ID token, never the account holder). See
+-- internal/identity/email_verification.go's EmailVerification type for the
+-- full reasoning and internal/identity/admin.go's IdentitySummary.Email for
+-- why the two are deliberately separate fields, never one claim folded
+-- into the other.
+--
+-- NULL, not a default of 0, is deliberate: NULL means "no source has ever
+-- asserted a verification status for this identity", which every
+-- forward-auth identity is permanently (a guard's header carries no such
+-- signal — see internal/identity/forwardauth.go's ForwardAuthClaims, which
+-- has no field for it), and which any OIDC identity is too, until its
+-- provider actually sends the OPTIONAL "email_verified" claim
+-- (https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims).
+-- 0 means the provider explicitly said false — an address that was NOT
+-- confirmed, e.g. one entered but not yet clicked-to-confirm. Conflating
+-- "never asked" with "asked, and the answer was no" is exactly the bug
+-- this migration exists to make impossible at the schema level: a NOT NULL
+-- column with a 0 default could never tell the two apart again once
+-- written.
+ALTER TABLE identities ADD COLUMN email_verified INTEGER;

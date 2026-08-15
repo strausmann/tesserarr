@@ -119,6 +119,64 @@ type IdentitySummary struct {
 	Provider string
 	// Subject is identities.subject — see this type's own comment.
 	Subject string
+	// Email is identities.email, or "" if this identity carried none.
+	//
+	// REPORTED, NOT PROVEN — unlike UserSummary.Email, this is written ONLY
+	// by createUserFromInvite (oidc.go, forwardauth.go), from the SAME
+	// trusted source as Provider/Subject: the guard's header or the OIDC
+	// provider's own ID token, checked before either package ever sees it.
+	// No HTTP handler and no account holder can set or change it — see this
+	// type's own package comment above for why that is what makes
+	// Provider/Subject (and now this) trustworthy in a way UserSummary.Email
+	// never is.
+	//
+	// That trust is about WHO SUPPLIED the value, not about whether the
+	// address itself was ever confirmed reachable by the person who gave
+	// it — do not read this as "a verified email". See EmailVerification
+	// below for the field that actually answers whether a source ever
+	// confirmed it, and why that had to become a SEPARATE field rather than
+	// a stronger claim folded into this one.
+	//
+	// STALE IS POSSIBLE, FORGED IS NOT — this column is written once, at the
+	// moment THIS identity is first bound, and neither updateProfile
+	// (forwardauth.go) nor updateRole (oidc.go) ever touches it again on a
+	// later login, unlike users.email which both do refresh on every entry.
+	// A provider-side email change after that first login will not be
+	// reflected here. That is a staleness question, not a trust one: the
+	// value that IS here still came from the provider, never from the
+	// account holder typing into internal/api's account form.
+	Email string
+
+	// EmailVerification is the OpenID Connect "email_verified" claim
+	// (https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims)
+	// this identity's Email carried, or EmailVerificationUnknown when there
+	// is no such claim to report at all: EVERY forward-auth identity — a
+	// guard's header carries no verification signal, see forwardauth.go's
+	// ForwardAuthClaims, which has no field for it — and any OIDC identity
+	// whose provider omitted the claim (it is OPTIONAL per the spec above).
+	//
+	// EmailVerificationUnknown is NOT "false". An operator reading this
+	// field must never conflate "no source ever asked" with "asked, and
+	// the answer was no" (EmailVerificationFalse — a real, occurring case:
+	// an OIDC provider that lets someone register with a not-yet-confirmed
+	// address, e.g. before they click a confirmation link, sends exactly
+	// this). See EmailVerification's own doc comment in
+	// email_verification.go for the full reasoning.
+	//
+	// This existed once as a false claim baked directly into Email's own
+	// printed label instead ("email(verified)=" in cmd/tesserarr/main.go,
+	// before a security review caught it): oidc.go's Callback never read
+	// email_verified from the ID token at all, so EVERY OIDC identity's
+	// email printed as "verified" regardless of whether the provider had
+	// ever actually confirmed it — the exact same staleness-vs-trust
+	// distinction two paragraphs up, mislabeled as proof of something
+	// stronger than what oidc.go actually checked.
+	//
+	// Like Email, this is written once at creation (oidc.go's
+	// createUserFromInvite) and never refreshed on a later login — the
+	// identical staleness the Email field above already documents applies
+	// here for the identical reason.
+	EmailVerification EmailVerification
 }
 
 // UserSummary is one row of what ListUsers reports — enough for an
@@ -201,7 +259,7 @@ func ListUsers(db *sql.DB) ([]UserSummary, error) {
 	// exist for), and a JOIN would either duplicate every other column
 	// per identity row or need a database-specific aggregate — a second
 	// query keyed by user_id and merged in Go here needs neither.
-	idRows, err := db.Query(`SELECT user_id, provider, subject FROM identities ORDER BY user_id, provider, subject`)
+	idRows, err := db.Query(`SELECT user_id, provider, subject, COALESCE(email, ''), email_verified FROM identities ORDER BY user_id, provider, subject`)
 	if err != nil {
 		return nil, fmt.Errorf("identity: list users: identities: %w", err)
 	}
@@ -210,9 +268,11 @@ func ListUsers(db *sql.DB) ([]UserSummary, error) {
 	for idRows.Next() {
 		var userID string
 		var id IdentitySummary
-		if err := idRows.Scan(&userID, &id.Provider, &id.Subject); err != nil {
+		var emailVerifiedRaw sql.NullInt64
+		if err := idRows.Scan(&userID, &id.Provider, &id.Subject, &id.Email, &emailVerifiedRaw); err != nil {
 			return nil, fmt.Errorf("identity: list users: identities: scan: %w", err)
 		}
+		id.EmailVerification = emailVerificationFromNullInt64(emailVerifiedRaw)
 		// A row here for a user_id not in index would mean identities
 		// carries an orphaned reference — impossible under its own
 		// REFERENCES users(id) ON DELETE CASCADE (migrations/0001_initial.sql)

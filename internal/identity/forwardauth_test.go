@@ -94,6 +94,44 @@ func TestAuthenticateCreatesUserFromValidInviteAndRedeemsIt(t *testing.T) {
 	}
 }
 
+// TestAuthenticateNeverRecordsEmailVerificationForForwardAuth is the
+// forward-auth counterpart of oidc_test.go's
+// TestOIDCLoginRoundTripStoresEmailVerification's "provider omits the
+// claim" subtest, proving the OTHER half of EmailVerification's tri-state
+// design (email_verification.go): a forward-auth identity's
+// identities.email_verified is EmailVerificationUnknown not because some
+// source said "no", but because ForwardAuthClaims carries no such field at
+// all — a guard's header has nothing equivalent to OIDC's optional
+// email_verified claim to send in the first place. This must hold even
+// when the guard DOES send an email (proving the column tracks
+// CONFIRMATION, not merely the PRESENCE of an email — see
+// IdentitySummary.EmailVerification's own comment for why conflating the
+// two was the bug a security review caught).
+func TestAuthenticateNeverRecordsEmailVerificationForForwardAuth(t *testing.T) {
+	login, db := newTestForwardAuthLogin(t, nil, "")
+	token, err := invite.Create(db, 0)
+	if err != nil {
+		t.Fatalf("invite.Create() returned error: %v", err)
+	}
+
+	if _, err := login.Authenticate(ForwardAuthClaims{
+		Subject: "email-verification-fa-subject", Username: "friend", Email: "friend@example.org",
+	}, token, ""); err != nil {
+		t.Fatalf("Authenticate() returned error: %v", err)
+	}
+
+	var raw sql.NullInt64
+	if err := db.QueryRow(
+		`SELECT email_verified FROM identities WHERE provider = 'forward-auth' AND subject = ?`,
+		"email-verification-fa-subject",
+	).Scan(&raw); err != nil {
+		t.Fatalf("read identities.email_verified: %v", err)
+	}
+	if got := emailVerificationFromNullInt64(raw); got != EmailVerificationUnknown {
+		t.Errorf("identities.email_verified = %v (raw = %+v), want EmailVerificationUnknown — forward-auth has no signal to report, confirmed or not", got, raw)
+	}
+}
+
 func TestAuthenticateRejectsEmptySubject(t *testing.T) {
 	login, _ := newTestForwardAuthLogin(t, nil, "")
 

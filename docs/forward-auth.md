@@ -104,15 +104,32 @@ docker exec -it tesserarr tesserarr user promote <id> <role>
 ```
 
 `user list` prints one line per person, plus a further line per identity actually bound to that
-account (`provider=<provider>	subject=<subject>`, directly below the person's line) — those are
-what actually ties a row to a real person, since neither value can be set by an account holder
-themselves. The person's own line states how many identity lines follow it as a plain number
-(`identities=<n>`); the two always agree, because that number and those lines both come straight
-from the database, never from splitting a value apart on a character the account holder could
-have put there themselves. The `email(unverified)=` column is exactly what its name says: any
-signed-in user can set their OWN email to anything, including a value someone else already has
-(Tesserarr flags that case in the listing when it happens, but does not prevent it) — never pick
-the `<id>` to promote off of a matching email alone.
+account (`provider=<provider>	subject=<subject>	email=<email>	email_verified=<true|false|unknown>`,
+directly below the person's line) — those are what actually ties a row to a real person, since
+none of those four values can be set by an account holder themselves. The person's own line states
+how many identity lines follow it as a plain number (`identities=<n>`); the two always agree,
+because that number and those lines both come straight from the database, never from splitting a
+value apart on a character the account holder could have put there themselves. The
+`email(unverified)=` column on the person's own line is exactly what its name says: any signed-in
+user can set their OWN email to anything, including a value someone else already has (Tesserarr
+flags that case in the listing when it happens, but does not prevent it) — never pick the `<id>` to
+promote off of a matching email alone.
+
+The `email=` and `email_verified=` columns on each IDENTITY line below it answer two DIFFERENT
+questions, deliberately kept apart rather than folded into one label (an earlier version of this
+output did fold them together as a single `email(verified)=` column — a security review caught
+that the claim it made was false: Tesserarr never actually checked whether an OIDC provider had
+confirmed the address, so every OIDC identity printed as "verified" regardless). `email=` answers
+"who supplied this address" — it came from the guard's header or the OIDC provider's own ID token
+when that identity was first bound, never from anything the account holder typed, so it cannot be
+forged the way the person's own `email(unverified)=` can be — prints as `-` when that identity
+carried none. `email_verified=` answers the SEPARATE question "did anyone actually confirm this
+address belongs to whoever is signing in": `true` or `false` only when an OIDC provider sent the
+standard `email_verified` claim (https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims)
+at that identity's first login, and `unknown` otherwise — which includes EVERY forward-auth
+identity (a guard's header has no equivalent field to send) and any OIDC provider that simply omits
+the optional claim. `unknown` is not a synonym for `false` — it means nobody ever confirmed OR
+denied it, not that confirmation was checked and failed.
 
 This is also how you get your FIRST administrator, before any guard is configured at all — sign in
 once (via OIDC or forward-auth), run `user list` to find that account's id, then promote it. The
