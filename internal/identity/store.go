@@ -69,29 +69,27 @@ type loginAttempt struct {
 // the person clicks the login link again — that does not warrant a
 // migration or schema for state that is never meant to outlive the request
 // that wrote it.
-// pendingAttempt is what loginAttemptStore.order queues per attempt — just
-// enough to find and validate the matching byState entry later, without
-// order itself having to hold (and duplicate) the attempt's payload.
-type pendingAttempt struct {
-	state     string
-	expiresAt time.Time
-}
-
+//
+// byState and order are kept in exact 1:1 correspondence: every path that
+// creates a byState entry (put) also pushes exactly one node onto order,
+// and every path that removes a byState entry — take, a state collision in
+// put, evictExpiredLocked, evictOldestLocked — removes that same node from
+// order in the same step, via the *list.Element stored alongside the
+// attempt. Nothing here ever orphans one structure without the other, so
+// neither structure ever needs to double-check whether the other still
+// agrees a given entry is current.
 type loginAttemptStore struct {
 	mu      sync.Mutex
-	byState map[string]loginAttempt
-	// order lists every attempt this store has ever put, oldest first,
-	// regardless of whether its byState entry is still live — see
-	// evictExpiredLocked and evictOldestLocked for why a node can outlive
-	// its map entry, and why that is fine. Every real caller uses the same
-	// loginAttemptTTL for every put, so insertion order and expiry order
-	// coincide: the front of order is always the next attempt due to
-	// expire, and put's opportunistic sweep (evictExpiredLocked) uses that
-	// to reclaim exactly the expired attempts in time proportional to how
-	// many of THOSE there are — never proportional to the store's total
-	// size, which is what turned every put into an O(n) full-map scan
-	// before (see this store's changelog / the security-audit finding
-	// this fixes).
+	byState map[string]storedAttempt
+	// order lists every currently-live attempt, oldest first. Every real
+	// caller uses the same loginAttemptTTL for every put, so insertion
+	// order and expiry order coincide: the front of order is always the
+	// next attempt due to expire, and put's opportunistic sweep
+	// (evictExpiredLocked) uses that to reclaim exactly the expired
+	// attempts in time proportional to how many of THOSE there are — never
+	// proportional to the store's total size, which is what turned every
+	// put into an O(n) full-map scan before (see this store's changelog /
+	// the security-audit finding this fixes).
 	order *list.List
 	// now is indirected so tests can advance time past loginAttemptTTL
 	// without an actual wait — see oidc_test.go.
@@ -103,9 +101,26 @@ type loginAttemptStore struct {
 	maxAttempts int
 }
 
+// pendingAttempt is what loginAttemptStore.order's nodes hold: just enough
+// to evict by expiry (evictExpiredLocked) or by age (evictOldestLocked)
+// without a map lookup first.
+type pendingAttempt struct {
+	state     string
+	expiresAt time.Time
+}
+
+// storedAttempt is what loginAttemptStore.byState holds per state: the
+// attempt itself plus a direct handle on its node in order, so take and
+// eviction can remove both in O(1) instead of leaving take's half of the
+// pair behind for a later sweep to clean up.
+type storedAttempt struct {
+	attempt loginAttempt
+	elem    *list.Element
+}
+
 func newLoginAttemptStore() *loginAttemptStore {
 	return &loginAttemptStore{
-		byState:     make(map[string]loginAttempt),
+		byState:     make(map[string]storedAttempt),
 		order:       list.New(),
 		now:         time.Now,
 		maxAttempts: maxLoginAttempts,
@@ -113,9 +128,11 @@ func newLoginAttemptStore() *loginAttemptStore {
 }
 
 // put records a as the pending attempt for state, computing its expiry from
-// ttl. Any prior attempt already stored under state is silently replaced —
-// state collisions are not expected (see randomURLSafe's entropy), but a
-// second put cleanly winning is safer than two attempts sharing one key.
+// ttl. Any prior attempt already stored under state is replaced — state
+// collisions are not expected (see randomURLSafe's entropy), but a second
+// put cleanly winning, including retiring the first put's own order node,
+// is safer than two attempts sharing one key or the queue quietly growing
+// for a key that no longer needs two entries.
 //
 // Every put also opportunistically sweeps attempts nobody ever completed,
 // so an abandoned login flow does not sit in memory forever, and — once the
@@ -130,15 +147,17 @@ func (s *loginAttemptStore) put(state string, a loginAttempt, ttl time.Duration)
 	now := s.now()
 	s.evictExpiredLocked(now)
 
-	if _, exists := s.byState[state]; !exists {
+	if existing, exists := s.byState[state]; exists {
+		s.order.Remove(existing.elem)
+	} else {
 		for len(s.byState) >= s.maxAttempts {
 			s.evictOldestLocked()
 		}
 	}
 
 	a.expiresAt = now.Add(ttl)
-	s.byState[state] = a
-	s.order.PushBack(pendingAttempt{state: state, expiresAt: a.expiresAt})
+	elem := s.order.PushBack(pendingAttempt{state: state, expiresAt: a.expiresAt})
+	s.byState[state] = storedAttempt{attempt: a, elem: elem}
 }
 
 // evictExpiredLocked drops every attempt at the front of s.order whose
@@ -164,7 +183,7 @@ func (s *loginAttemptStore) evictExpiredLocked(now time.Time) {
 			return
 		}
 		s.order.Remove(front)
-		s.deleteIfCurrentLocked(pending)
+		delete(s.byState, pending.state)
 	}
 }
 
@@ -178,21 +197,8 @@ func (s *loginAttemptStore) evictOldestLocked() {
 		return
 	}
 	s.order.Remove(front)
-	s.deleteIfCurrentLocked(front.Value.(pendingAttempt)) // see evictExpiredLocked's comment
-}
-
-// deleteIfCurrentLocked removes pending's state from byState, but only if
-// the map still holds exactly the entry pending was queued for. An order
-// node can survive its map entry two ways — take() already consumed it, or
-// a state collision (see put's own comment) replaced it with a fresher
-// attempt under the same key — and in either case deleting byState[state]
-// here would wrongly discard something this node no longer represents.
-// Comparing expiresAt tells the two apart: a fresh put always computes a
-// new one. The caller must hold s.mu.
-func (s *loginAttemptStore) deleteIfCurrentLocked(pending pendingAttempt) {
-	if current, ok := s.byState[pending.state]; ok && current.expiresAt.Equal(pending.expiresAt) {
-		delete(s.byState, pending.state)
-	}
+	pending := front.Value.(pendingAttempt)
+	delete(s.byState, pending.state)
 }
 
 // take removes and returns the attempt stored under state. A state value
@@ -211,13 +217,15 @@ func (s *loginAttemptStore) take(state string) (loginAttempt, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	a, ok := s.byState[state]
-	delete(s.byState, state)
+	stored, ok := s.byState[state]
 	if !ok {
 		return loginAttempt{}, false
 	}
-	if s.now().After(a.expiresAt) {
+	delete(s.byState, state)
+	s.order.Remove(stored.elem)
+
+	if s.now().After(stored.attempt.expiresAt) {
 		return loginAttempt{}, false
 	}
-	return a, true
+	return stored.attempt, true
 }

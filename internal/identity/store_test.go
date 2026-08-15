@@ -186,6 +186,45 @@ func TestLoginAttemptStorePutAmortizedCostDoesNotGrowWithSize(t *testing.T) {
 	}
 }
 
+// TestLoginAttemptStoreTakeDrainsQueueNode is the regression test for the
+// audit finding that take() only ever deleted the map entry, leaving the
+// matching node in s.order behind. Cycling put+take keeps byState small
+// (never more than one entry at a time) while — before the fix — s.order
+// grew by one node per cycle forever, because nothing but put's own
+// capacity sweep ever trimmed it, and that sweep looks at len(byState), not
+// len(order): a caller that starts and immediately completes (or redeems)
+// a login round trip, repeated past maxAttempts, must not be able to grow
+// the queue past what the map's own capacity cap allows — that cap is the
+// whole point of maxLoginAttempts, and BeginLogin/Callback need no session
+// or credential at all (see router.go's MiddlewarePublic), so nothing
+// upstream stops a caller from doing exactly this in a tight loop.
+func TestLoginAttemptStoreTakeDrainsQueueNode(t *testing.T) {
+	s := newLoginAttemptStore()
+	s.maxAttempts = 3
+
+	const cycles = 50
+	for i := 0; i < cycles; i++ {
+		state := stateFor(i)
+		s.put(state, loginAttempt{verifier: verifierFor(i)}, time.Hour)
+		if _, ok := s.take(state); !ok {
+			t.Fatalf("take() reported not found for state %d immediately after put()", i)
+		}
+	}
+
+	s.mu.Lock()
+	orderLen := s.order.Len()
+	s.mu.Unlock()
+
+	if orderLen > s.maxAttempts {
+		t.Fatalf(
+			"s.order has %d nodes after %d put+take cycles against a capacity of %d — "+
+				"take() is not removing its own queue node, so the queue grows without bound "+
+				"even while the map it is supposed to mirror stays small",
+			orderLen, cycles, s.maxAttempts,
+		)
+	}
+}
+
 func timePuts(s *loginAttemptStore, label string, n int) time.Duration {
 	start := time.Now()
 	for i := 0; i < n; i++ {
