@@ -34,8 +34,9 @@ Two things, both required:
   `X-Tesserarr-Forward-Auth-Secret` on every request it forwards (Pangolin: the resource's
   `headers` field).
 
-Tesserarr **refuses to start** if `TESSERARR_FORWARD_AUTH_ENABLED` is set without a shared secret
-— see [Setup](setup.md) for what a failed startup looks like in the container logs.
+Tesserarr **refuses to start** if `TESSERARR_FORWARD_AUTH_ENABLED` is set without a shared secret,
+or with one shorter than 32 bytes — `openssl rand -hex 32` above already produces 64 bytes, well
+past that floor — see [Setup](setup.md) for what a failed startup looks like in the container logs.
 
 !!! warning "Keep the shared secret out of your reverse proxy's access log"
 

@@ -12,7 +12,6 @@ import (
 func TestLoadAppliesDefaults(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -54,7 +53,6 @@ func TestLoadAppliesDefaults(t *testing.T) {
 func TestLoadAppliesOverrides(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -93,27 +91,15 @@ func TestLoadAppliesOverrides(t *testing.T) {
 func TestLoadRejectsMissingRequired(t *testing.T) {
 	// Deliberately unset: TESSERARR_BASE_URL
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() returned no error, want error about missing TESSERARR_BASE_URL")
 	}
 }
 
-func TestLoadRejectsShortSessionSecret(t *testing.T) {
-	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
-	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "too-short")
-
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() returned no error, want error about session secret length")
-	}
-}
-
 func TestLoadParsesTrustedProxies(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -134,7 +120,6 @@ func TestLoadParsesTrustedProxies(t *testing.T) {
 func TestLoadRejectsMalformedTrustedProxies(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -148,7 +133,6 @@ func TestLoadRejectsMalformedTrustedProxies(t *testing.T) {
 func TestLoadRejectsMissingOIDCIssuerURL(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	// Deliberately unset: TESSERARR_OIDC_ISSUER_URL
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -161,7 +145,6 @@ func TestLoadRejectsMissingOIDCIssuerURL(t *testing.T) {
 func TestLoadRejectsMissingOIDCClientID(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	// Deliberately unset: TESSERARR_OIDC_CLIENT_ID
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -174,7 +157,6 @@ func TestLoadRejectsMissingOIDCClientID(t *testing.T) {
 func TestLoadRejectsMissingOIDCClientSecret(t *testing.T) {
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	// Deliberately unset: TESSERARR_OIDC_CLIENT_SECRET
@@ -191,7 +173,6 @@ func setForwardAuthBaseEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("TESSERARR_BASE_URL", "https://tesserarr.example.org")
 	t.Setenv("TESSERARR_DATA_DIR", "/data")
-	t.Setenv("TESSERARR_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("TESSERARR_OIDC_ISSUER_URL", "https://idp.example.org/application/o/tesserarr/")
 	t.Setenv("TESSERARR_OIDC_CLIENT_ID", "tesserarr-client")
 	t.Setenv("TESSERARR_OIDC_CLIENT_SECRET", "oidc-client-secret")
@@ -219,11 +200,39 @@ func TestLoadRefusesToStartWhenForwardAuthEnabledWithoutSharedSecret(t *testing.
 	}
 }
 
+// TestLoadRejectsShortForwardAuthSharedSecret is the regression test for the
+// audit finding that Load only checked ForwardAuthSharedSecret for
+// non-empty, never for length — so a 1-byte secret started the service
+// without warning, even though internal/api's trustedForwardAuthSource
+// compares every incoming request's header against exactly this value:
+// anyone who can guess it can forge any forward-auth header set.
+//
+// Asserts on the error's CONTENT, not just that Load returned one: this
+// package returns unwrapped fmt.Errorf strings rather than sentinel errors,
+// so "any error" would equally pass if setForwardAuthBaseEnv (or some
+// unrelated future required-field check) failed first — the message
+// naming both the variable and "byte" is what actually identifies THIS
+// check ran, as opposed to some other one this same env also fails.
+func TestLoadRejectsShortForwardAuthSharedSecret(t *testing.T) {
+	setForwardAuthBaseEnv(t)
+	t.Setenv("TESSERARR_FORWARD_AUTH_ENABLED", "true")
+	t.Setenv("TESSERARR_FORWARD_AUTH_PRESET", "pangolin")
+	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "too-short")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() with a 9-byte TESSERARR_FORWARD_AUTH_SHARED_SECRET returned no error, want error about its length")
+	}
+	if !strings.Contains(err.Error(), "FORWARD_AUTH_SHARED_SECRET") || !strings.Contains(err.Error(), "byte") {
+		t.Errorf("Load() error = %q, want it to name TESSERARR_FORWARD_AUTH_SHARED_SECRET and its minimum length in bytes", err)
+	}
+}
+
 func TestLoadRefusesToStartWhenPresetHasNoSubjectHeaderAndNoneIsSet(t *testing.T) {
 	setForwardAuthBaseEnv(t)
 	t.Setenv("TESSERARR_FORWARD_AUTH_ENABLED", "true")
 	t.Setenv("TESSERARR_FORWARD_AUTH_PRESET", "authelia")
-	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "shared-secret-value")
+	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "shared-secret-value-0123456789ab")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() with the authelia preset and no subject header override returned no error")
@@ -235,7 +244,7 @@ func TestLoadAcceptsAutheliaPresetWithExplicitSubjectHeader(t *testing.T) {
 	t.Setenv("TESSERARR_FORWARD_AUTH_ENABLED", "true")
 	t.Setenv("TESSERARR_FORWARD_AUTH_PRESET", "authelia")
 	t.Setenv("TESSERARR_FORWARD_AUTH_HEADER_SUBJECT", "Remote-Email")
-	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "shared-secret-value")
+	t.Setenv("TESSERARR_FORWARD_AUTH_SHARED_SECRET", "shared-secret-value-0123456789ab")
 
 	cfg, err := Load()
 	if err != nil {
@@ -281,9 +290,9 @@ func TestLoadAcceptsMatchingDefaultRole(t *testing.T) {
 
 // marker is a value distinctive enough that its presence in formatted output
 // cannot be mistaken for anything else the struct might print.
-const sessionSecretMarker = "sess-secret-marker-9f3a1b7c0d2e4f68"
+const forwardAuthSecretMarker = "fwdauth-secret-marker-9f3a1b7c0d2e4f68" //nolint:gosec // G101: a fixed marker string this test greps for in formatted output, not a real credential
 
-// TestConfigRedactsSessionSecretAcrossFormattingPaths covers every formatting
+// TestConfigRedactsSecretsAcrossFormattingPaths covers every formatting
 // path a later command could plausibly reach for when it logs or dumps a
 // Config: fmt verbs (%v, %+v, %#v), encoding/json, and both stdlib slog
 // handlers — each with a value and a pointer. Four of these paths (%#v,
@@ -292,19 +301,28 @@ const sessionSecretMarker = "sess-secret-marker-9f3a1b7c0d2e4f68"
 // slog.TextHandler were already clean via String(). All of them are asserted
 // here together so a later refactor cannot silently reopen one.
 //
+// Uses ForwardAuthSharedSecret as its example Secret-typed field — this
+// property belongs to the Secret type (secret.go), not to any one field, so
+// any Secret-typed field demonstrates it equally. It used to be
+// SessionSecret; that field was removed (see config.go's own comment on
+// why) once a review confirmed nothing ever called its Reveal() — the only
+// way any Secret value's real content leaves this type — so ForwardAuthSharedSecret
+// took over as the example without losing any coverage of the property
+// this test actually checks.
+//
 // %q on the whole struct used to be in this list too, and was just as clean
 // (same per-field Stringer recursion %v uses). It was dropped when the
 // forward-auth fields landed: Config now carries a plain bool
 // (ForwardAuthEnabled) and a map (RoleMap), and `go vet`'s printf check
 // correctly refuses %q on a struct with fields it cannot itself quote —
-// regardless of whether the one field that matters here (SessionSecret)
-// redacts fine. %v/%+v exercise the identical recursion and stay in the
-// list, so this loses no coverage of the property this test actually checks.
-func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
+// regardless of whether the field that matters here redacts fine. %v/%+v
+// exercise the identical recursion and stay in the list, so this loses no
+// coverage of the property this test actually checks.
+func TestConfigRedactsSecretsAcrossFormattingPaths(t *testing.T) {
 	newCfg := func() Config {
 		return Config{
-			BaseURL:       "https://tesserarr.example.org",
-			SessionSecret: sessionSecretMarker,
+			BaseURL:                 "https://tesserarr.example.org",
+			ForwardAuthSharedSecret: forwardAuthSecretMarker,
 		}
 	}
 
@@ -350,8 +368,8 @@ func TestConfigRedactsSessionSecretAcrossFormattingPaths(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := tc.out()
-			if strings.Contains(out, sessionSecretMarker) {
-				t.Errorf("formatted output leaks SessionSecret: %s", out)
+			if strings.Contains(out, forwardAuthSecretMarker) {
+				t.Errorf("formatted output leaks ForwardAuthSharedSecret: %s", out)
 			}
 		})
 	}

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+
 	"github.com/strausmann/tesserarr/internal/config"
 	"github.com/strausmann/tesserarr/internal/invite"
 )
@@ -175,6 +178,17 @@ func currentLocalRole(db *sql.DB, userID string) (string, error) {
 // all in the SAME transaction, mirroring OIDCLogin.createUserFromInvite
 // for the identical reason (security-audit run-1, see that function's own
 // comment in oidc.go).
+//
+// It can still LOSE a race it did not start: Authenticate only reaches
+// here after its own lookupIdentity already reported sql.ErrNoRows, but
+// that check and this function's own INSERT are not the same transaction
+// — two callers for the SAME subject (a doubled click, or the invite link
+// opened in two tabs) can both see "unknown" before either commits. Only
+// one INSERT into identities can win identities' PRIMARY KEY (provider,
+// subject) (migrations/0001_initial.sql); the other used to surface that
+// raw constraint violation as Authenticate's own error, failing a login
+// that — from the visitor's side — looks identical to any other. See
+// resolveExistingIdentity for what the loser does instead.
 func (f *ForwardAuthLogin) createUserFromInvite(claims ForwardAuthClaims, inviteToken string) (string, error) {
 	userID := newUserID()
 
@@ -213,6 +227,21 @@ func (f *ForwardAuthLogin) createUserFromInvite(claims ForwardAuthClaims, invite
 		userID, forwardAuthProviderName, claims.Subject, nullable(claims.Email),
 	); err != nil {
 		_ = tx.Rollback()
+		// A typed check, not a string match on err.Error() — the same
+		// pattern RemapForwardAuthSubject (admin.go) already established
+		// for this exact constraint, confirmed empirically there that
+		// modernc.org/sqlite wraps it as *sqlite.Error with
+		// Code() == SQLITE_CONSTRAINT_PRIMARYKEY (1555).
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY {
+			// Lost the race this function's own comment describes. SQLite
+			// serializes writers (WAL, one writer transaction at a time):
+			// this INSERT could only fail on an ALREADY-COMMITTED row for
+			// the same (provider, subject), never one still in flight — so
+			// the winner's row is guaranteed visible by now, and this never
+			// spins or retries against a row that might vanish again.
+			return f.resolveExistingIdentity(claims)
+		}
 		return "", fmt.Errorf("identity: bind forward-auth identity: %w", err)
 	}
 	if err := invite.Redeem(tx, inviteToken, userID); err != nil {
@@ -221,6 +250,31 @@ func (f *ForwardAuthLogin) createUserFromInvite(claims ForwardAuthClaims, invite
 	}
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("identity: commit user creation: %w", err)
+	}
+	return userID, nil
+}
+
+// resolveExistingIdentity is what a caller that LOST the create race in
+// createUserFromInvite falls back to: look up the identity that raced
+// ahead of it — by the time the constraint violation surfaced, guaranteed
+// committed (see createUserFromInvite's own comment) — and apply the same
+// updateProfile step Authenticate's own "existing identity" branch already
+// runs for any ordinary returning login. From the visitor's side, losing
+// this race now looks exactly like logging into an account that already
+// existed, which — a few seconds earlier — it now does.
+//
+// inviteToken is deliberately never touched here: the loser's own
+// transaction rolled back before ever reaching invite.Redeem, so the
+// invitation this caller was handed stays unredeemed — available for
+// whoever the guard sends it to next, rather than being silently spent by
+// a request that never actually needed it.
+func (f *ForwardAuthLogin) resolveExistingIdentity(claims ForwardAuthClaims) (string, error) {
+	userID, err := lookupIdentity(f.db, forwardAuthProviderName, claims.Subject)
+	if err != nil {
+		return "", fmt.Errorf("identity: look up forward-auth identity after losing create race: %w", err)
+	}
+	if err := f.updateProfile(userID, claims); err != nil {
+		return "", err
 	}
 	return userID, nil
 }

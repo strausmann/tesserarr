@@ -469,12 +469,12 @@ func TestOIDCLoginCallbackRejectsMissingOrWrongPKCEVerifier(t *testing.T) {
 			// only ever reads the verifier back out of server-side state
 			// (store.go) — so exercising this path requires reaching into
 			// the package's own state, which same-package test files can.
-			attempt, ok := login.attempts.byState[state]
+			stored, ok := login.attempts.byState[state]
 			if !ok {
 				t.Fatalf("no pending login attempt stored for state %q", state)
 			}
-			attempt.verifier = tc.verifier
-			login.attempts.byState[state] = attempt
+			stored.attempt.verifier = tc.verifier
+			login.attempts.byState[state] = stored
 
 			_, err := login.Callback(context.Background(), state, code, "")
 			if err == nil {

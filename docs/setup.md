@@ -31,7 +31,6 @@ services:
     environment:
       TESSERARR_BASE_URL: "https://tesserarr.example.org"
       TESSERARR_DATA_DIR: "/data"
-      TESSERARR_SESSION_SECRET: "CHANGE_ME"
       TESSERARR_TRUSTED_PROXIES: ""
       TESSERARR_OIDC_ISSUER_URL: "https://idp.example.org/application/o/tesserarr/"
       TESSERARR_OIDC_CLIENT_ID: "CHANGE_ME"
@@ -51,8 +50,7 @@ services:
 ```
 
 Replace every `CHANGE_ME` yourself — Tesserarr never generates or ships a
-default secret. `TESSERARR_SESSION_SECRET` needs at least 32 random bytes,
-e.g. `openssl rand -hex 32`.
+default secret.
 
 The repository also carries ready-made variants for the reverse proxy you
 already run — [Caddy](https://github.com/strausmann/tesserarr/blob/main/deploy/compose.caddy.yaml),

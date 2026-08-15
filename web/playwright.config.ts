@@ -65,10 +65,6 @@ export default defineConfig({
       env: {
         TESSERARR_BASE_URL: baseURL,
         TESSERARR_DATA_DIR: dataDir,
-        // Not a real credential — a fixed, obviously-fake, ≥32-byte value
-        // for a throwaway local/CI instance that never handles a real
-        // login or holds any actual user data.
-        TESSERARR_SESSION_SECRET: "e2e-test-session-secret-not-a-real-secret-32bytes",
         TESSERARR_OIDC_ISSUER_URL: `http://localhost:${FAKE_OIDC_PORT}`,
         TESSERARR_OIDC_CLIENT_ID: "e2e-test-client",
         TESSERARR_OIDC_CLIENT_SECRET: "e2e-test-secret-not-a-real-secret",
