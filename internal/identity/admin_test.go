@@ -260,3 +260,71 @@ func TestListUsersFailsWhenQueryFails(t *testing.T) {
 		t.Fatal("ListUsers() succeeded despite a missing users table, want an error")
 	}
 }
+
+// TestListUsersReturnsIdentitiesBoundToEachUser is what
+// IdentitySummary/UserSummary.Identities exist for: unlike Email, a
+// (provider, subject) pair cannot be set by the account holder — see
+// IdentitySummary's own comment — so this is the value an operator
+// actually needs surfaced to tell which listed row belongs to which real
+// person. Covers a user with two bound identities (the
+// "Verwaiste Kennungen zusammenführen" case — the same account reachable
+// via both forward-auth and OIDC) and a user with only one, in the SAME
+// call, to prove identities are attributed to the correct user and not
+// merged across rows.
+func TestListUsersReturnsIdentitiesBoundToEachUser(t *testing.T) {
+	db := newAdminTestDB(t)
+	insertAdminTestUser(t, db, "user-1", "first@example.org")
+	insertAdminTestUser(t, db, "user-2", "second@example.org")
+	insertAdminTestIdentity(t, db, "user-1", "forward-auth", "sub-fa-1")
+	insertAdminTestIdentity(t, db, "user-1", "oidc", "sub-oidc-1")
+	insertAdminTestIdentity(t, db, "user-2", "forward-auth", "sub-fa-2")
+
+	users, err := ListUsers(db)
+	if err != nil {
+		t.Fatalf("ListUsers() returned error: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("ListUsers() returned %d users, want 2", len(users))
+	}
+
+	user1 := users[0]
+	if user1.ID != "user-1" {
+		t.Fatalf("users[0].ID = %q, want user-1", user1.ID)
+	}
+	if len(user1.Identities) != 2 {
+		t.Fatalf("user-1 Identities = %+v, want 2 entries", user1.Identities)
+	}
+	want1 := []IdentitySummary{{Provider: "forward-auth", Subject: "sub-fa-1"}, {Provider: "oidc", Subject: "sub-oidc-1"}}
+	if user1.Identities[0] != want1[0] || user1.Identities[1] != want1[1] {
+		t.Errorf("user-1 Identities = %+v, want %+v", user1.Identities, want1)
+	}
+
+	user2 := users[1]
+	if user2.ID != "user-2" {
+		t.Fatalf("users[1].ID = %q, want user-2", user2.ID)
+	}
+	if len(user2.Identities) != 1 || user2.Identities[0] != (IdentitySummary{Provider: "forward-auth", Subject: "sub-fa-2"}) {
+		t.Errorf("user-2 Identities = %+v, want exactly [{forward-auth sub-fa-2}] — user-1's identities must not bleed into user-2's row", user2.Identities)
+	}
+}
+
+// TestListUsersReturnsEmptyIdentitiesForAUserWithNone proves a user with
+// no row in identities gets an empty (nil) slice, not an error or a
+// spurious entry — insertAdminTestUser alone never touches identities, so
+// this is the ordinary shape for every fixture the OTHER admin_test.go
+// cases build without also calling insertAdminTestIdentity.
+func TestListUsersReturnsEmptyIdentitiesForAUserWithNone(t *testing.T) {
+	db := newAdminTestDB(t)
+	insertAdminTestUser(t, db, "user-1", "solo@example.org")
+
+	users, err := ListUsers(db)
+	if err != nil {
+		t.Fatalf("ListUsers() returned error: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("ListUsers() returned %d users, want 1", len(users))
+	}
+	if len(users[0].Identities) != 0 {
+		t.Errorf("Identities = %+v, want none", users[0].Identities)
+	}
+}

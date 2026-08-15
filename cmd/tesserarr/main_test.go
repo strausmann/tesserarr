@@ -241,12 +241,97 @@ func TestListUsersPrintsEveryUserWithPlaceholdersForEmptyFields(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "user-1\tFriend\tfriend@example.org\trole=admin\trole_local=admin\n") {
+	if !strings.Contains(got, "user-1\tFriend\temail(unverified)=friend@example.org\trole=admin\trole_local=admin\tidentities=-\n") {
 		t.Errorf("output = %q, want a line for user-1 with its email and role/role_local", got)
 	}
-	if !strings.Contains(got, "user-2\tNo Email Yet\t-\trole=\trole_local=-\n") {
+	if !strings.Contains(got, "user-2\tNo Email Yet\temail(unverified)=-\trole=\trole_local=-\tidentities=-\n") {
 		t.Errorf("output = %q, want a line for user-2 with \"-\" placeholders for the unset email and role_local", got)
 	}
+}
+
+// TestListUsersFlagsEmailSharedBetweenAccounts proves the "shared with
+// another account" marker listUsers' own doc comment describes: two users
+// with the SAME users.email (unenforced — see
+// identity.UserSummary.Email's own comment on why this can happen at all)
+// both get it, a third user with a unique email does not.
+func TestListUsersFlagsEmailSharedBetweenAccounts(t *testing.T) {
+	db := newTestDB(t)
+	for _, u := range []struct{ id, email string }{
+		{"user-1", "shared@example.org"},
+		{"user-2", "shared@example.org"},
+		{"user-3", "unique@example.org"},
+	} {
+		if _, err := db.Exec(
+			`INSERT INTO users (id, display_name, created_at, email) VALUES (?, ?, ?, ?)`,
+			u.id, "Test User", time.Now().UTC().Format(time.RFC3339), u.email,
+		); err != nil {
+			t.Fatalf("insert test user %s: %v", u.id, err)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, id := range []string{"user-1", "user-2"} {
+		line := lineForUser(t, got, id)
+		if !strings.Contains(line, "shared@example.org (shared with another account below") {
+			t.Errorf("%s line = %q, want the shared-email marker", id, line)
+		}
+	}
+	line3 := lineForUser(t, got, "user-3")
+	if strings.Contains(line3, "shared with another account") {
+		t.Errorf("user-3 line = %q, want NO shared-email marker (its email is unique in this listing)", line3)
+	}
+}
+
+// TestListUsersPrintsIdentitiesColumn proves the identities= column
+// listUsers now prints — the (provider, subject) pairs an operator can
+// actually trust, unlike the unverified email column (see
+// identity.IdentitySummary's own comment).
+func TestListUsersPrintsIdentitiesColumn(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		"user-1", "Friend", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO identities (user_id, provider, subject) VALUES (?, ?, ?)`,
+		"user-1", "forward-auth", "sub-123",
+	); err != nil {
+		t.Fatalf("insert test identity: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "identities=forward-auth:sub-123\n") {
+		t.Errorf("output = %q, want a line ending in identities=forward-auth:sub-123", out.String())
+	}
+}
+
+// lineForUser returns the single line of listUsers' output starting with
+// userID's id column, failing the test if there is not exactly one.
+func lineForUser(t *testing.T, output, userID string) string {
+	t.Helper()
+	var found string
+	count := 0
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if strings.HasPrefix(line, userID+"\t") {
+			found = line
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("output has %d lines starting with %q, want exactly 1:\n%s", count, userID+"\t", output)
+	}
+	return found
 }
 
 func TestListUsersReturnsErrorWhenListUsersFails(t *testing.T) {

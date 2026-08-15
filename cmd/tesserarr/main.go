@@ -6,7 +6,7 @@
 //	healthcheck       probe a locally running instance (used by the container health check)
 //	selftest          check a running instance from the outside
 //	invite create     mint a new invitation (see the package comment on "invite create" below)
-//	user list         list every user's id, email and role — find the id "user promote" needs
+//	user list         list every user's id, role and bound identities — find the id "user promote" needs
 //	user remap        rebind a forward-auth identity from an old subject to a new one
 //	user promote <id> <role>  set an operator role assignment for the user with this id
 package main
@@ -315,28 +315,69 @@ func runUserList(args []string) error {
 	return listUsers(st.DB(), os.Stdout)
 }
 
-// listUsers prints one line per user — id, display name, email, the
-// CURRENTLY EFFECTIVE role, and the operator's own role_local assignment —
-// to out. A blank email or role_local prints as "-", not an empty column
-// that would be easy to misread as a parsing error.
+// listUsers prints one line per user — id, display name, an EXPLICITLY
+// unverified email, the CURRENTLY EFFECTIVE role, the operator's own
+// role_local assignment, and the (provider, subject) identities actually
+// bound to the account — to out. A blank email or role_local prints as
+// "-", not an empty column that would be easy to misread as a parsing
+// error.
+//
+// The email column is labeled "email(unverified)" and, when its value is
+// shared with another account in THIS listing, additionally flagged — see
+// identity.UserSummary.Email's own comment for why: users.email carries no
+// uniqueness constraint, and internal/api's account handler lets any
+// signed-in user set it to any string, including one somebody else already
+// claims. An operator picking an id to hand to "tesserarr user promote"
+// off of a matching email alone could promote the wrong account entirely.
+// Neither the label nor the flag stops that from being possible — only a
+// schema-level UNIQUE constraint would (tracked separately, see the
+// comment this replaced) — but they stop the collision from being
+// invisible in the one place an operator is actually looking when they
+// decide who to promote. The identities column is what an operator SHOULD
+// use instead to confirm which row belongs to which real person: neither
+// its provider nor its subject value can be set by the account holder
+// themselves (identity.IdentitySummary's own comment).
 func listUsers(db *sql.DB, out io.Writer) error {
 	users, err := identity.ListUsers(db)
 	if err != nil {
 		return fmt.Errorf("list users: %w", err)
 	}
+
+	// emailCounts powers the shared-email flag below — computed across the
+	// WHOLE listing before printing any line, so a collision is flagged on
+	// every row it involves regardless of which one happens to print
+	// first.
+	emailCounts := make(map[string]int, len(users))
+	for _, u := range users {
+		if u.Email != "" {
+			emailCounts[u.Email]++
+		}
+	}
+
 	for _, u := range users {
 		email := u.Email
-		if email == "" {
+		switch {
+		case email == "":
 			email = "-"
+		case emailCounts[email] > 1:
+			email += " (shared with another account below — do not use to identify who this is)"
 		}
 		roleLocal := u.RoleLocal
 		if roleLocal == "" {
 			roleLocal = "-"
 		}
+		identities := "-"
+		if len(u.Identities) > 0 {
+			parts := make([]string, len(u.Identities))
+			for i, id := range u.Identities {
+				parts[i] = id.Provider + ":" + id.Subject
+			}
+			identities = strings.Join(parts, ",")
+		}
 		// Errors from writing to out are deliberately ignored, matching
 		// createInvite's own reasoning: out is the caller's stdout, and
 		// there is no more-honest place left to report a broken stdout to.
-		_, _ = fmt.Fprintf(out, "%s\t%s\t%s\trole=%s\trole_local=%s\n", u.ID, u.DisplayName, email, u.Role, roleLocal)
+		_, _ = fmt.Fprintf(out, "%s\t%s\temail(unverified)=%s\trole=%s\trole_local=%s\tidentities=%s\n", u.ID, u.DisplayName, email, u.Role, roleLocal, identities)
 	}
 	return nil
 }
