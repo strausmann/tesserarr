@@ -95,16 +95,28 @@ TESSERARR_DEFAULT_ROLE=familie
 
 A guard's role header (only Pangolin sends one by default — see the table above) always wins when
 present, even over a role you set by hand. If your guard sends no role header, set one per person
-with:
+by id — never by email, see below — with:
 
 ```sh
-docker exec -it tesserarr tesserarr user promote <email> <role>
+docker exec -it tesserarr tesserarr user list
+docker exec -it tesserarr tesserarr user promote <id> <role>
 ```
 
+`user list` prints one line per person, plus a further line per identity actually bound to that
+account (`provider=<provider>	subject=<subject>`, directly below the person's line) — those are
+what actually ties a row to a real person, since neither value can be set by an account holder
+themselves. The person's own line states how many identity lines follow it as a plain number
+(`identities=<n>`); the two always agree, because that number and those lines both come straight
+from the database, never from splitting a value apart on a character the account holder could
+have put there themselves. The `email(unverified)=` column is exactly what its name says: any
+signed-in user can set their OWN email to anything, including a value someone else already has
+(Tesserarr flags that case in the listing when it happens, but does not prevent it) — never pick
+the `<id>` to promote off of a matching email alone.
+
 This is also how you get your FIRST administrator, before any guard is configured at all — sign in
-once (via OIDC or forward-auth), then promote that account. The promotion takes effect on that
-account's NEXT sign-in, not immediately — Tesserarr only ever recomputes the role someone is
-actually granted at the moment they sign in.
+once (via OIDC or forward-auth), run `user list` to find that account's id, then promote it. The
+promotion takes effect on that account's NEXT sign-in, not immediately — Tesserarr only ever
+recomputes the role someone is actually granted at the moment they sign in.
 
 ## Invitation links
 

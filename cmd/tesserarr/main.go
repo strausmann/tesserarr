@@ -2,10 +2,13 @@
 //
 // Subcommands:
 //
-//	serve         start the HTTP server
-//	healthcheck   probe a locally running instance (used by the container health check)
-//	selftest      check a running instance from the outside
-//	invite create mint a new invitation (see the package comment on "invite create" below)
+//	serve             start the HTTP server
+//	healthcheck       probe a locally running instance (used by the container health check)
+//	selftest          check a running instance from the outside
+//	invite create     mint a new invitation (see the package comment on "invite create" below)
+//	user list         list every user's id, role and bound identities — find the id "user promote" needs
+//	user remap        rebind a forward-auth identity from an old subject to a new one
+//	user promote <id> <role>  set an operator role assignment for the user with this id
 package main
 
 import (
@@ -21,6 +24,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/strausmann/tesserarr/internal/api"
 	"github.com/strausmann/tesserarr/internal/config"
@@ -290,9 +294,11 @@ var errUsage = errors.New("usage")
 // os.Exit in the way.
 func runUser(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("%w: tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <email> <role>", errUsage)
+		return fmt.Errorf("%w: tesserarr user list | tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <id> <role>", errUsage)
 	}
 	switch args[0] {
+	case "list":
+		return runUserList(args[1:])
 	case "remap":
 		return runUserRemap(args[1:])
 	case "promote":
@@ -300,6 +306,178 @@ func runUser(args []string) error {
 	default:
 		return fmt.Errorf("unknown user subcommand %q", args[0])
 	}
+}
+
+// runUserList is "user list": the operator's way to find the id "user
+// promote" now requires — see PromoteUserRole's own comment (admin.go) for
+// why promoting by email was unsafe and this replaced it. The actual
+// formatting is done by listUsers, split out the same way createInvite is
+// split out from runInviteCreate: so it can be tested against a temporary,
+// migrated database without going through config.Load.
+func runUserList(args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("%w: user list takes no arguments", errUsage)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	return listUsers(st.DB(), os.Stdout)
+}
+
+// listUsers prints one line per user — id, display name, an EXPLICITLY
+// unverified email, the CURRENTLY EFFECTIVE role, the operator's own
+// role_local assignment, and a count of the (provider, subject) identities
+// bound to the account — to out, followed by one further line per identity
+// (see below for why those are not folded into the account's own line). A
+// blank email or role_local prints as "-", not an empty column that would
+// be easy to misread as a parsing error.
+//
+// The email column is labeled "email(unverified)" and, when its value is
+// shared with another account in THIS listing, additionally flagged — see
+// identity.UserSummary.Email's own comment for why: users.email carries no
+// uniqueness constraint, and internal/api's account handler lets any
+// signed-in user set it to any string, including one somebody else already
+// claims. An operator picking an id to hand to "tesserarr user promote"
+// off of a matching email alone could promote the wrong account entirely.
+// Neither the label nor the flag stops that from being possible — only a
+// schema-level UNIQUE constraint would (tracked separately, see the
+// comment this replaced) — but they stop the collision from being
+// invisible in the one place an operator is actually looking when they
+// decide who to promote. The identity lines below the account's own line
+// are what an operator SHOULD use instead to confirm which row belongs to
+// which real person: neither a bound identity's provider nor its subject
+// value can be set by the account holder themselves
+// (identity.IdentitySummary's own comment).
+//
+// Every field printed below goes through sanitizeForLine first — not only
+// email. handleUpdateAccount (internal/api/account.go) rejects control
+// characters in a NEWLY submitted email, but that check has nothing to say
+// about rows written before it existed, and display_name /
+// identities.subject reach this function from a forward-auth guard header
+// or an OIDC provider's own claims (identity.UserSummary's field
+// comments), sources this package has no reason to assume are free of
+// control characters either. Without sanitizeForLine, a single crafted
+// field could inject a CR+LF pair that makes one database row print as
+// two terminal lines — one of them entirely fabricated, e.g. claiming
+// role=admin for an id that does not exist — which is exactly the kind of
+// forgery an operator relying on "one line per account" (this function's
+// own doc comment, above) to decide who to promote must never see.
+//
+// The identities a user has bound are each printed on their OWN line
+// (below the account's line, prefixed with the same, trusted id — never
+// an attacker-controlled value), never joined into one delimited list.
+// An earlier version rendered them as a single comma-joined
+// "provider:subject,provider:subject,..." field, which sanitizeForLine
+// alone does not protect: neither ',' nor ':' is a control character, so
+// a Subject value containing one — e.g. "mine,oidc:victim", entirely
+// legal from an OIDC provider's own claims (IdentitySummary's comment) —
+// printed as identities=forward-auth:mine,oidc:victim, indistinguishable
+// from TWO real identities, the second one falsely claiming this account
+// owns the OIDC subject "victim". Splitting a delimited list back apart
+// can never be made safe against a value that contains the delimiter;
+// emitting one line per identity sidesteps the problem instead of trying
+// to escape around it: how many identities print is driven directly by
+// len(u.Identities), an actual Go slice length, never by re-parsing text,
+// so no field's content can change that count. The account's own line
+// additionally states that same count as a plain decimal digit string
+// (via len(), not concatenation) so an operator sees it without counting
+// rows by hand; the per-identity lines are the structural proof, the
+// count is a convenience that can never disagree with them.
+func listUsers(db *sql.DB, out io.Writer) error {
+	users, err := identity.ListUsers(db)
+	if err != nil {
+		return fmt.Errorf("list users: %w", err)
+	}
+
+	// emailCounts powers the shared-email flag below — computed across the
+	// WHOLE listing, from the RAW (unsanitized) email, before printing any
+	// line, so a collision is flagged on every row it involves regardless
+	// of which one happens to print first. Grouping on the raw value
+	// rather than its sanitized form keeps this comparison exactly as
+	// precise as before sanitizeForLine existed; sanitizing is a
+	// presentation concern applied only when a field is about to be
+	// written to out, below.
+	emailCounts := make(map[string]int, len(users))
+	for _, u := range users {
+		if u.Email != "" {
+			emailCounts[u.Email]++
+		}
+	}
+
+	for _, u := range users {
+		email := u.Email
+		switch {
+		case email == "":
+			email = "-"
+		case emailCounts[email] > 1:
+			email += " (shared with another account below — do not use to identify who this is)"
+		}
+		roleLocal := u.RoleLocal
+		if roleLocal == "" {
+			roleLocal = "-"
+		}
+		// Unlike email/role_local above, "-" is never used here: the column
+		// states a COUNT (len(u.Identities), see this function's own doc
+		// comment), and zero is a real, meaningful count — it is exactly the
+		// case where this account's identity can't be verified at all. "-"
+		// would read as "not set" and hide that from the operator deciding
+		// who to promote.
+		identityCount := fmt.Sprintf("%d", len(u.Identities))
+		// Errors from writing to out are deliberately ignored, matching
+		// createInvite's own reasoning: out is the caller's stdout, and
+		// there is no more-honest place left to report a broken stdout to.
+		sanitizedID := sanitizeForLine(u.ID)
+		_, _ = fmt.Fprintf(out, "%s\t%s\temail(unverified)=%s\trole=%s\trole_local=%s\tidentities=%s\n",
+			sanitizedID, sanitizeForLine(u.DisplayName), sanitizeForLine(email), sanitizeForLine(u.Role), sanitizeForLine(roleLocal), identityCount)
+		// One line per identity, never a delimited list on the account's
+		// own line — see this function's doc comment for why joining them
+		// with ',' (the earlier design) let a Subject containing one forge
+		// an extra identity. sanitizedID (not u.ID) leads every line: the
+		// prefix that ties an identity line back to its account is exactly
+		// as escaped as the account's own line, so it can never itself be
+		// mistaken for a different, unescaped id.
+		for _, id := range u.Identities {
+			_, _ = fmt.Fprintf(out, "%s\tidentity\tprovider=%s\tsubject=%s\n",
+				sanitizedID, sanitizeForLine(id.Provider), sanitizeForLine(id.Subject))
+		}
+	}
+	return nil
+}
+
+// sanitizeForLine makes s safe to appear inside one tab-separated line of
+// listUsers' output. Every rune unicode.IsControl reports true for — the
+// C0 set (0x00-0x1F, which includes CR and LF, the two bytes that would
+// otherwise let a single field masquerade as multiple lines or extra
+// tab-separated columns) plus DEL and the C1 set (0x7F, 0x80-0x9F, which
+// includes ESC-led ANSI/VT100 escape sequences a terminal would otherwise
+// interpret) — is replaced with its \xHH hex escape.
+//
+// Escaping rather than stripping is deliberate: stripping a CR+LF pair
+// that was clearly trying to forge a second line would leave the tampering
+// invisible, printing what looks like an ordinary, untouched field. The
+// \xHH form stays exactly as long as the byte it replaces (one input rune
+// in this alphabet, since every value unicode.IsControl accepts here fits
+// two hex digits), reads unambiguously as "not the real character", and
+// can never itself be mistaken for a delimiter or trigger further
+// escape-sequence interpretation.
+func sanitizeForLine(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			fmt.Fprintf(&b, `\x%02x`, r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func runUserRemap(args []string) error {
@@ -327,9 +505,16 @@ func runUserRemap(args []string) error {
 	return nil
 }
 
+// runUserPromote is "user promote": the operator's way to hand out a
+// role_local assignment. args[0] is a user's id — the value "tesserarr
+// user list" prints — NOT an email; see PromoteUserRole's own comment
+// (internal/identity/admin.go) for why an earlier version of this command
+// that took an email was unsafe. An id that does not exist (including a
+// stale email typed out of habit — no id ever looks like one) fails loud
+// with ErrUserNotFound below, never silently promoting the wrong account.
 func runUserPromote(args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("%w: user promote expects exactly 2 arguments (email role)", errUsage)
+		return fmt.Errorf(`%w: user promote expects exactly 2 arguments (id role) — run "tesserarr user list" to find the id`, errUsage)
 	}
 
 	cfg, err := config.Load()

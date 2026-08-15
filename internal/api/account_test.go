@@ -83,6 +83,43 @@ func TestHandleUpdateAccountSetsEmail(t *testing.T) {
 	}
 }
 
+// TestHandleUpdateAccountRejectsControlCharactersInEmail proves the input
+// side of the same defense TestListUsersEscapesControlCharactersInEveryField
+// (cmd/tesserarr) proves on the output side: handleUpdateAccount is the one
+// mutation this route exposes to ANY signed-in user (see its own doc
+// comment), so it is the concrete path an attacker controls end to end. A
+// CR+LF pair here is also simply not a valid RFC 5321 reverse-path — control
+// characters have no legitimate place in an email address — so rejecting it
+// at the boundary is a correctness fix, not just a hardening one.
+func TestHandleUpdateAccountRejectsControlCharactersInEmail(t *testing.T) {
+	a := newTestAPI(t)
+	cookie := loginAsTestUser(t, a, "user-1")
+
+	body, _ := json.Marshal(map[string]string{
+		"email": "attacker@example.org\r\nfake-admin\tForged Admin\temail(unverified)=-\trole=admin",
+	})
+	req := httptest.NewRequest(http.MethodPatch, AccountPath, bytes.NewReader(body))
+	req.AddCookie(cookie)
+	ensureCSRFCookieForTest(t, a, req, cookie)
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	// The rejected value must not have been stored either — a 400 that
+	// still wrote the row would defend nothing.
+	var email sql.NullString
+	if err := a.store.DB().QueryRow(`SELECT email FROM users WHERE id = ?`, "user-1").Scan(&email); err != nil {
+		t.Fatalf("read stored email: %v", err)
+	}
+	if email.Valid {
+		t.Errorf("stored email = %q, want no email stored (NULL)", email.String)
+	}
+}
+
 // TestHandleUpdateAccountRejectsRequestWithoutCSRFHeader attaches the CSRF
 // COOKIE and then removes only the header, so it exercises requireCSRF's
 // header comparison — the branch its name promises.

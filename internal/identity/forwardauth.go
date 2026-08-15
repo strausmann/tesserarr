@@ -127,7 +127,7 @@ func (f *ForwardAuthLogin) Authenticate(claims ForwardAuthClaims, inviteToken, p
 // written ONLY by PromoteUserRole (admin.go); this method never touches
 // it, in either direction.
 func (f *ForwardAuthLogin) updateProfile(userID string, claims ForwardAuthClaims) error {
-	roleLocal, err := f.currentLocalRole(userID)
+	roleLocal, err := currentLocalRole(f.db, userID)
 	if err != nil {
 		return err
 	}
@@ -156,10 +156,15 @@ func (f *ForwardAuthLogin) updateProfile(userID string, claims ForwardAuthClaims
 // written ONLY by PromoteUserRole (admin.go) — the "roleLocal" input
 // ResolveRoleNames needs (see role.go's own comment on that parameter for
 // why this must never be users.role, the separate effective/display
-// column this same type also maintains).
-func (f *ForwardAuthLogin) currentLocalRole(userID string) (string, error) {
+// column both login paths also maintain).
+//
+// Package-level, not a method on ForwardAuthLogin: OIDCLogin.resolveUser
+// (oidc.go) needs the exact same read for the exact same reason — a
+// returning OIDC login must recompute the effective role on every entry
+// too, not just forward-auth's.
+func currentLocalRole(db *sql.DB, userID string) (string, error) {
 	var roleLocal string
-	if err := f.db.QueryRow(`SELECT role_local FROM users WHERE id = ?`, userID).Scan(&roleLocal); err != nil {
+	if err := db.QueryRow(`SELECT role_local FROM users WHERE id = ?`, userID).Scan(&roleLocal); err != nil {
 		return "", fmt.Errorf("identity: read local role: %w", err)
 	}
 	return roleLocal, nil
