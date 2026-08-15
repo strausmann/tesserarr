@@ -207,3 +207,56 @@ func TestRunUserPromoteRejectsWrongArgumentCount(t *testing.T) {
 		t.Fatalf("runUser([\"promote\", \"only-one-arg\"]) error = %v, want errors.Is(err, errUsage)", err)
 	}
 }
+
+func TestRunUserListRejectsArguments(t *testing.T) {
+	err := runUser([]string{"list", "unexpected-arg"})
+	if !errors.Is(err, errUsage) {
+		t.Fatalf(`runUser(["list", "unexpected-arg"]) error = %v, want errors.Is(err, errUsage)`, err)
+	}
+}
+
+// TestListUsersPrintsEveryUserWithPlaceholdersForEmptyFields is
+// listUsers' own test, split out from runUserList the same way
+// createInvite is split out from runInviteCreate (see that function's own
+// comment) so it can run against a temporary, migrated database without
+// going through config.Load.
+func TestListUsersPrintsEveryUserWithPlaceholdersForEmptyFields(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at, email, role, role_local) VALUES (?, ?, ?, ?, ?, ?)`,
+		"user-1", "Friend", time.Now().UTC().Format(time.RFC3339), "friend@example.org", "admin", "admin",
+	); err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		"user-2", "No Email Yet", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert second test user: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "user-1\tFriend\tfriend@example.org\trole=admin\trole_local=admin\n") {
+		t.Errorf("output = %q, want a line for user-1 with its email and role/role_local", got)
+	}
+	if !strings.Contains(got, "user-2\tNo Email Yet\t-\trole=\trole_local=-\n") {
+		t.Errorf("output = %q, want a line for user-2 with \"-\" placeholders for the unset email and role_local", got)
+	}
+}
+
+func TestListUsersReturnsErrorWhenListUsersFails(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(`DROP TABLE users`); err != nil {
+		t.Fatalf("drop users table: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err == nil {
+		t.Fatal("listUsers() succeeded despite a missing users table, want an error")
+	}
+}

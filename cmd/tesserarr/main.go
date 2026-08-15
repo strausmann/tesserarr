@@ -2,10 +2,13 @@
 //
 // Subcommands:
 //
-//	serve         start the HTTP server
-//	healthcheck   probe a locally running instance (used by the container health check)
-//	selftest      check a running instance from the outside
-//	invite create mint a new invitation (see the package comment on "invite create" below)
+//	serve             start the HTTP server
+//	healthcheck       probe a locally running instance (used by the container health check)
+//	selftest          check a running instance from the outside
+//	invite create     mint a new invitation (see the package comment on "invite create" below)
+//	user list         list every user's id, email and role — find the id "user promote" needs
+//	user remap        rebind a forward-auth identity from an old subject to a new one
+//	user promote <id> <role>  set an operator role assignment for the user with this id
 package main
 
 import (
@@ -274,9 +277,11 @@ var errUsage = errors.New("usage")
 // os.Exit in the way.
 func runUser(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("%w: tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <email> <role>", errUsage)
+		return fmt.Errorf("%w: tesserarr user list | tesserarr user remap <old-subject> <new-subject> | tesserarr user promote <id> <role>", errUsage)
 	}
 	switch args[0] {
+	case "list":
+		return runUserList(args[1:])
 	case "remap":
 		return runUserRemap(args[1:])
 	case "promote":
@@ -284,6 +289,56 @@ func runUser(args []string) error {
 	default:
 		return fmt.Errorf("unknown user subcommand %q", args[0])
 	}
+}
+
+// runUserList is "user list": the operator's way to find the id "user
+// promote" now requires — see PromoteUserRole's own comment (admin.go) for
+// why promoting by email was unsafe and this replaced it. The actual
+// formatting is done by listUsers, split out the same way createInvite is
+// split out from runInviteCreate: so it can be tested against a temporary,
+// migrated database without going through config.Load.
+func runUserList(args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("%w: user list takes no arguments", errUsage)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	return listUsers(st.DB(), os.Stdout)
+}
+
+// listUsers prints one line per user — id, display name, email, the
+// CURRENTLY EFFECTIVE role, and the operator's own role_local assignment —
+// to out. A blank email or role_local prints as "-", not an empty column
+// that would be easy to misread as a parsing error.
+func listUsers(db *sql.DB, out io.Writer) error {
+	users, err := identity.ListUsers(db)
+	if err != nil {
+		return fmt.Errorf("list users: %w", err)
+	}
+	for _, u := range users {
+		email := u.Email
+		if email == "" {
+			email = "-"
+		}
+		roleLocal := u.RoleLocal
+		if roleLocal == "" {
+			roleLocal = "-"
+		}
+		// Errors from writing to out are deliberately ignored, matching
+		// createInvite's own reasoning: out is the caller's stdout, and
+		// there is no more-honest place left to report a broken stdout to.
+		_, _ = fmt.Fprintf(out, "%s\t%s\t%s\trole=%s\trole_local=%s\n", u.ID, u.DisplayName, email, u.Role, roleLocal)
+	}
+	return nil
 }
 
 func runUserRemap(args []string) error {
@@ -311,9 +366,16 @@ func runUserRemap(args []string) error {
 	return nil
 }
 
+// runUserPromote is "user promote": the operator's way to hand out a
+// role_local assignment. args[0] is a user's id — the value "tesserarr
+// user list" prints — NOT an email; see PromoteUserRole's own comment
+// (internal/identity/admin.go) for why an earlier version of this command
+// that took an email was unsafe. An id that does not exist (including a
+// stale email typed out of habit — no id ever looks like one) fails loud
+// with ErrUserNotFound below, never silently promoting the wrong account.
 func runUserPromote(args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("%w: user promote expects exactly 2 arguments (email role)", errUsage)
+		return fmt.Errorf(`%w: user promote expects exactly 2 arguments (id role) — run "tesserarr user list" to find the id`, errUsage)
 	}
 
 	cfg, err := config.Load()

@@ -14,11 +14,6 @@ import (
 // self-explanatory enough for a command-line operator to act on.
 var ErrUserNotFound = errors.New("identity: no matching user")
 
-// ErrAmbiguousEmail is returned by PromoteUserRole when more than one user
-// shares the given email — users.email carries no uniqueness constraint,
-// so this is possible, if unusual.
-var ErrAmbiguousEmail = errors.New("identity: more than one user has this email")
-
 // ErrSubjectAlreadyBound is returned by RemapForwardAuthSubject when
 // newSubject already belongs to a DIFFERENT account. The design doc's
 // "Verwaiste Kennungen zusammenführen" is silent on this case; the plan
@@ -70,40 +65,87 @@ func RemapForwardAuthSubject(db *sql.DB, oldSubject, newSubject string) error {
 // PromoteUserRole sets role_local — NEVER role, see
 // internal/identity/forwardauth.go's currentLocalRole and role.go's
 // ResolveRoleNames for why the two must stay separate columns — on the
-// user whose email is email. This is the command line's way to hand out a
+// user identified by userID. This is the command line's way to hand out a
 // role without a guard's role header, and the only way to create the very
 // first administrator before any guard is configured at all (see the
 // design doc, "Wenn der Wächter keine Rolle liefert"). The user's
 // EFFECTIVE role (users.role, what the account view shows) only catches
 // up on their next login — this function does not, and must not, touch it
 // directly.
-func PromoteUserRole(db *sql.DB, email, role string) error {
-	rows, err := db.Query(`SELECT id FROM users WHERE email = ?`, email)
+//
+// userID is deliberately users.id — the value ListUsers ("tesserarr user
+// list") prints — and NOT an email, which an earlier version of this
+// function accepted. users.email carries no uniqueness constraint (see
+// migrations/0001_initial.sql), and internal/api's account handler lets
+// ANY authenticated user set their own email to ANY value, including one
+// nobody has claimed yet. Looking a promotion target up by email meant an
+// attacker who set their own email to a target's email BEFORE the real
+// owner ever did would have matched exactly one row — themselves — and
+// PromoteUserRole would have promoted them instead, silently, with no
+// error and no ambiguity to catch. users.id has none of that: it is minted
+// once, by the system itself, at account creation (newUserID) and no
+// account holder — nor any HTTP handler — can ever change it afterwards.
+func PromoteUserRole(db *sql.DB, userID, role string) error {
+	result, err := db.Exec(`UPDATE users SET role_local = ? WHERE id = ?`, role, userID)
 	if err != nil {
-		return fmt.Errorf("identity: promote user: find by email: %w", err)
+		return fmt.Errorf("identity: promote user: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("identity: promote user: rows affected: %w", err)
+	}
+	if affected == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// UserSummary is one row of what ListUsers reports — enough for an
+// operator to find the id PromoteUserRole now requires, without ever
+// showing role_local's raw value as if it were what governs access right
+// now (see role.go's ResolveRoleNames for why role, not role_local, is
+// the answer to "what can this person currently do").
+type UserSummary struct {
+	// ID is users.id — what PromoteUserRole and RemapForwardAuthSubject's
+	// target both key on.
+	ID string
+	// DisplayName is users.display_name — never empty (NOT NULL).
+	DisplayName string
+	// Email is users.email, or "" if the user has never set one.
+	Email string
+	// Role is the CURRENTLY EFFECTIVE role (users.role) — recomputed at
+	// every login by ResolveRoleNames, comma-joined if more than one name
+	// applies.
+	Role string
+	// RoleLocal is the operator's OWN assignment (users.role_local, written
+	// only by PromoteUserRole) — "" if no operator has ever promoted this
+	// user. This is the INPUT ResolveRoleNames falls back to when a
+	// header-based login carries no role, not necessarily what is
+	// currently effective; see Role for that.
+	RoleLocal string
+}
+
+// ListUsers returns every user, ordered by id, so an operator running
+// "tesserarr user list" can find the id to hand to "tesserarr user
+// promote" — see PromoteUserRole's own comment for why promoting by email
+// is no longer supported.
+func ListUsers(db *sql.DB) ([]UserSummary, error) {
+	rows, err := db.Query(`SELECT id, display_name, COALESCE(email, ''), role, role_local FROM users ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list users: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var id string
-	count := 0
+	var out []UserSummary
 	for rows.Next() {
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("identity: promote user: scan: %w", err)
+		var u UserSummary
+		if err := rows.Scan(&u.ID, &u.DisplayName, &u.Email, &u.Role, &u.RoleLocal); err != nil {
+			return nil, fmt.Errorf("identity: list users: scan: %w", err)
 		}
-		count++
+		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("identity: promote user: iterate: %w", err)
+		return nil, fmt.Errorf("identity: list users: iterate: %w", err)
 	}
-	if count == 0 {
-		return ErrUserNotFound
-	}
-	if count > 1 {
-		return ErrAmbiguousEmail
-	}
-
-	if _, err := db.Exec(`UPDATE users SET role_local = ? WHERE id = ?`, role, id); err != nil {
-		return fmt.Errorf("identity: promote user: %w", err)
-	}
-	return nil
+	return out, nil
 }
