@@ -229,6 +229,9 @@ func (o *OIDCLogin) resolveUser(subject, email, inviteToken string) (string, err
 	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
 	switch {
 	case err == nil:
+		if updateErr := o.updateRole(userID); updateErr != nil {
+			return "", updateErr
+		}
 		return userID, nil
 	case !errors.Is(err, sql.ErrNoRows):
 		return "", fmt.Errorf("identity: look up oidc identity: %w", err)
@@ -238,6 +241,39 @@ func (o *OIDCLogin) resolveUser(subject, email, inviteToken string) (string, err
 		return "", ErrUnknownIdentityWithoutInvite
 	}
 	return o.createUserFromInvite(subject, email, inviteToken)
+}
+
+// updateRole recomputes and stores users.role — the CURRENTLY EFFECTIVE
+// role — for a RETURNING OIDC login, mirroring what ForwardAuthLogin's
+// updateProfile does on every forward-auth entry (forwardauth.go).
+//
+// Before this existed, the "case err == nil" branch above returned userID
+// without touching role at all: an operator promoting OR demoting a user
+// who signs in exclusively via OIDC (never forward-auth) had no login path
+// left that would ever apply the change. PromoteUserRole only ever writes
+// role_local (admin.go); role_local governs the EFFECTIVE role only
+// through this kind of recomputation, and forward-auth's updateProfile was
+// the only place doing it — a user with just an OIDC identity has no
+// forward-auth entry to trigger that.
+//
+// OIDC carries no role header of its own (unlike forward-auth's
+// RoleHeaderRaw) — see the design doc, "Die Rolle wird bei jedem Eintritt
+// neu gelesen" applies here with an always-empty header. Passing ""
+// for ResolveRoleNames's headerRaw, and nil for its known-roles map
+// (unreachable when headerRaw is "", see that function's own branching),
+// always falls straight to role_local — or defaultRole, if no operator has
+// ever assigned one — exactly forward-auth's own header-less-entry
+// behavior (role.go, ResolveRoleNames's case 3).
+func (o *OIDCLogin) updateRole(userID string) error {
+	roleLocal, err := currentLocalRole(o.db, userID)
+	if err != nil {
+		return err
+	}
+	roleNames := ResolveRoleNames("", nil, o.defaultRole, roleLocal)
+	if _, err := o.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, JoinRoleNames(roleNames), userID); err != nil {
+		return fmt.Errorf("identity: update oidc role: %w", err)
+	}
+	return nil
 }
 
 // lookupIdentity resolves an already-bound provider identity to its user

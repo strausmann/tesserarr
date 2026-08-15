@@ -1036,3 +1036,114 @@ func createTestInvite(t *testing.T, db *sql.DB) string {
 	}
 	return token
 }
+
+// --- Befund B: a RETURNING OIDC login must recompute the effective role,
+// same as forward-auth's updateProfile already does on every entry
+// (forwardauth.go) --------------------------------------------------------
+//
+// Before oidc.go's resolveUser gained updateRole, its "case err == nil"
+// branch (an already-known identity — a returning login) returned userID
+// straight away, never touching users.role at all. A user who signs in
+// exclusively via OIDC therefore had NO login path that ever applied an
+// operator's PromoteUserRole assignment (promotion OR revocation) — only
+// createUserFromInvite (a brand-new user) and forward-auth's updateProfile
+// ever wrote role. setUserLocalRoleForTest below (defined in
+// forwardauth_test.go, same package) is reused here for the identical
+// reason it exists there: only PromoteUserRole is allowed to write
+// role_local in the real system; tests set it up directly.
+
+// TestResolveUserAppliesOperatorAssignedRoleOnReturningLogin proves a
+// RETURNING oidc identity (seedIdentity + createTestUser, never through
+// createUserFromInvite) picks up an operator's role_local assignment on
+// this very login — the promotion half of Befund B.
+func TestResolveUserAppliesOperatorAssignedRoleOnReturningLogin(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+	setUserLocalRoleForTest(t, db, "user-existing", "admin")
+
+	if _, err := login.resolveUser("returning-subject", "", ""); err != nil {
+		t.Fatalf("resolveUser() returned error: %v", err)
+	}
+
+	if got := readUserRole(t, db, "user-existing"); got != "admin" {
+		t.Errorf("role after returning oidc login = %q, want admin (the operator's role_local assignment)", got)
+	}
+}
+
+// TestResolveUserAppliesRoleRevocationOnReturningLogin is the other half:
+// an operator taking rights AWAY (role_local reset to "") must reach the
+// user's next OIDC login too, not just their next forward-auth one.
+// Without Befund B's fix, "admin" from the first login would have survived
+// forever — resolveUser's returning-identity branch never re-read
+// role_local at all.
+func TestResolveUserAppliesRoleRevocationOnReturningLogin(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+	setUserLocalRoleForTest(t, db, "user-existing", "admin")
+
+	if _, err := login.resolveUser("returning-subject", "", ""); err != nil {
+		t.Fatalf("first resolveUser() returned error: %v", err)
+	}
+	if got := readUserRole(t, db, "user-existing"); got != "admin" {
+		t.Fatalf("role after first login = %q, want admin", got)
+	}
+
+	setUserLocalRoleForTest(t, db, "user-existing", "") // the operator revokes access
+
+	if _, err := login.resolveUser("returning-subject", "", ""); err != nil {
+		t.Fatalf("second resolveUser() returned error: %v", err)
+	}
+	if got := readUserRole(t, db, "user-existing"); got != "gast" {
+		t.Errorf("role after revocation and a second login = %q, want gast (the default — \"admin\" must not survive)", got)
+	}
+}
+
+// TestResolveUserFailsWhenRoleUpdateFails isolates updateRole's own
+// UPDATE-statement failure branch, mirroring forwardauth_test.go's
+// TestAuthenticateFailsWhenProfileUpdateFails for the identical reason: a
+// blocking trigger fails only the write, leaving the preceding role_local
+// SELECT (currentLocalRole) untouched.
+func TestResolveUserFailsWhenRoleUpdateFails(t *testing.T) {
+	db, _, login := newOIDCLoginWithDefaultRole(t, "gast")
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+
+	if _, err := db.Exec(`
+		CREATE TRIGGER block_oidc_role_update
+		BEFORE UPDATE ON users
+		BEGIN
+			SELECT RAISE(ABORT, 'test: users update blocked');
+		END;
+	`); err != nil {
+		t.Fatalf("install blocking trigger: %v", err)
+	}
+
+	if _, err := login.resolveUser("returning-subject", "", ""); err == nil {
+		t.Fatal("resolveUser() succeeded despite a trigger blocking the role update, want an error")
+	}
+}
+
+// TestOIDCLoginCallbackAppliesRoleThroughFullRoundTrip is the one
+// end-to-end check that Callback — not just resolveUser directly — reaches
+// updateRole, exercising the same fake-provider round trip every other
+// Callback test in this file already uses.
+func TestOIDCLoginCallbackAppliesRoleThroughFullRoundTrip(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	sessions, db := newTestSessionStore(t, time.Hour)
+	createTestUser(t, db, "user-existing")
+	seedIdentity(t, db, "user-existing", "returning-subject")
+	setUserLocalRoleForTest(t, db, "user-existing", "admin")
+	login := newTestOIDCLoginWithConfig(t, provider, db, sessions, OIDCConfig{DefaultRole: "gast"})
+
+	authURL := login.BeginLogin("")
+	state, code := completeLogin(t, authURL, "returning-subject", "")
+	if _, err := login.Callback(context.Background(), state, code, ""); err != nil {
+		t.Fatalf("Callback() returned error: %v", err)
+	}
+
+	if got := readUserRole(t, db, "user-existing"); got != "admin" {
+		t.Errorf("role after Callback() = %q, want admin", got)
+	}
+}
