@@ -1,7 +1,15 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-const pages = ["/", "/login/", "/logout/"];
+// "/account/" fetches on mount (see src/app/account/page.tsx) and this
+// suite never completes a login (fake-oidc-provider.mjs's own comment
+// explains why), so it always ends up in the error state here — that is
+// still a real, fully-rendered state built from the same Werkstatt
+// vocabulary as every other view, and exercising it is exactly what these
+// checks are for. The authenticated account/token views themselves are out
+// of reach without a real login round trip (same limitation views.spec.ts
+// already documents for the catalog view) and are NOT covered here.
+const pages = ["/", "/login/", "/logout/", "/account/"];
 
 // Both modes get the same checks: the dark mode is not a variant that may
 // degrade, it is the mode most of this tool's users will actually see.
