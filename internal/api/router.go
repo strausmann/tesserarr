@@ -180,13 +180,12 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*API, error)
 	a.register("POST "+TokensPath, MiddlewareSession, a.handleCreateToken)
 	a.register("GET "+TokensPath, MiddlewareSession, a.handleListTokens)
 	a.register("DELETE "+TokensPath+"/{hash}", MiddlewareSession, a.handleRevokeToken)
-	// AccountPath is the signed-in user's own profile (see account.go): read
-	// it in full, or set the one field the user is allowed to change
-	// themselves (email). Both sit on MiddlewareSession like every other
-	// route in this block — PATCH is an unsafe method, so requireCSRF
-	// (csrf.go) guards it exactly like the token-minting POST above.
+	// AccountPath is the signed-in user's own profile (see account.go):
+	// entirely read-only, on MiddlewareSession like every other route in
+	// this block. There is no PATCH here — email is set exclusively by a
+	// trusted source (an OIDC provider's claims or a forward-auth guard's
+	// header), never by the signed-in user themselves.
 	a.register("GET "+AccountPath, MiddlewareSession, a.handleGetAccount)
-	a.register("PATCH "+AccountPath, MiddlewareSession, a.handleUpdateAccount)
 	a.register("POST "+LogoutPath, MiddlewareSession, a.handleLogout)
 	// Registered last, but that has no bearing on precedence — see the
 	// package comment above: ServeMux resolves every request to its most
