@@ -316,6 +316,77 @@ func TestListUsersPrintsIdentitiesColumn(t *testing.T) {
 	}
 }
 
+// TestListUsersEscapesControlCharactersInEveryField proves that no field
+// listUsers prints — not just email — can forge an extra line or otherwise
+// break the "one line per account" invariant an operator relies on to pick
+// who to promote (see runUserPromote's own comment). users.email reaches
+// this function entirely unvalidated for control characters from at least
+// one path an attacker fully controls (internal/api's handleUpdateAccount,
+// any signed-in user, any string up to 254 bytes — see UserSummary.Email's
+// comment), and display_name/identities.subject arrive from a forward-auth
+// guard header or an OIDC provider's own claims, which this package does
+// not treat as free of control characters either. A CR+LF pair inside
+// user-1's email that spells out what looks like an entire second,
+// higher-privileged row must NOT turn into a real second line, and an ESC
+// byte must never reach the operator's terminal raw.
+func TestListUsersEscapesControlCharactersInEveryField(t *testing.T) {
+	db := newTestDB(t)
+	forgedLine := "attacker@example.org\r\nfake-admin\tForged Admin\temail(unverified)=-\trole=admin\trole_local=admin\tidentities=-"
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at, email) VALUES (?, ?, ?, ?)`,
+		"user-1", "Attacker\x1b[31m", time.Now().UTC().Format(time.RFC3339), forgedLine,
+	); err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)`,
+		"user-2", "Second User", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert second test user: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := listUsers(db, &out); err != nil {
+		t.Fatalf("listUsers() returned error: %v", err)
+	}
+	got := out.String()
+
+	// The structural invariant: exactly one line per row inserted above,
+	// never more. A raw CR or LF embedded in a field would grow this count
+	// past 2 — that is the forgery this test exists to catch.
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("listUsers() printed %d lines, want exactly 2 (one per account):\n%s", len(lines), got)
+	}
+	for _, id := range []string{"user-1", "user-2"} {
+		lineForUser(t, got, id) // fails the test itself if not exactly one match
+	}
+	if strings.Contains(got, "fake-admin\tForged Admin") {
+		t.Errorf("output = %q, contains the forged row as a real line", got)
+	}
+
+	// No raw control byte may reach the output — neither the CR/LF pair
+	// that tried to forge a line, nor the ANSI escape byte in the display
+	// name.
+	if strings.ContainsRune(got, '\r') {
+		t.Errorf("output = %q, contains a raw carriage return", got)
+	}
+	if strings.ContainsRune(got, '\x1b') {
+		t.Errorf("output = %q, contains a raw ESC byte", got)
+	}
+	// Every legitimate line-ending '\n' is accounted for by the 2 rows
+	// above; strings.Split already proved that. What's left to prove is
+	// that the tampering is still VISIBLE rather than silently dropped —
+	// an operator should see that user-1's email was tampered with, not a
+	// blank or truncated field.
+	if !strings.Contains(got, `\x0d`) || !strings.Contains(got, `\x0a`) {
+		t.Errorf("output = %q, want the escaped \\x0d and \\x0a for the CR/LF that was in user-1's email", got)
+	}
+	if !strings.Contains(got, `\x1b`) {
+		t.Errorf("output = %q, want the escaped \\x1b for the ESC byte that was in user-1's display name", got)
+	}
+}
+
 // lineForUser returns the single line of listUsers' output starting with
 // userID's id column, failing the test if there is not exactly one.
 func lineForUser(t *testing.T, output, userID string) string {

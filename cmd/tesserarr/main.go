@@ -24,6 +24,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/strausmann/tesserarr/internal/api"
 	"github.com/strausmann/tesserarr/internal/config"
@@ -337,6 +338,20 @@ func runUserList(args []string) error {
 // use instead to confirm which row belongs to which real person: neither
 // its provider nor its subject value can be set by the account holder
 // themselves (identity.IdentitySummary's own comment).
+//
+// Every field printed below goes through sanitizeForLine first — not only
+// email. handleUpdateAccount (internal/api/account.go) rejects control
+// characters in a NEWLY submitted email, but that check has nothing to say
+// about rows written before it existed, and display_name /
+// identities.subject reach this function from a forward-auth guard header
+// or an OIDC provider's own claims (identity.UserSummary's field
+// comments), sources this package has no reason to assume are free of
+// control characters either. Without sanitizeForLine, a single crafted
+// field could inject a CR+LF pair that makes one database row print as
+// two terminal lines — one of them entirely fabricated, e.g. claiming
+// role=admin for an id that does not exist — which is exactly the kind of
+// forgery an operator relying on "one line per account" (this function's
+// own doc comment, above) to decide who to promote must never see.
 func listUsers(db *sql.DB, out io.Writer) error {
 	users, err := identity.ListUsers(db)
 	if err != nil {
@@ -344,9 +359,13 @@ func listUsers(db *sql.DB, out io.Writer) error {
 	}
 
 	// emailCounts powers the shared-email flag below — computed across the
-	// WHOLE listing before printing any line, so a collision is flagged on
-	// every row it involves regardless of which one happens to print
-	// first.
+	// WHOLE listing, from the RAW (unsanitized) email, before printing any
+	// line, so a collision is flagged on every row it involves regardless
+	// of which one happens to print first. Grouping on the raw value
+	// rather than its sanitized form keeps this comparison exactly as
+	// precise as before sanitizeForLine existed; sanitizing is a
+	// presentation concern applied only when a field is about to be
+	// written to out, below.
 	emailCounts := make(map[string]int, len(users))
 	for _, u := range users {
 		if u.Email != "" {
@@ -370,16 +389,45 @@ func listUsers(db *sql.DB, out io.Writer) error {
 		if len(u.Identities) > 0 {
 			parts := make([]string, len(u.Identities))
 			for i, id := range u.Identities {
-				parts[i] = id.Provider + ":" + id.Subject
+				parts[i] = sanitizeForLine(id.Provider) + ":" + sanitizeForLine(id.Subject)
 			}
 			identities = strings.Join(parts, ",")
 		}
 		// Errors from writing to out are deliberately ignored, matching
 		// createInvite's own reasoning: out is the caller's stdout, and
 		// there is no more-honest place left to report a broken stdout to.
-		_, _ = fmt.Fprintf(out, "%s\t%s\temail(unverified)=%s\trole=%s\trole_local=%s\tidentities=%s\n", u.ID, u.DisplayName, email, u.Role, roleLocal, identities)
+		_, _ = fmt.Fprintf(out, "%s\t%s\temail(unverified)=%s\trole=%s\trole_local=%s\tidentities=%s\n",
+			sanitizeForLine(u.ID), sanitizeForLine(u.DisplayName), sanitizeForLine(email), sanitizeForLine(u.Role), sanitizeForLine(roleLocal), identities)
 	}
 	return nil
+}
+
+// sanitizeForLine makes s safe to appear inside one tab-separated line of
+// listUsers' output. Every rune unicode.IsControl reports true for — the
+// C0 set (0x00-0x1F, which includes CR and LF, the two bytes that would
+// otherwise let a single field masquerade as multiple lines or extra
+// tab-separated columns) plus DEL and the C1 set (0x7F, 0x80-0x9F, which
+// includes ESC-led ANSI/VT100 escape sequences a terminal would otherwise
+// interpret) — is replaced with its \xHH hex escape.
+//
+// Escaping rather than stripping is deliberate: stripping a CR+LF pair
+// that was clearly trying to forge a second line would leave the tampering
+// invisible, printing what looks like an ordinary, untouched field. The
+// \xHH form stays exactly as long as the byte it replaces (one input rune
+// in this alphabet, since every value unicode.IsControl accepts here fits
+// two hex digits), reads unambiguously as "not the real character", and
+// can never itself be mistaken for a delimiter or trigger further
+// escape-sequence interpretation.
+func sanitizeForLine(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			fmt.Fprintf(&b, `\x%02x`, r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func runUserRemap(args []string) error {

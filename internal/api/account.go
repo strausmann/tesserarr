@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"unicode"
 )
 
 // AccountPath is the signed-in user's own profile: display name, email and
@@ -89,6 +90,25 @@ func (a *API) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	if len(req.Email) > maxAccountEmailLen {
 		http.Error(w, "email too long", http.StatusBadRequest)
 		return
+	}
+	// RFC 5321 §4.1.2's reverse-path grammar has no room for a raw control
+	// character (CR, LF, ESC, ...) outside of a quoted string, and even
+	// there a bare CR or LF is not permitted — so this is a correctness
+	// check on its own. It is also this endpoint's actual security
+	// boundary: it is the ONLY mutation any signed-in user can reach on
+	// their own account (see this handler's own doc comment), and
+	// cmd/tesserarr's "user list" prints this value verbatim to an
+	// operator's terminal (see listUsers' and sanitizeForLine's comments in
+	// cmd/tesserarr/main.go) — a CR+LF pair here could otherwise make one
+	// database row masquerade as several printed lines, one of them
+	// entirely fabricated. Checked on the TRIMMED value, so this rejects a
+	// control character embedded anywhere in the string, not only at the
+	// edges TrimSpace already removed.
+	for _, r := range req.Email {
+		if unicode.IsControl(r) {
+			http.Error(w, "email must not contain control characters", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// An empty string is stored as NULL, not "" — that keeps "no email set"
