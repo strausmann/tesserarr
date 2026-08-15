@@ -69,7 +69,7 @@ func TestOIDCLoginSurvivesLosingCreateRaceEvenWithoutARealRace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invite.Create() returned error: %v", err)
 	}
-	userID, err := login.createUserFromInvite(subject, "loser@example.org", token)
+	userID, err := login.createUserFromInvite(subject, "loser@example.org", EmailVerificationUnknown, token)
 	if err != nil {
 		t.Fatalf("createUserFromInvite() returned error: %v, want it to fall back to the winner's account", err)
 	}

@@ -196,12 +196,21 @@ func (o *OIDCLogin) Callback(ctx context.Context, gotState, code, previousSessio
 
 	var claims struct {
 		Email string `json:"email"`
+		// EmailVerified is OPTIONAL per the OpenID Connect spec
+		// (https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims)
+		// — a *oidcEmailVerifiedClaim stays nil when the provider omits it
+		// entirely, which is exactly the signal
+		// emailVerificationFromClaim (email_verification.go) needs to tell
+		// "never asked" apart from "asked, and the answer was no". See
+		// that type's own doc comment for why it is not a plain *bool.
+		EmailVerified *oidcEmailVerifiedClaim `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return "", fmt.Errorf("identity: parse oidc claims: %w", err)
 	}
+	emailVerified := emailVerificationFromClaim(claims.EmailVerified)
 
-	userID, err := o.resolveUser(idToken.Subject, claims.Email, attempt.inviteToken)
+	userID, err := o.resolveUser(idToken.Subject, claims.Email, emailVerified, attempt.inviteToken)
 	if err != nil {
 		return "", err
 	}
@@ -227,7 +236,14 @@ func (o *OIDCLogin) Callback(ctx context.Context, gotState, code, previousSessio
 // as the same ErrUnknownIdentityWithoutInvite — not told apart, for the
 // same reason ErrLoginStateInvalid isn't: a login endpoint must not become
 // an oracle for probing which invitation tokens are real.
-func (o *OIDCLogin) resolveUser(subject, email, inviteToken string) (string, error) {
+//
+// emailVerified is only ever consulted by createUserFromInvite, below, for
+// a BRAND-NEW identity — a returning login's "case err == nil" branch
+// deliberately never touches it, the identical staleness rule Email itself
+// already follows (see IdentitySummary.Email's own comment in admin.go):
+// identities.email_verified is written once, at first bind, never
+// refreshed on a later login.
+func (o *OIDCLogin) resolveUser(subject, email string, emailVerified EmailVerification, inviteToken string) (string, error) {
 	userID, err := lookupIdentity(o.db, oidcProviderName, subject)
 	switch {
 	case err == nil:
@@ -242,7 +258,7 @@ func (o *OIDCLogin) resolveUser(subject, email, inviteToken string) (string, err
 	if inviteToken == "" {
 		return "", ErrUnknownIdentityWithoutInvite
 	}
-	return o.createUserFromInvite(subject, email, inviteToken)
+	return o.createUserFromInvite(subject, email, emailVerified, inviteToken)
 }
 
 // updateRole recomputes and stores users.role — the CURRENTLY EFFECTIVE
@@ -327,7 +343,13 @@ func lookupIdentity(db *sql.DB, provider, subject string) (string, error) {
 // surfaced that raw constraint violation as Callback's own error, failing
 // a login that — from the visitor's side — looks identical to any other.
 // See resolveExistingIdentity for what the loser does instead.
-func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (string, error) {
+//
+// emailVerified is written into identities.email_verified in the SAME
+// INSERT as email itself, and never again afterward — see resolveUser's
+// own comment on this function's parameter for why, and
+// migrations/0006_identity_email_verification.sql for the column's own
+// NULL-means-unknown reasoning.
+func (o *OIDCLogin) createUserFromInvite(subject, email string, emailVerified EmailVerification, inviteToken string) (string, error) {
 	userID := newUserID()
 
 	tx, err := o.db.Begin()
@@ -343,8 +365,8 @@ func (o *OIDCLogin) createUserFromInvite(subject, email, inviteToken string) (st
 		return "", fmt.Errorf("identity: create user: %w", err)
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO identities (user_id, provider, subject, email) VALUES (?, ?, ?, ?)`,
-		userID, oidcProviderName, subject, nullable(email),
+		`INSERT INTO identities (user_id, provider, subject, email, email_verified) VALUES (?, ?, ?, ?, ?)`,
+		userID, oidcProviderName, subject, nullable(email), emailVerified.sqlValue(),
 	); err != nil {
 		_ = tx.Rollback()
 		// A typed check, not a string match on err.Error() — the same

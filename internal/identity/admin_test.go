@@ -344,8 +344,8 @@ func insertAdminTestIdentityWithEmail(t *testing.T, db *sql.DB, userID, provider
 	}
 }
 
-// TestListUsersReportsEachIdentitysOwnVerifiedEmail is the attribution
-// test IdentitySummary.Email needs, mirroring
+// TestListUsersReportsEachIdentitysOwnEmail is the attribution test
+// IdentitySummary.Email needs, mirroring
 // TestListUsersReturnsIdentitiesBoundToEachUser's own reasoning for
 // Provider/Subject: a single-identity fixture, or two identities sharing
 // one email, could pass a query that accidentally merged or duplicated a
@@ -357,7 +357,16 @@ func insertAdminTestIdentityWithEmail(t *testing.T, db *sql.DB, userID, provider
 // describes (the same forward-auth-plus-oidc account RemapForwardAuthSubject
 // exists for), where the two emails a provider handed back really can
 // differ.
-func TestListUsersReportsEachIdentitysOwnVerifiedEmail(t *testing.T) {
+//
+// Deliberately named without "Verified" (an earlier version of this test
+// carried that in its name, matching the mislabeled "email(verified)="
+// column a security review later caught — see
+// IdentitySummary.EmailVerification's own comment): this test only proves
+// attribution (which row's Email is which), never confirmation. Neither
+// insertAdminTestIdentityWithEmail call below sets email_verified, so both
+// identities' EmailVerification stays at its zero value, EmailVerificationUnknown
+// — the want fixture leaves that field unset for exactly that reason.
+func TestListUsersReportsEachIdentitysOwnEmail(t *testing.T) {
 	db := newAdminTestDB(t)
 	insertAdminTestUser(t, db, "user-1", "")
 	insertAdminTestIdentityWithEmail(t, db, "user-1", "forward-auth", "sub-fa-1", "guard-side@example.org")

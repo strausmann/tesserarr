@@ -322,23 +322,26 @@ func TestListUsersPrintsIdentitiesColumn(t *testing.T) {
 	if !strings.Contains(got, "\tidentities=1\n") {
 		t.Errorf("output = %q, want the account line to state identities=1", got)
 	}
-	if !strings.Contains(got, "user-1\tidentity\tprovider=forward-auth\tsubject=sub-123\temail(verified)=-\n") {
-		t.Errorf("output = %q, want a separate identity line for user-1's forward-auth:sub-123 identity, with the verified-email column defaulting to \"-\" (no email was inserted)", got)
+	if !strings.Contains(got, "user-1\tidentity\tprovider=forward-auth\tsubject=sub-123\temail=-\temail_verified=unknown\n") {
+		t.Errorf("output = %q, want a separate identity line for user-1's forward-auth:sub-123 identity, with the email column defaulting to \"-\" (no email was inserted) and email_verified defaulting to \"unknown\" (forward-auth carries no verification signal at all — see identity.EmailVerification's own comment)", got)
 	}
 }
 
 // TestListUsersPrintsAndEscapesIdentityEmail is TestListUsersPrintsIdentitiesColumn's
 // counterpart for a NON-empty identities.email: proves the value actually
 // reaches the identity line (not just that the "-" placeholder does, which
-// the test above already covers), that it lands under its own
-// "email(verified)=" column — never confused with the account line's own
-// "email(unverified)=" column, see this file's TestListUsersEscapesControlCharactersInEveryField
+// the test above already covers), that it lands under its own "email="
+// column — never confused with the account line's own "email(unverified)="
+// column, see this file's TestListUsersEscapesControlCharactersInEveryField
 // doc comment for why that distinction matters to an operator deciding who
 // to promote — and that it goes through sanitizeForLine exactly like every
 // other field, even though it comes from a trusted source (see
-// identity.IdentitySummary.Email's own comment: trusted does not mean
-// format-guaranteed, a self-hosted OIDC provider can still hand back
-// anything in its email claim).
+// identity.IdentitySummary.Email's own comment: trusted-source does not
+// mean format-guaranteed OR provider-confirmed — a self-hosted OIDC
+// provider can still hand back anything in its email claim, and this
+// fixture never inserts a value for email_verified at all, so that column
+// reads "unknown", not "true", even though the email itself came from a
+// trusted source).
 func TestListUsersPrintsAndEscapesIdentityEmail(t *testing.T) {
 	db := newTestDB(t)
 	if _, err := db.Exec(
@@ -380,8 +383,16 @@ func TestListUsersPrintsAndEscapesIdentityEmail(t *testing.T) {
 	if len(identityLines) != 1 {
 		t.Fatalf("listUsers() printed %d identity lines for user-1, want exactly 1:\n%s", len(identityLines), got)
 	}
-	if !strings.Contains(identityLines[0], `email(verified)=verified@example.org\x0d\x0afake-admin\x09Forged Admin\x09email(unverified)=-\x09role=admin`) {
-		t.Errorf("identity line = %q, want the tainted email escaped (\\x0d\\x0a for CR+LF, \\x09 for the tab bytes trying to forge extra columns) and printed under email(verified)=", identityLines[0])
+	// Built by concatenation, not a single raw string literal: the trailing
+	// "\temail_verified=unknown" needs an ACTUAL tab byte (the real column
+	// separator listUsers prints), whereas everything inside the backtick
+	// literal is the LITERAL four-character sequence \x0d etc. sanitizeForLine
+	// writes for a real control byte — mixing the two inside one backtick
+	// string would silently turn the intended tab into two literal
+	// characters instead.
+	wantIdentityLine := `email=verified@example.org\x0d\x0afake-admin\x09Forged Admin\x09email(unverified)=-\x09role=admin` + "\temail_verified=unknown"
+	if !strings.Contains(identityLines[0], wantIdentityLine) {
+		t.Errorf("identity line = %q, want the tainted email escaped (\\x0d\\x0a for CR+LF, \\x09 for the tab bytes trying to forge extra columns) and printed under email=, followed by email_verified=unknown (no email_verified value was inserted)", identityLines[0])
 	}
 }
 
@@ -469,7 +480,7 @@ func TestListUsersSubjectCannotForgeAnIdentityLine(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("listUsers() printed %d identity lines for user-1, want exactly 1 (one real identity row was inserted):\n%s", len(lines), got)
 	}
-	if lines[0] != "user-1\tidentity\tprovider=forward-auth\tsubject="+forgedSubject+"\temail(verified)=-" {
+	if lines[0] != "user-1\tidentity\tprovider=forward-auth\tsubject="+forgedSubject+"\temail=-\temail_verified=unknown" {
 		t.Errorf("identity line = %q, want the whole comma-containing subject preserved as ONE field, not split at the comma", lines[0])
 	}
 
@@ -520,13 +531,13 @@ func TestListUsersSubjectColonCannotBeMisreadAsProviderBoundary(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("listUsers() printed %d identity lines for user-1, want exactly 1:\n%s", len(lines), got)
 	}
-	if lines[0] != "user-1\tidentity\tprovider=oidc\tsubject=abc:def\temail(verified)=-" {
+	if lines[0] != "user-1\tidentity\tprovider=oidc\tsubject=abc:def\temail=-\temail_verified=unknown" {
 		t.Errorf("identity line = %q, want provider=oidc and subject=abc:def as separate, unambiguous fields", lines[0])
 	}
 }
 
 // identityLinesForUser returns every identity line (the
-// "<id>\tidentity\tprovider=...\tsubject=...\temail(verified)=...\n" lines
+// "<id>\tidentity\tprovider=...\tsubject=...\temail=...\temail_verified=...\n" lines
 // listUsers prints below an account's own line) belonging to userID, trimmed
 // of their trailing newline. Matching on the id+"\tidentity\t" prefix — rather
 // than lineForUser's plain id+"\t" prefix, which an account's own line
