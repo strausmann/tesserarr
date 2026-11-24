@@ -21,6 +21,21 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
 
+# The release toolchain: .releaserc.json and the pinned semantic-release
+# manifest and lockfile in .github/release-tools/ (JSON, no comment syntax).
+[[annotations]]
+path = [".releaserc.json", ".github/release-tools/package.json", ".github/release-tools/package-lock.json"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# The ASCII-armoured public key of the security contact (SECURITY.md).
+[[annotations]]
+path = ".well-known/security.asc"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
 # Files taken over from the Laravel Svelte starter kit
 # (https://github.com/laravel/svelte-starter-kit, MIT, imported in commit 73baace).
 # They keep the kit's licence; changes made in Tesserarr are contributed under the
