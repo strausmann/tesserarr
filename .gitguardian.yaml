@@ -5,11 +5,11 @@
 version: 2
 
 secret:
-  ignored_matches:
-    # Password of the throwaway PostgreSQL that only exists in local
-    # development (compose.dev.yaml) and in the test run (phpunit.xml). The
-    # database holds no data, is reachable only on the developer's machine or
-    # the CI runner, and production takes its password from the environment.
-    # Listed by SHA-256 of the value, so the file does not repeat it.
-    - name: throwaway dev and test database password
-      match: c5879666e2f7ce9767db991a75ad79a499430e1dd64bed1cad65e0cbc17bf9d0
+    ignored_matches:
+        # Password of the throwaway PostgreSQL that only exists in local
+        # development (compose.dev.yaml) and in the test run (phpunit.xml). The
+        # database holds no data, is reachable only on the developer's machine or
+        # the CI runner, and production takes its password from the environment.
+        # Listed by SHA-256 of the value, so the file does not repeat it.
+        - name: throwaway dev and test database password
+          match: c5879666e2f7ce9767db991a75ad79a499430e1dd64bed1cad65e0cbc17bf9d0
