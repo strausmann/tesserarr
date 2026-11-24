@@ -44,7 +44,7 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist
 
 COPY . .
-RUN rm -rf tests \
+RUN rm -rf tests CLAUDE.md \
     && composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
     && php artisan package:discover --ansi \
     && php artisan wayfinder:generate --with-form

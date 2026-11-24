@@ -115,6 +115,17 @@ it('fails an AND expression when one side is refused', function () {
         ->and($result['output'])->toContain('mixed@1.0.0');
 });
 
+it('fails an npm licence list when one entry is missing or refused', function (array $licences) {
+    $result = runLicenceGate(npm: ['listed@1.0.0' => $licences]);
+
+    expect($result['exit'])->toBe(1)
+        ->and($result['output'])->toContain('listed@1.0.0');
+})->with([
+    'MIT and UNKNOWN' => [['MIT', 'UNKNOWN']],
+    'MIT and UNLICENSED' => [['MIT', 'UNLICENSED']],
+    'MIT and GPL-2.0-only' => [['MIT', 'GPL-2.0-only']],
+]);
+
 it('accepts a package without licence when a reviewed exception names it', function () {
     $policy = [
         'allow-licenses' => ['MIT'],

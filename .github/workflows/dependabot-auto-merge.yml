@@ -24,7 +24,16 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
 
+# Only what the steps call:
+# - contents: write and pull-requests: write: `gh pr merge --auto` and
+#   `--disable-auto` (enabling auto-merge needs write access to the repository).
+# - pull-requests: write also covers approving, dismissing approvals, the comment
+#   on major updates and every read of the pull request, its commits and reviews
+#   (including dependabot/fetch-metadata).
+# - checks: read: lewagon/wait-on-check-action polls the Checks API
+#   (check_runs_for_ref), which needs it on a private repository.
 permissions:
+  checks: read
   contents: write
   pull-requests: write
 

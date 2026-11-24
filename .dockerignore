@@ -24,4 +24,5 @@ resources/js/wayfinder
 .claude
 .agents
 AGENTS.md
-CLAUDE.md
+# CLAUDE.md stays in the context: the test stage reads it (tests/Unit/Repo).
+# The vendor stage removes it, so it never reaches the runtime image.

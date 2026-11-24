@@ -21,7 +21,8 @@
  * - A Composer licence list is a choice (composer.json schema: "multiple can be
  *   specified as an array" for a disjunctive licence), so one allowed entry suffices.
  * - An npm licence string is an SPDX expression. A list (old package.json
- *   "licenses" field) is read as AND: the gate does not guess a choice.
+ *   "licenses" field) is read as AND: the gate does not guess a choice, and a
+ *   missing marker in the list makes the package one without licence.
  * - OR needs one allowed side, AND needs all, "X WITH exception" counts as X.
  * - "X+" means "X-or-later"; the deprecated bare GNU ids mean "-only".
  * - license-checker appends "*" to a licence it read from the licence file
@@ -192,14 +193,14 @@ function licence_packages(array $composer, array $npm): array
         if ($at === false || $at === 0) {
             throw new LicenceGateInputError("npm input: cannot read name@version from {$id}");
         }
-        $licences = $package['licenses'] ?? '';
-        $licences = array_values(array_filter(
-            array_map('strval', (array) $licences),
-            fn (string $l): bool => ! licence_is_missing($l),
-        ));
+        // A list is a conjunction: every entry must name an allowed licence. A
+        // missing marker inside the list is not dropped, it makes the whole
+        // package one without licence (refused unless an exception names it).
+        $licences = array_map('strval', (array) ($package['licenses'] ?? ''));
+        $missing = array_filter($licences, fn (string $l): bool => licence_is_missing($l));
         $packages["pkg:npm/{$id}"] = [
             'label' => "npm {$id}",
-            'expression' => $licences === [] ? '' : implode(' AND ', array_map(fn ($l) => "({$l})", $licences)),
+            'expression' => $missing !== [] ? '' : implode(' AND ', array_map(fn ($l) => "({$l})", $licences)),
         ];
     }
 
@@ -280,13 +281,13 @@ function licence_self_test(): int
             'acme/old' => ['version' => '1.0.0', 'license' => ['GPL-2.0-only']],
             'acme/none' => ['version' => '1.0.0', 'license' => []],
         ]],
-        ['@scope/fine@1.0.0' => ['licenses' => 'MIT'], 'bare@1.0.0' => [], 'excused@1.0.0' => ['licenses' => 'UNKNOWN']],
+        ['@scope/fine@1.0.0' => ['licenses' => 'MIT'], 'bare@1.0.0' => [], 'excused@1.0.0' => ['licenses' => 'UNKNOWN'], 'half@1.0.0' => ['licenses' => ['MIT', 'UNKNOWN']]],
     );
     $refused = licence_refusals(
         ['allow-licenses' => $allowed, 'x-licence-exceptions' => [['purl' => 'pkg:npm/excused@1.0.0', 'licence' => 'MIT', 'reason' => 'self-test']]],
         $packages,
     );
-    $expected = ['composer acme/old@1.0.0: (GPL-2.0-only)', 'composer acme/none@1.0.0: no licence', 'npm bare@1.0.0: no licence'];
+    $expected = ['composer acme/old@1.0.0: (GPL-2.0-only)', 'composer acme/none@1.0.0: no licence', 'npm bare@1.0.0: no licence', 'npm half@1.0.0: no licence'];
     if ($refused !== $expected) {
         $failures++;
         fwrite(STDERR, 'FAIL: refusals '.json_encode($refused)."\n");
