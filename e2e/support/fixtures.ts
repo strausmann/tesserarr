@@ -26,6 +26,10 @@ export async function serveFixtures(page: Page): Promise<void> {
             body: '{"message":"Server Error"}',
         }),
     );
+    // The image of missing-image.html: a 404 that completes as a request.
+    await page.route('**/_fixtures/missing.png', (route) =>
+        route.fulfill({ status: 404, contentType: 'image/png', body: '' }),
+    );
     // The stylesheet of missing-stylesheet.html: a plain 404 with a CSS type,
     // so the answer reaches the page. (A 404 page in HTML is blocked by the
     // browser as a stylesheet and shows up as a failed request instead.)

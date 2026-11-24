@@ -1,0 +1,74 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<!-- Self-test page of the UI gate (e2e/ui-gate.spec.ts): clean.html with one defect, 31 tab stops, more than the gate walks. The gate must fail for that reason. -->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Gate fixture</title>
+        <script>
+            document.documentElement.classList.toggle(
+                'dark',
+                matchMedia('(prefers-color-scheme: dark)').matches,
+            );
+        </script>
+        <style>
+            body {
+                margin: 0;
+                font: 16px/1.5 sans-serif;
+                color: #111;
+                background: #fff;
+            }
+            main {
+                padding: 1rem;
+            }
+            button {
+                font: inherit;
+                padding: 0.5rem 1rem;
+            }
+            button:focus-visible {
+                outline: 3px solid #1d4ed8;
+                outline-offset: 2px;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Gate fixture</h1>
+            <button type="button">Continue</button>
+            <button type="button">Item 1</button>
+            <button type="button">Item 2</button>
+            <button type="button">Item 3</button>
+            <button type="button">Item 4</button>
+            <button type="button">Item 5</button>
+            <button type="button">Item 6</button>
+            <button type="button">Item 7</button>
+            <button type="button">Item 8</button>
+            <button type="button">Item 9</button>
+            <button type="button">Item 10</button>
+            <button type="button">Item 11</button>
+            <button type="button">Item 12</button>
+            <button type="button">Item 13</button>
+            <button type="button">Item 14</button>
+            <button type="button">Item 15</button>
+            <button type="button">Item 16</button>
+            <button type="button">Item 17</button>
+            <button type="button">Item 18</button>
+            <button type="button">Item 19</button>
+            <button type="button">Item 20</button>
+            <button type="button">Item 21</button>
+            <button type="button">Item 22</button>
+            <button type="button">Item 23</button>
+            <button type="button">Item 24</button>
+            <button type="button">Item 25</button>
+            <button type="button">Item 26</button>
+            <button type="button">Item 27</button>
+            <button type="button">Item 28</button>
+            <button type="button">Item 29</button>
+            <button type="button">Item 30</button>
+        </main>
+    </body>
+</html>

@@ -22,15 +22,32 @@ final class E2eImage
 
     public const ROUTES = 'routes/testing.php';
 
+    /** Where marker and route file are looked up; null is the application root. */
+    private static ?string $root = null;
+
+    /**
+     * Points the lookup at another directory. For tests, so that they never
+     * create the marker in a checkout; null restores the application root.
+     */
+    public static function useRoot(?string $root): void
+    {
+        self::$root = $root;
+    }
+
     public static function enabled(): bool
     {
-        return is_file(base_path(self::MARKER)) && is_file(base_path(self::ROUTES));
+        return is_file(self::path(self::MARKER)) && is_file(self::path(self::ROUTES));
     }
 
     public static function registerRoutes(): void
     {
         if (self::enabled()) {
-            Route::middleware('web')->group(base_path(self::ROUTES));
+            Route::middleware('web')->group(self::path(self::ROUTES));
         }
+    }
+
+    private static function path(string $relative): string
+    {
+        return self::$root === null ? base_path($relative) : self::$root.'/'.$relative;
     }
 }

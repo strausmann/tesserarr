@@ -69,6 +69,21 @@ test.describe('the gate itself', () => {
             /no failed request[\s\S]*unreachable\.invalid\/pixel\.png \(net::ERR_NAME_NOT_RESOLVED\)/,
         ],
         [
+            'has a sixth tab stop without a focus ring',
+            'late-no-ring.html',
+            /every tab stop shows a focus ring[\s\S]*Sixth/,
+        ],
+        [
+            'has more tab stops than the gate walks',
+            'too-many-stops.html',
+            /Tab comes back to the start within 30 stops \(walked 30/,
+        ],
+        [
+            'loads an image that answers 404',
+            'missing-image.html',
+            /no 5xx answer and no 4xx answer for a page resource[\s\S]*404 image \S*\/_fixtures\/missing\.png/,
+        ],
+        [
             'gets a 500 answer to a fetch',
             'server-error.html',
             /no 5xx answer and no 4xx answer for a page resource[\s\S]*500 fetch \S*\/_fixtures\/server-error/,

@@ -22,20 +22,24 @@ export async function signInAs(page: Page, role: Role): Promise<void> {
 
 type FocusStop = { tag: string; name: string; ring: boolean };
 
-/** How many tab stops the gate walks at least (or all, if the page has fewer). */
-export const FOCUS_STOPS = 5;
+/**
+ * The most tab stops the gate walks. A view with more stops than this is
+ * either too dense to work through with a keyboard or traps the focus; the
+ * gate fails on it instead of checking only a sample.
+ */
+export const FOCUS_STOPS = 30;
 
 /**
  * Walks the tab order from the start of the page and reports each stop:
  * whether the focused element shows a ring, that is the browser's own ring
  * (`outline-style: auto`), an opaque outline of at least 2 px, or a
  * box-shadow that only the focused state has (the kit draws its rings with
- * box-shadow and also has a resting shadow). Stops at FOCUS_STOPS stops, or
- * earlier when the focus leaves the page or comes back to the first stop.
+ * box-shadow and also has a resting shadow). Walks until the focus leaves the
+ * page or comes back to the first stop (`complete`), at most FOCUS_STOPS.
  */
 async function walkFocus(
     page: Page,
-): Promise<{ tabbable: number; stops: FocusStop[] }> {
+): Promise<{ tabbable: number; stops: FocusStop[]; complete: boolean }> {
     const tabbable = await page.evaluate(
         () =>
             [
@@ -55,7 +59,8 @@ async function walkFocus(
     );
     const stops: FocusStop[] = [];
     let first: string | null = null;
-    for (let i = 0; i < FOCUS_STOPS; i++) {
+    let complete = false;
+    for (let i = 0; i <= FOCUS_STOPS; i++) {
         await page.keyboard.press('Tab');
         const stop = await page.evaluate(async () => {
             const el = document.activeElement as HTMLElement | null;
@@ -112,13 +117,17 @@ async function walkFocus(
             };
         });
         if (!stop || stop.id === first) {
+            complete = true;
+            break;
+        }
+        if (stops.length === FOCUS_STOPS) {
             break;
         }
         first ??= stop.id;
         stops.push({ tag: stop.tag, name: stop.name, ring: stop.ring });
     }
 
-    return { tabbable, stops };
+    return { tabbable, stops, complete };
 }
 
 /** Resource types whose 4xx answer breaks the page; 4xx on fetch/XHR can be correct behaviour. */
@@ -134,7 +143,7 @@ const PAGE_RESOURCES = new Set([
 /**
  * The UI gate of ADR-0006 for one view, one viewport and one theme. Renders the
  * view and requires: every heading and control of the artboard, no horizontal
- * scrolling, a visible focus ring on each of the first FOCUS_STOPS tab stops,
+ * scrolling, a visible focus ring on every tab stop (at most FOCUS_STOPS),
  * no serious or critical axe violation, no failed request (DNS, connection,
  * abort), no 5xx answer, no 4xx answer for the document or a stylesheet,
  * script, image, font or media file (4xx on fetch/XHR is allowed), and no
@@ -215,9 +224,13 @@ export async function assertUiGate(
 
         const focus = await walkFocus(page);
         expect(
+            focus.complete,
+            `Tab comes back to the start within ${FOCUS_STOPS} stops (walked ${focus.stops.length}; more stops or a focus trap)`,
+        ).toBe(true);
+        expect(
             focus.stops.length,
-            `Tab reaches ${Math.min(FOCUS_STOPS, focus.tabbable)} of the ${focus.tabbable} tabbable elements`,
-        ).toBeGreaterThanOrEqual(Math.min(FOCUS_STOPS, focus.tabbable));
+            `Tab reaches each of the ${focus.tabbable} tabbable elements`,
+        ).toBeGreaterThanOrEqual(focus.tabbable);
         expect(
             focus.tabbable,
             'the page has a tabbable element',

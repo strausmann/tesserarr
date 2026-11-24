@@ -6,26 +6,36 @@
 use App\Models\User;
 use App\Runtime\E2eImage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 
 // The browser tests sign in through /_testing/login/{role}. The route exists
 // only in the e2e image: its stage adds routes/testing.php and app/Testing/
-// and creates the marker file. The repository holds both files, so these
-// tests switch the image on by creating the marker.
+// and creates the marker file. These tests build that layout in a temporary
+// directory and point E2eImage at it, so they never touch the checkout: a
+// marker left behind there would offer the sign-in to a local server.
+
+beforeEach(function () {
+    $this->root = sys_get_temp_dir().'/tesserarr-e2e-image-'.bin2hex(random_bytes(6));
+    File::ensureDirectoryExists($this->root.'/routes');
+    File::copy(base_path(E2eImage::ROUTES), $this->root.'/'.E2eImage::ROUTES);
+    E2eImage::useRoot($this->root);
+});
+
+afterEach(function () {
+    E2eImage::useRoot(null);
+    File::deleteDirectory($this->root);
+});
 
 /** Creates the marker and registers the routes as the e2e image would at boot. */
-function bootE2eImage(): void
+function bootE2eImage(string $root): void
 {
-    touch(base_path(E2eImage::MARKER));
+    touch($root.'/'.E2eImage::MARKER);
     E2eImage::registerRoutes();
     Route::getRoutes()->refreshNameLookups();
 }
-
-afterEach(function () {
-    @unlink(base_path(E2eImage::MARKER));
-});
 
 it('does not register /_testing/login without the marker of the e2e image', function () {
     E2eImage::registerRoutes();
@@ -37,21 +47,16 @@ it('does not register /_testing/login without the marker of the e2e image', func
 });
 
 it('does not register /_testing/login when the route file is missing', function () {
-    touch(base_path(E2eImage::MARKER));
-    $routes = base_path(E2eImage::ROUTES);
-    rename($routes, $routes.'.away');
+    touch($this->root.'/'.E2eImage::MARKER);
+    unlink($this->root.'/'.E2eImage::ROUTES);
 
-    try {
-        expect(E2eImage::enabled())->toBeFalse();
-        E2eImage::registerRoutes();
-        expect(Route::has('testing.login'))->toBeFalse();
-    } finally {
-        rename($routes.'.away', $routes);
-    }
+    expect(E2eImage::enabled())->toBeFalse();
+    E2eImage::registerRoutes();
+    expect(Route::has('testing.login'))->toBeFalse();
 });
 
 it('signs in the fixture account of the role and redirects to the dashboard', function (string $role) {
-    bootE2eImage();
+    bootE2eImage($this->root);
 
     $this->get("/_testing/login/{$role}")->assertRedirect(route('dashboard'));
 
@@ -61,15 +66,15 @@ it('signs in the fixture account of the role and redirects to the dashboard', fu
 })->with(['friend', 'operator']);
 
 it('answers 404 on /_testing/login for an unknown role', function () {
-    bootE2eImage();
+    bootE2eImage($this->root);
 
     $this->get('/_testing/login/root')->assertNotFound();
     $this->assertGuest();
 });
 
 it('answers 404 when the marker disappears after the route was registered', function () {
-    bootE2eImage();
-    unlink(base_path(E2eImage::MARKER));
+    bootE2eImage($this->root);
+    unlink($this->root.'/'.E2eImage::MARKER);
 
     $this->get('/_testing/login/operator')->assertNotFound();
     $this->assertGuest();
@@ -77,10 +82,27 @@ it('answers 404 when the marker disappears after the route was registered', func
 });
 
 it('reuses the fixture account on a second sign-in', function () {
-    bootE2eImage();
+    bootE2eImage($this->root);
 
     $this->get('/_testing/login/friend');
     $this->get('/_testing/login/friend');
 
     expect(User::query()->count())->toBe(1);
+});
+
+it('looks up the marker in the application root again once the override is cleared', function () {
+    touch($this->root.'/'.E2eImage::MARKER);
+    expect(E2eImage::enabled())->toBeTrue();
+
+    E2eImage::useRoot(null);
+
+    expect(E2eImage::enabled())->toBe(is_file(base_path(E2eImage::MARKER)));
+});
+
+// Last in the file: none of the tests above may leave a marker in the checkout
+// or change its route file.
+it('leaves no marker in the checkout and its route file in place', function () {
+    expect(base_path(E2eImage::MARKER))->not->toBeFile()
+        ->and(base_path(E2eImage::ROUTES))->toBeFile()
+        ->and(base_path(E2eImage::ROUTES.'.away'))->not->toBeFile();
 });

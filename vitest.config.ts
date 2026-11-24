@@ -15,7 +15,7 @@ import { defineConfig } from 'vitest/config';
 // Reason: only starter-kit components exist so far; they are replaced from
 //   task 8 on. The first Tesserarr component (Field, Dialog) adds its glob to
 //   `include` and `thresholds` below in the same pull request.
-// Issue: #83
+// Issue: #83 (https://github.com/strausmann/tesserarr/issues/83)
 // Expires: 2027-02-22
 export default defineConfig({
     plugins: [svelte()],
