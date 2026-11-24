@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Bug report
+description: Something does not work as documented
+title: "bug: <one-line summary>"
+labels:
+  - "type:bug"
+  - "status:needs-triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        - Search the existing issues first.
+        - A security problem goes to the address in SECURITY.md, never into an issue.
+        - **No details of a real installation:** no host names, domains, IP addresses, user names, share names or tokens. Use placeholders such as `media.example.org`, `192.0.2.10` or `<token>`.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is wrong?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: Affected role
+      options:
+        - Central instance
+        - Satellite
+        - Both or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Invite a friend with ...
+        2. Open ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Error messages and log lines, with every installation detail replaced.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Tesserarr version
+      description: Shown in the footer of the web interface, or the image tag.
+      placeholder: 0.1.0 / dev / commit
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - Container runtime: Docker 28.x
+        - Host OS: Debian 13
+        - Reverse proxy: ...
+        - Browser (for interface bugs): ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

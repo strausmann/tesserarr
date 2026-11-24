@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Push docs/dockerhub/README.md and the short description to the Docker Hub
+# repository docker.io/bstrausmann/tesserarr.
+#
+# The Docker Hub page is public while this repository is private, so it gets
+# its own README instead of the repository README; the `Privacy / secret scan`
+# job in ci.yml covers it like every other file.
+#
+# Writes the repository overview (from the README) and the short description.
+# Docker Hub refuses the metadata PATCH for organization access tokens, even
+# with admin scopes (peter-evans/dockerhub-description#294). So this workflow
+# signs in with a personal access token (Read, Write, Delete) of an account
+# that is a member or owner of the organization: DOCKERHUB_ADMIN_USERNAME is that
+# personal account, not the organization; DOCKERHUB_TOKEN_ADMIN its token.
+# Pushing images uses the organization token (docker-publish.yml).
+#
+# Runs when the README or this workflow changes on main, after every release
+# (called by release.yml: a release made with GITHUB_TOKEN fires no
+# `release` event), or by hand. The Docker Hub category cannot be set this way
+# (the action and Docker Hub's API offer no input for it); it is chosen once
+# by hand on Docker Hub. Editing repository
+# Limits (from the action): README 25,000 bytes, short description 100 bytes.
+
+name: Docker Hub description
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/dockerhub/README.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_call:
+    secrets:
+      DOCKERHUB_ADMIN_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN_ADMIN:
+        required: false
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # The Docker Hub namespace is an identity, not a secret.
+  DOCKERHUB_NAMESPACE: bstrausmann
+
+concurrency:
+  group: dockerhub-description
+  cancel-in-progress: true
+
+jobs:
+  description:
+    name: Update the Docker Hub description
+    # Forks have no Docker Hub secrets; skip instead of failing there.
+    if: github.repository_owner == 'strausmann'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # Called from release.yml this checks out main, so the page shows the
+      # README of main, not of an older tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          sparse-checkout: docs/dockerhub
+          persist-credentials: false
+
+      # Labelyard's copy of this workflow failed with a bare "Forbidden" from the
+      # PATCH of the description. This step checks login, read and write one by
+      # one and names the cause. Secrets reach curl only through stdin
+      # (`curl -K -`), never as an argument; the session token is masked and
+      # every response lands in RUNNER_TEMP and is removed.
+      - name: Check the Docker Hub credentials and permissions
+        env:
+          DOCKERHUB_ADMIN_USERNAME: ${{ secrets.DOCKERHUB_ADMIN_USERNAME }}
+          DOCKERHUB_TOKEN_ADMIN: ${{ secrets.DOCKERHUB_TOKEN_ADMIN }}
+          REPOSITORY: ${{ env.DOCKERHUB_NAMESPACE }}/tesserarr
+        run: |
+          set -euo pipefail
+          if [ -z "$DOCKERHUB_ADMIN_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN_ADMIN" ]; then
+            echo "::error::DOCKERHUB_ADMIN_USERNAME or DOCKERHUB_TOKEN_ADMIN is not set"
+            exit 1
+          fi
+          out="$RUNNER_TEMP/dockerhub-check.json"
+          trap 'rm -f "$out"' EXIT
+          hub() { # reads a curl config from stdin, prints the HTTP status (000 on a network error)
+            curl -sS -o "$out" -w "%{http_code}" -K - || :
+          }
+          # 1. Login: identifier and secret go into the request body via stdin.
+          body=$(jq -nc '{identifier: env.DOCKERHUB_ADMIN_USERNAME, secret: env.DOCKERHUB_TOKEN_ADMIN}')
+          code=$(printf 'url = "https://hub.docker.com/v2/auth/token"\nrequest = "POST"\nheader = "Content-Type: application/json"\ndata = %s\n' \
+            "$(printf '%s' "$body" | jq -Rs .)" | hub)
+          unset body
+          if [ "$code" != "200" ]; then
+            echo "::error::login rejected (HTTP $code): DOCKERHUB_ADMIN_USERNAME must be the personal account that owns the personal access token in DOCKERHUB_TOKEN_ADMIN, not the organization $DOCKERHUB_NAMESPACE. Check that the token is active and not expired."
+            exit 1
+          fi
+          token=$(jq -r '.access_token // empty' "$out")
+          if [ -z "$token" ]; then
+            echo "::error::login answered 200 without a session token"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "login: ok"
+          # 2. Read the repository.
+          code=$(printf 'url = "https://hub.docker.com/v2/repositories/%s/"\nheader = "Authorization: Bearer %s"\n' "$REPOSITORY" "$token" | hub)
+          case "$code" in
+            200) echo "read: ok" ;;
+            404)
+              echo "::error::repository $REPOSITORY not found (HTTP 404): create it on Docker Hub, or DOCKERHUB_ADMIN_USERNAME is not a member of the organization $DOCKERHUB_NAMESPACE"
+              exit 1 ;;
+            401|403)
+              echo "::error::repository $REPOSITORY not readable (HTTP $code): the personal access token needs the permission Read, Write, Delete, and its account access to $REPOSITORY"
+              exit 1 ;;
+            *)
+              echo "::error::reading $REPOSITORY failed (HTTP $code)"
+              exit 1 ;;
+          esac
+          current=$(jq -c '{description: (.description // "")}' "$out")
+          # 3. Write: a PATCH that sets the short description to its current value.
+          code=$(printf 'url = "https://hub.docker.com/v2/repositories/%s/"\nrequest = "PATCH"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = %s\n' \
+            "$REPOSITORY" "$token" "$(printf '%s' "$current" | jq -Rs .)" | hub)
+          unset token
+          case "$code" in
+            200) echo "write: ok" ;;
+            401|403)
+              echo "::error::repository $REPOSITORY not writable (HTTP $code). Organization access tokens cannot edit repository metadata (peter-evans/dockerhub-description#294); use a personal access token of an org member. The token needs the permission Read, Write, Delete, and its account the role Owner or a team with Admin on $REPOSITORY."
+              exit 1 ;;
+            *)
+              echo "::error::writing $REPOSITORY failed (HTTP $code)"
+              exit 1 ;;
+          esac
+
+      - name: Update the description
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_ADMIN_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN_ADMIN }}
+          repository: ${{ env.DOCKERHUB_NAMESPACE }}/tesserarr
+          # At most 100 bytes (this one is 99: the dash counts three).
+          short-description: "Share parts of your media library with friends over Syncthing — invites, passkeys, Sonarr/Radarr."
+          readme-filepath: docs/dockerhub/README.md
+          enable-url-completion: false

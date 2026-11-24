@@ -39,6 +39,23 @@ updates:
         update-types: [minor, patch]
         applies-to: version-updates
 
+  # The pinned semantic-release toolchain of release.yml (not shipped in the image).
+  - package-ecosystem: npm
+    directory: /.github/release-tools
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels: [dependencies, javascript]
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      release-tools:
+        patterns: ['*']
+
   - package-ecosystem: docker
     directory: /docker
     schedule:

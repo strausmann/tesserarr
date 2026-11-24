@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Concurrency\AdvisoryConcurrencyBarrier;
 use App\Concurrency\ConcurrencyBarrier;
 use App\Concurrency\NullConcurrencyBarrier;
+use App\Database\Backup\DatabaseDumper;
+use App\Database\Backup\PgDump;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
 use Carbon\CarbonImmutable;
@@ -26,6 +28,12 @@ class AppServiceProvider extends ServiceProvider
         RoleBoot::apply($this->app, InstanceRole::fromEnv());
 
         $this->app->singleton(ConcurrencyBarrier::class, fn (Application $app) => self::barrier($app));
+
+        // The parsed configuration of the live connection (DB_URL included).
+        $this->app->bind(DatabaseDumper::class, fn () => new PgDump(
+            DB::connection()->getConfig(),
+            (string) config('tesserarr.backup.pg_dump'),
+        ));
     }
 
     /**

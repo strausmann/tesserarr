@@ -16,4 +16,15 @@ return [
         explode(',', (string) env('TESSERARR_TRUSTED_PROXIES', '')),
     ))),
 
+    /*
+    | Backups written by `artisan tesserarr:migrate` before it migrates
+    | (pg_dump, custom format, mode 0600; the five newest are kept). In the
+    | container this is a bind mount; see CONTRIBUTING.md.
+    */
+
+    'backup' => [
+        'dir' => env('TESSERARR_BACKUP_DIR', '/var/lib/tesserarr/backups'),
+        'pg_dump' => env('TESSERARR_PG_DUMP', 'pg_dump'),
+    ],
+
 ];
