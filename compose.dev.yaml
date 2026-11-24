@@ -1,14 +1,17 @@
 # Local development stack: PostgreSQL plus the central instance as web,
 # worker and scheduler, all from the same image.
 #
-#   cp .env.example .env && docker compose -f compose.dev.yaml run --rm web artisan key:generate --show
+#   cp .env.example .env && docker compose -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show
 #   (put the key into .env as APP_KEY)
 #   docker compose -f compose.dev.yaml up --build
 #
+# The one-off "migrate" service creates the schema first; web, worker and
+# scheduler start only after it exited successfully.
+#
 # Data lives in bind mounts below .dev/ (git-ignored), never in named volumes.
 
-x-app:
-    &app # Built once by the web service; worker and scheduler reuse the image.
+# Built once by the web service; the other services reuse the image.
+x-app: &app
     image: tesserarr:dev
     pull_policy: never
     env_file:
@@ -27,6 +30,8 @@ x-app:
     depends_on:
         postgres:
             condition: service_healthy
+        migrate:
+            condition: service_completed_successfully
 
 services:
     postgres:
@@ -44,6 +49,18 @@ services:
             interval: 5s
             timeout: 3s
             retries: 20
+
+    # Creates the schema before web, worker and scheduler start. Central role
+    # only: a satellite has no database and never migrates.
+    migrate:
+        <<: *app
+        command: ['artisan', 'migrate', '--force']
+        restart: 'no'
+        depends_on:
+            postgres:
+                condition: service_healthy
+        healthcheck:
+            disable: true
 
     web:
         <<: *app

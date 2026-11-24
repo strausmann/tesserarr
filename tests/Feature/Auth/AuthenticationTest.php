@@ -4,6 +4,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Fortify\Features;
+use Symfony\Component\HttpFoundation\Cookie;
 
 uses(RefreshDatabase::class);
 
@@ -78,3 +79,48 @@ test('users are rate limited', function () {
 
     $response->assertTooManyRequests();
 });
+
+function rememberCookie($response): ?Cookie
+{
+    foreach ($response->headers->getCookies() as $cookie) {
+        if (str_starts_with($cookie->getName(), 'remember_web_')) {
+            return $cookie;
+        }
+    }
+
+    return null;
+}
+
+test('remember sets the remember-me cookie', function (string $value) {
+    $user = User::factory()->create();
+
+    $response = $this->post(route('login.store'), [
+        'login' => $user->email,
+        'password' => 'password',
+        'remember' => $value,
+    ]);
+
+    $this->assertAuthenticated();
+    expect(rememberCookie($response))->not->toBeNull();
+})->with([
+    '1' => ['1'],
+    // what the ticked checkbox sends
+    'on' => ['on'],
+]);
+
+test('a login without remember sets no remember-me cookie', function (array $remember) {
+    $user = User::factory()->create();
+
+    $response = $this->post(route('login.store'), [
+        'login' => $user->email,
+        'password' => 'password',
+        ...$remember,
+    ]);
+
+    $this->assertAuthenticated();
+    expect(rememberCookie($response))->toBeNull();
+})->with([
+    'field absent' => [[]],
+    // what the checkbox used to send whether it was ticked or not
+    'empty value' => [['remember' => '']],
+]);

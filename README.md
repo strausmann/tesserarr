@@ -82,9 +82,13 @@ Requires Docker; PHP, Composer and PostgreSQL run in containers.
 ```sh
 cp .env.example .env
 docker compose -f compose.dev.yaml build
-docker compose -f compose.dev.yaml run --rm web artisan key:generate --show   # put the key into .env as APP_KEY
+docker compose -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show   # put the key into .env as APP_KEY
 docker compose -f compose.dev.yaml up
 ```
+
+`up` first runs the one-off `migrate` service (`artisan migrate --force`);
+`web`, `worker` and `scheduler` start only after it has finished
+successfully. A satellite never runs migrations: it has no database.
 
 The web interface is then on <http://localhost:8080>. Tests run with Pest
 against PostgreSQL: `./vendor/bin/pest`, or `docker build -f docker/Dockerfile
