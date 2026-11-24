@@ -12,12 +12,12 @@ screenshots that show any of the above.
 
 Use placeholders instead:
 
-| Instead of a real value | Write |
-|---|---|
-| a host name | `media.example.org` |
-| a path | `/media/movies`, `/syncthing/outgoing` |
-| a user | `alice`, `bob` |
-| a token | `<token>` |
+| Instead of a real value | Write                                  |
+| ----------------------- | -------------------------------------- |
+| a host name             | `media.example.org`                    |
+| a path                  | `/media/movies`, `/syncthing/outgoing` |
+| a user                  | `alice`, `bob`                         |
+| a token                 | `<token>`                              |
 
 The reason is simple: this project is about handing out access to a private
 library. Anything that maps a configuration to a real person or machine makes
