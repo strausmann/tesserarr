@@ -995,9 +995,6 @@ class OutputTest(unittest.TestCase):
         self.assertIn("feat: a \\| b 'c'", table)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class FirstReleaseTest(TempRepoCase):
     """Tesserarr starts from the baseline tag v0.0.0 on the initial commit."""
@@ -1068,3 +1065,7 @@ class FirstReleaseGuardTest(unittest.TestCase):
     def test_guard_allows_0_1_0_from_the_baseline_with_its_milestone_open(self) -> None:
         code, out = self.run_guard("0.1.0", "0.0.0", ["0.1.0"])
         self.assertEqual(code, 0, out)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -3,7 +3,8 @@
 
 # Build a preview image of a milestone before its release, e.g. 0.1.0-rc.3.
 #
-# Run it by hand on the branch that holds the milestone's work (or on main).
+# Run it by hand on the milestone branch that holds the work (or on main); any
+# other branch is refused, because only these refs are signed.
 # Version is x.y.z or, for a patch milestone, x.y.x (next free patch).
 # The rc number counts up from the tags already in GHCR
 # (ghcr.io/strausmann/tesserarr); the same tag goes to GHCR and Docker Hub
@@ -43,6 +44,21 @@ jobs:
         with:
           sparse-checkout: scripts
           persist-credentials: false
+
+      # Previews are published to both registries, so they are signed like the
+      # release images. docker-publish.yml signs only on main and
+      # milestone/x.y.0 or milestone/x.y.x; a preview from any other branch
+      # would go out unsigned, so it is refused here, before anything is built.
+      - name: Refuse a branch whose images are not signed
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          signed_refs='^refs/(heads/main|heads/milestone/[0-9]+\.[0-9]+\.(0|x))$'
+          if ! [[ "$REF" =~ $signed_refs ]]; then
+            echo "::error::A preview is built from main or a milestone branch only (the images of other branches are not signed)"
+            exit 1
+          fi
 
       - name: Compute the next rc tag
         id: next

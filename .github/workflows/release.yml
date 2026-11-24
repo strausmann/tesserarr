@@ -124,8 +124,9 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # `.releaserc.json` writes `version=<x>` to $GITHUB_OUTPUT from the exec
-      # plugin's successCmd, so the output is set only when a release was
-      # really published (never in a dry run).
+      # plugin's publishCmd, so the output is set only when a release was
+      # really published (never in a dry run: semantic-release skips the
+      # publish step then).
       - name: semantic-release
         id: semantic
         env:
