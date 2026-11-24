@@ -10,7 +10,11 @@
 #   assets    Vite build of the web interface (Node only)
 #   test      php-base + pcov + dev dependencies, for the test suite in CI;
 #             never part of the runtime image
-#   runtime   the published image: non-root, port 8080, one role per process
+#   app       everything the published image holds
+#   e2e       app plus the sign-in route of the browser tests (APP_ENV=testing,
+#             TESSERARR_E2E_LOGIN=true); built for Playwright, never published
+#   runtime   the published image: non-root, port 8080, one role per process.
+#             The last stage, so a build without --target yields it.
 #
 # Build context is the repository root:
 #   docker build -f docker/Dockerfile -t tesserarr:dev .
@@ -44,7 +48,7 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist
 
 COPY . .
-RUN rm -rf tests CLAUDE.md \
+RUN rm -rf tests CLAUDE.md playwright.config.ts vitest.config.ts \
     && composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
     && php artisan package:discover --ansi \
     && php artisan wayfinder:generate --with-form
@@ -89,7 +93,7 @@ RUN composer dump-autoload --no-interaction && php artisan package:discover --an
 CMD ["./vendor/bin/pest"]
 
 # -----------------------------------------------------------------------------
-FROM php-base AS runtime
+FROM php-base AS app
 
 ARG TESSERARR_VERSION=0.0.0-dev
 ARG REVISION=unknown
@@ -143,3 +147,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint"]
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]
+
+# -----------------------------------------------------------------------------
+# The browser tests run against the production image with one difference: the
+# route /_testing/login/{role} answers (App\Http\Controllers\Testing\
+# E2eLoginController needs both values; the runtime stage sets neither).
+FROM app AS e2e
+
+ENV APP_ENV=testing \
+    TESSERARR_E2E_LOGIN=true
+
+# -----------------------------------------------------------------------------
+FROM app AS runtime

@@ -20,6 +20,10 @@ resources/js/actions
 resources/js/routes
 resources/js/wayfinder
 .phpunit.cache
+coverage
+e2e
+playwright-report
+test-results
 .superpowers
 .claude
 .agents

@@ -47,5 +47,10 @@ yarn-error.log
 /.cache
 /.dev
 
+# test reports (Vitest coverage, Playwright)
+/coverage
+/playwright-report
+/test-results
+
 # Vale binary (scripts/vale_setup.sh)
 /.vale/bin

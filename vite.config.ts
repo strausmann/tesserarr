@@ -52,6 +52,9 @@ export default defineConfig({
             'node_modules/**',
             'public/**',
             'bootstrap/ssr/**',
+            'coverage/**',
+            'playwright-report/**',
+            'test-results/**',
             'tailwind.config.js',
             'resources/js/actions/**',
             'resources/js/components/ui/*',
@@ -70,8 +73,20 @@ export default defineConfig({
         semi: true,
         singleAttributePerLine: false,
         htmlWhitespaceSensitivity: 'css',
+        // Code only. Prose, YAML and TOML are written by hand (Vale checks the
+        // prose); licence-policy.yml is JSON on purpose and commitlint.config.cjs
+        // is a bootstrap file that main carries unchanged.
         ignorePatterns: [
             '.github/**',
+            '**/*.md',
+            '**/*.yml',
+            '**/*.yaml',
+            '**/*.toml',
+            '.vale/**',
+            'commitlint.config.cjs',
+            'coverage/**',
+            'playwright-report/**',
+            'test-results/**',
             'composer.json',
             'resources/js/components/ui/*',
             'resources/views/mail/*',
