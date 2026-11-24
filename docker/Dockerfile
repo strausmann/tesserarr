@@ -121,8 +121,11 @@ RUN groupadd --system --gid 10001 tesserarr \
     && setcap -r /usr/local/bin/frankenphp \
     && chown -R tesserarr:tesserarr /data/caddy /config/caddy
 
-COPY --from=vendor --chown=tesserarr:tesserarr /app /app
-COPY --from=assets --chown=tesserarr:tesserarr /app/public/build /app/public/build
+# Code belongs to root and is read-only for the runtime user; only storage/
+# and bootstrap/cache/ are writable.
+COPY --from=vendor /app /app
+COPY --from=assets /app/public/build /app/public/build
+RUN chown -R tesserarr:tesserarr /app/storage /app/bootstrap/cache
 COPY docker/Caddyfile /etc/frankenphp/Caddyfile
 COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint
 

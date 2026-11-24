@@ -12,15 +12,13 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 
-// Fails the start on an unknown TESSERARR_ROLE (InvalidArgumentException).
-$role = InstanceRole::fromEnv();
-
 return Application::configure(basePath: dirname(__DIR__))
+    // The role is resolved once, after .env is loaded (AppServiceProvider,
+    // RoleBoot::apply); routes and channels read it from the container.
     ->withRouting(
         commands: __DIR__.'/../routes/console.php',
-        channels: $role === InstanceRole::Central ? __DIR__.'/../routes/channels.php' : null,
         health: '/up',
-        then: fn () => RoleBoot::routes($role),
+        then: fn () => RoleBoot::routes(app(InstanceRole::class)),
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);

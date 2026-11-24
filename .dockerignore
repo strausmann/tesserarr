@@ -17,3 +17,8 @@ resources/js/actions
 resources/js/routes
 resources/js/wayfinder
 .phpunit.cache
+.superpowers
+.claude
+.agents
+AGENTS.md
+CLAUDE.md

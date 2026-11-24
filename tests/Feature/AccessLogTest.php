@@ -67,3 +67,14 @@ it('escapes quotes and control characters so a header cannot forge a log line', 
     expect($lines)->toHaveCount(1)
         ->and($lines[0])->toEndWith('"evil\\" 200 0 \\"-\\" \\"x\\x0Aforged line"');
 });
+
+it('logs only scheme, host and path of the referer', function () {
+    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])
+        ->withHeader('Referer', 'https://example.invalid:8443/invite/accept?token=s3cr3t#frag')
+        ->get('/_probe/access-log');
+
+    expect(accessLogLines($this->logFile)[0])
+        ->toContain(' "https://example.invalid:8443/invite/accept" ')
+        ->not->toContain('s3cr3t')
+        ->not->toContain('frag');
+});

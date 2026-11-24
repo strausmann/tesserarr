@@ -5,31 +5,35 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Second stage of the body limit (the first is Caddy's request_body
- * max_size of 2 MiB): 64 KiB for /api/* and /auth/*, answered before routing
- * and validation run.
+ * max_size of 2 MiB): 64 KiB for /api/*, /auth/* and the authentication
+ * routes named in AUTH_ROUTES, answered before routing and validation run.
  *
  * Two uses:
- *  - global, without parameter: applies the default to /api/* and /auth/*,
- *    unless the matched route declares its own limit;
+ *  - global, without parameter: applies the default to those paths and
+ *    routes, unless the matched route declares its own limit;
  *  - on a route as "limit.body:<bytes>" or "limit.body:<bytes>,multipart":
  *    applies that limit instead; "multipart" allows multipart/form-data.
  *
  * Checks, in this order:
- *  - 411 for a body method without Content-Length. FrankenPHP hands a
- *    chunked request over with an empty CONTENT_LENGTH and without the
- *    Transfer-Encoding header, so the missing length is the only sign.
  *  - 415 for multipart/form-data unless the route allows it. PHP parses
  *    multipart bodies before the application runs and php://input is then
  *    empty, so the stream check below would measure nothing.
- *  - 413 when the declared Content-Length, the bytes actually read from the
- *    stream, or the parsed files and parameters exceed the limit. A client
- *    that sends more than it declares is cut off at limit + 1 bytes.
+ *  - 411, on a route that allows multipart only, for a body without
+ *    Content-Length. FrankenPHP hands a chunked request over with an empty
+ *    CONTENT_LENGTH and without the Transfer-Encoding header. Elsewhere a
+ *    missing length is fine: a body without multipart is bounded by reading
+ *    it, and bodiless POST/DELETE requests often carry no length at all.
+ *  - 413 when the declared Content-Length or the bytes actually read exceed
+ *    the limit; for multipart, the parsed files and parameters count
+ *    instead of the (empty) stream. A client that sends more than it
+ *    declares is cut off at limit + 1 bytes.
  */
 final class LimitRequestBody
 {
@@ -42,30 +46,51 @@ final class LimitRequestBody
     /** @var list<string> */
     private const PATHS = ['api/*', 'auth/*'];
 
-    /** @var list<string> */
-    private const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
+    /**
+     * Fortify's authentication endpoints (login, two-factor challenge,
+     * password confirmation, passkey options and login). Fortify serves them
+     * without a prefix, so they are matched by name. Password reset is not
+     * enabled.
+     *
+     * @var list<string>
+     */
+    public const AUTH_ROUTES = [
+        'login.store',
+        'two-factor.login.store',
+        'password.confirm.store',
+        'passkey.login',
+        'passkey.login-options',
+        'passkey.confirm',
+        'passkey.confirm-options',
+        'passkey.registration-options',
+    ];
 
     public function __construct(private readonly Router $router) {}
 
     public function handle(Request $request, Closure $next, ?string $limit = null, ?string $option = null): Response
     {
         if ($limit === null) {
-            if (! $request->is(...self::PATHS) || $this->routeDeclaresOwnLimit($request)) {
+            $route = $this->matchRoute($request);
+
+            if (($route !== null && self::declaresOwnLimit($route)) || ! $this->applies($request, $route)) {
                 return $next($request);
             }
 
             $limit = self::DEFAULT_LIMIT;
         }
 
-        if ($this->lengthMissing($request)) {
-            return self::reject('length_required', Response::HTTP_LENGTH_REQUIRED);
-        }
+        $multipart = $this->isMultipart($request);
+        $multipartAllowed = $option === self::ALLOW_MULTIPART;
 
-        if ($option !== self::ALLOW_MULTIPART && $this->isMultipart($request)) {
+        if ($multipart && ! $multipartAllowed) {
             return self::reject('unsupported_media_type', Response::HTTP_UNSUPPORTED_MEDIA_TYPE);
         }
 
-        if ($this->exceeds($request, (int) $limit)) {
+        if ($multipartAllowed && $this->lengthMissing($request)) {
+            return self::reject('length_required', Response::HTTP_LENGTH_REQUIRED);
+        }
+
+        if ($this->exceeds($request, (int) $limit, $multipart)) {
             return self::reject('payload_too_large', Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
 
@@ -83,8 +108,7 @@ final class LimitRequestBody
             return true;
         }
 
-        return in_array($request->getMethod(), self::BODY_METHODS, true)
-            && ! is_numeric(self::declaredLength($request));
+        return ! is_numeric(self::declaredLength($request));
     }
 
     /**
@@ -101,7 +125,7 @@ final class LimitRequestBody
         return str_starts_with(strtolower((string) $request->headers->get('Content-Type', '')), 'multipart/');
     }
 
-    private function exceeds(Request $request, int $limit): bool
+    private function exceeds(Request $request, int $limit, bool $multipart): bool
     {
         $declared = self::declaredLength($request);
 
@@ -109,8 +133,10 @@ final class LimitRequestBody
             return true;
         }
 
-        if ($this->parsedSize($request) > $limit) {
-            return true;
+        // Only multipart is parsed by PHP itself; JSON and form bodies are
+        // measured by their raw bytes, never re-encoded (that inflates them).
+        if ($multipart) {
+            return $this->parsedSize($request) > $limit;
         }
 
         $stream = $request->getContent(true);
@@ -130,8 +156,8 @@ final class LimitRequestBody
     }
 
     /**
-     * Size of what PHP already parsed out of the body: uploaded files plus the
-     * form parameters, encoded as they would travel.
+     * Size of what PHP parsed out of a multipart body: uploaded files plus
+     * the form fields, encoded as they would travel.
      */
     private function parsedSize(Request $request): int
     {
@@ -148,14 +174,23 @@ final class LimitRequestBody
         return $size;
     }
 
-    private function routeDeclaresOwnLimit(Request $request): bool
+    private function applies(Request $request, ?Route $route): bool
+    {
+        return $request->is(...self::PATHS)
+            || ($route !== null && in_array($route->getName(), self::AUTH_ROUTES, true));
+    }
+
+    private function matchRoute(Request $request): ?Route
     {
         try {
-            $route = $this->router->getRoutes()->match($request);
+            return $this->router->getRoutes()->match($request);
         } catch (HttpException) {
-            return false;
+            return null;
         }
+    }
 
+    private static function declaresOwnLimit(Route $route): bool
+    {
         foreach ($route->gatherMiddleware() as $middleware) {
             if (is_string($middleware) && str_starts_with($middleware, self::ALIAS.':')) {
                 return true;

@@ -17,8 +17,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *
  * The address is the real client: TrustProxies resolves X-Forwarded-For
  * from the proxies in TESSERARR_TRUSTED_PROXIES only. The user field is
- * always "-" and query string values are redacted, so the log carries no
- * identities or tokens. Runs first in the global stack, so responses that
+ * always "-", query string values are redacted and the referer is cut to
+ * scheme, host and path, so the log carries no identities or tokens. Runs first in the global stack, so responses that
  * other middleware short-circuits (413, 503) are logged too.
  *
  * Format: https://nginx.org/en/docs/http/ngx_http_log_module.html#log_format
@@ -45,7 +45,7 @@ final class AccessLog
             self::escape($request->getProtocolVersion() ?? 'HTTP/1.1'),
             $response->getStatusCode(),
             self::bytes($response),
-            self::escape((string) ($request->headers->get('Referer') ?? '-')),
+            self::escape(self::referer($request)),
             self::escape((string) ($request->headers->get('User-Agent') ?? '-')),
         );
     }
@@ -64,6 +64,31 @@ final class AccessLog
         );
 
         return $request->getPathInfo().'?'.implode('&', $redacted);
+    }
+
+    /**
+     * Scheme, host and path only: a same-origin referer carries the query of
+     * the previous page, and with it any token the request target redacts.
+     */
+    private static function referer(Request $request): string
+    {
+        $referer = $request->headers->get('Referer');
+
+        if ($referer === null || $referer === '') {
+            return '-';
+        }
+
+        $parts = parse_url($referer);
+
+        if ($parts === false) {
+            return '-';
+        }
+
+        $origin = isset($parts['scheme'], $parts['host'])
+            ? $parts['scheme'].'://'.$parts['host'].(isset($parts['port']) ? ':'.$parts['port'] : '')
+            : '';
+
+        return $origin.($parts['path'] ?? '') ?: '-';
     }
 
     private static function bytes(Response $response): string

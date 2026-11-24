@@ -4,6 +4,7 @@ namespace App\Runtime;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Fortify;
 
@@ -31,8 +32,9 @@ final class RoleBoot
     }
 
     /**
-     * Routes per role. The health route /up is registered by the framework
-     * for both roles; a satellite has no other web route.
+     * Routes and broadcast channels per role. The health route /up is
+     * registered by the framework for both roles; a satellite has no other
+     * web route.
      */
     public static function routes(InstanceRole $role): void
     {
@@ -47,6 +49,9 @@ final class RoleBoot
         // falls into a token route.
         Route::middleware('web')->prefix('api/v1/app')->name('app-api.')->group($routes.'/api_app.php');
         Route::middleware('token-api')->prefix('api/v1')->name('api.')->group($routes.'/api.php');
+
+        Broadcast::routes();
+        require $routes.'/channels.php';
     }
 
     private static function satellite(Application $app): void
