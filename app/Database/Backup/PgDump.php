@@ -5,6 +5,9 @@
 
 namespace App\Database\Backup;
 
+use Symfony\Component\Process\Exception\ProcessSignaledException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
+use Symfony\Component\Process\Exception\RuntimeException as ProcessRuntimeException;
 use Symfony\Component\Process\Process;
 
 /**
@@ -41,7 +44,16 @@ final class PgDump implements DatabaseDumper
     public function dump(string $path): void
     {
         $process = new Process($this->command($path), null, $this->environment(), null, $this->timeoutSeconds);
-        $process->run();
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException) {
+            throw new BackupFailed(sprintf('pg_dump timed out after %d s', $this->timeoutSeconds));
+        } catch (ProcessSignaledException $signaled) {
+            throw new BackupFailed(sprintf('pg_dump was terminated by signal %d', $signaled->getSignal()));
+        } catch (ProcessRuntimeException) {
+            // The exception message names the command line; the class is enough.
+            throw new BackupFailed('pg_dump could not be run');
+        }
 
         if (! $process->isSuccessful()) {
             $detail = $this->errorLine($process->getErrorOutput());

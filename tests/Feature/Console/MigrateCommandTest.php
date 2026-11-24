@@ -3,9 +3,10 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use App\Console\Commands\MigrateCommand;
 use App\Database\Backup\BackupFailed;
 use App\Database\Backup\DatabaseDumper;
+use App\Database\MigrationLock;
+use App\Database\PostgresMigrationLock;
 use App\Models\User;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
@@ -196,42 +197,149 @@ it('does not dump or migrate while another run holds the lock', function () {
     $holder = new PDO($other->getAttribute(PDO::ATTR_DRIVER_NAME).':host='.config('database.connections.pgsql.host')
         .';port='.config('database.connections.pgsql.port').';dbname='.config('database.connections.pgsql.database'),
         (string) config('database.connections.pgsql.username'), (string) config('database.connections.pgsql.password'));
-    $holder->query('select pg_advisory_lock('.MigrateCommand::LOCK_KEY.')');
+    $holder->query('select pg_advisory_lock('.PostgresMigrationLock::KEY.')');
 
     try {
         $this->artisan('tesserarr:migrate', ['--lock-timeout' => 1])
             ->expectsOutputToContain('Another tesserarr:migrate holds the migration lock')
             ->assertExitCode(1);
     } finally {
-        $holder->query('select pg_advisory_unlock('.MigrateCommand::LOCK_KEY.')');
+        $holder->query('select pg_advisory_unlock('.PostgresMigrationLock::KEY.')');
     }
 
     expect($dumper->calls)->toBe(0)
         ->and(Schema::hasTable('t4_probe'))->toBeFalse();
 });
 
-it('fails and keeps the backup when a migration fails', function () {
+it('fails with exit 1, keeps the backup and logs no sql when a migration fails', function () {
     file_put_contents($this->migrationDir.'/2099_01_01_000001_broken.php', <<<'PHP'
         <?php
 
         use Illuminate\Database\Migrations\Migration;
+        use Illuminate\Support\Facades\DB;
 
         return new class extends Migration
         {
             public function up(): void
             {
-                throw new RuntimeException('broken migration');
+                DB::statement("select * from t4_missing_table where note = 'T4-SQL-MARKER'");
             }
         };
         PHP);
     app('migrator')->path($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, 'dump'));
 
-    expect(fn () => $this->artisan('tesserarr:migrate')->run())->toThrow(RuntimeException::class, 'broken migration');
+    $this->artisan('tesserarr:migrate')
+        ->expectsOutputToContain('Migration failed')
+        ->doesntExpectOutputToContain('T4-SQL-MARKER')
+        ->assertExitCode(1);
 
     $log = implode("\n", $this->logged);
     expect(dumpNames($this->backupDir))->toHaveCount(1)
         ->and($log)->toContain('migrate.failed')
-        ->and($log)->toContain('"error":"RuntimeException"')
-        ->and($log)->not->toContain('broken migration');
+        ->and($log)->toContain('"error":"Illuminate\\\\Database\\\\QueryException"')
+        ->and($log)->not->toContain('T4-SQL-MARKER')
+        ->and($log)->not->toContain('t4_missing_table');
 });
+
+it('removes a partial backup and logs the failure when the dumper aborts', function () {
+    pendingProbeMigration($this->migrationDir);
+    useDumper(function (string $path) {
+        file_put_contents($path, 'half a dump');
+        throw new RuntimeException('killed');
+    });
+
+    $this->artisan('tesserarr:migrate')
+        ->expectsOutputToContain('Backup failed, nothing was migrated')
+        ->assertExitCode(1);
+
+    expect(Schema::hasTable('t4_probe'))->toBeFalse()
+        ->and(array_values(array_diff(scandir($this->backupDir) ?: [], ['.', '..'])))->toBe([])
+        ->and(implode("\n", $this->logged))->toContain('migrate.backup_failed');
+});
+
+it('keeps the older good backups after aborted runs', function () {
+    File::ensureDirectoryExists($this->backupDir);
+    $good = [];
+    foreach (range(1, 5) as $day) {
+        $name = sprintf('pre-migrate-202601%02dT000000Z-0.0.%d.dump', $day, $day);
+        file_put_contents($this->backupDir.'/'.$name, 'good');
+        $good[] = $name;
+    }
+    pendingProbeMigration($this->migrationDir);
+
+    foreach (range(1, 3) as $attempt) {
+        $this->travel(1)->seconds();
+        useDumper(function (string $path) {
+            file_put_contents($path, 'half a dump');
+            throw new RuntimeException('timed out');
+        });
+        $this->artisan('tesserarr:migrate')->assertExitCode(1);
+    }
+    $this->travel(1)->seconds();
+    useDumper(fn (string $path) => file_put_contents($path, 'complete'));
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    $names = dumpNames($this->backupDir);
+    expect($names)->toHaveCount(5)
+        ->and(array_slice($names, 0, 4))->toBe(array_slice($good, 1))
+        ->and(file_get_contents($this->backupDir.'/'.$names[4]))->toBe('complete')
+        ->and(glob($this->backupDir.'/*.partial') ?: [])->toBe([]);
+});
+
+it('reports the original failure when releasing the lock fails', function () {
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => throw new BackupFailed('pg_dump exited with code 1'));
+    app()->instance(MigrationLock::class, new class implements MigrationLock
+    {
+        public function acquire(int $timeoutSeconds): bool
+        {
+            return true;
+        }
+
+        public function release(): void
+        {
+            throw new RuntimeException('connection lost');
+        }
+    });
+
+    $this->artisan('tesserarr:migrate')
+        ->expectsOutputToContain('Backup failed, nothing was migrated')
+        ->assertExitCode(1);
+
+    $log = implode("\n", $this->logged);
+    expect($log)->toContain('migrate.backup_failed')
+        ->and($log)->toContain('migrate.unlock_failed')
+        ->and($log)->toContain('"error":"RuntimeException"');
+});
+
+it('keeps five backups unless configured otherwise', function () {
+    expect(config('tesserarr.backups.keep'))->toBe(5);
+});
+
+it('keeps the configured number of backups, from 1 to 50', function (int $keep) {
+    config(['tesserarr.backups.keep' => $keep]);
+    File::ensureDirectoryExists($this->backupDir);
+    foreach (range(1, 9) as $day) {
+        file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000Z-0.0.%d.dump', $day, $day), 'old');
+    }
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'new'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    expect(dumpNames($this->backupDir))->toHaveCount(min($keep, 10));
+})->with([1, 2, 50]);
+
+it('refuses an invalid number of backups to keep before doing anything', function (mixed $keep) {
+    config(['tesserarr.backups.keep' => $keep]);
+    pendingProbeMigration($this->migrationDir);
+    $dumper = useDumper(fn (string $path) => file_put_contents($path, 'dump'));
+
+    $this->artisan('tesserarr:migrate')
+        ->expectsOutputToContain('TESSERARR_BACKUP_KEEP must be a whole number from 1 to 50')
+        ->assertExitCode(1);
+
+    expect($dumper->calls)->toBe(0)
+        ->and(Schema::hasTable('t4_probe'))->toBeFalse();
+})->with([0, 51, -1, 'abc', '2.5', '', null]);

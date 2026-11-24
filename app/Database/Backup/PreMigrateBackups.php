@@ -6,6 +6,8 @@
 namespace App\Database\Backup;
 
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
+use Throwable;
 
 /**
  * The directory of the backups written before a migration.
@@ -18,12 +20,21 @@ final class PreMigrateBackups
 {
     public const KEEP = 5;
 
+    public const KEEP_MIN = 1;
+
+    public const KEEP_MAX = 50;
+
     private const PATTERN = '/^pre-migrate-\d{8}T\d{6}Z-[A-Za-z0-9._-]+\.dump$/';
 
     public function __construct(private readonly string $directory) {}
 
     /**
-     * @throws BackupFailed when the dump fails or leaves an empty file
+     * pg_dump writes to `<name>.partial`, outside the rotation pattern; only a
+     * complete, non-empty dump is renamed to its final name (atomic within the
+     * directory). Whatever goes wrong, the partial file is removed, so an
+     * aborted run never counts as a backup.
+     *
+     * @throws BackupFailed when the dump fails, is aborted or leaves an empty file
      */
     public function write(DatabaseDumper $dumper, string $version): BackupFile
     {
@@ -32,33 +43,62 @@ final class PreMigrateBackups
         }
 
         $path = $this->directory.'/'.$this->name($version);
+        $partial = $path.'.partial';
         $previous = umask(0077);
         try {
-            if (@touch($path) === false) {
+            if (@touch($partial) === false) {
                 throw new BackupFailed('the backup directory is not writable');
             }
-            @chmod($path, 0600);
-            $dumper->dump($path);
-        } catch (BackupFailed $failed) {
-            @unlink($path);
-            throw $failed;
+            @chmod($partial, 0600);
+            $dumper->dump($partial);
+
+            clearstatcache(true, $partial);
+            $bytes = is_file($partial) ? (int) filesize($partial) : 0;
+            if ($bytes === 0) {
+                throw new BackupFailed('the backup is empty');
+            }
+            @chmod($partial, 0600);
+            if (! @rename($partial, $path)) {
+                throw new BackupFailed('the backup could not be renamed to its final name');
+            }
+        } catch (Throwable $failure) {
+            @unlink($partial);
+            throw $failure instanceof BackupFailed
+                ? $failure
+                : new BackupFailed('the dump was aborted ('.$failure::class.')', previous: $failure);
         } finally {
             umask($previous);
         }
-
-        clearstatcache(true, $path);
-        $bytes = is_file($path) ? (int) filesize($path) : 0;
-        if ($bytes === 0) {
-            @unlink($path);
-            throw new BackupFailed('the backup is empty');
-        }
-        @chmod($path, 0600);
 
         return new BackupFile($path, $bytes);
     }
 
     /**
-     * Removes all but the newest KEEP backups.
+     * The configured number of backups to keep: a whole number from KEEP_MIN to
+     * KEEP_MAX, given as an integer or a string of digits (from the environment).
+     *
+     * @throws InvalidArgumentException for anything else
+     */
+    public static function keep(mixed $value): int
+    {
+        $number = match (true) {
+            is_int($value) => $value,
+            is_string($value) && preg_match('/^[0-9]{1,3}$/', $value) === 1 => (int) $value,
+            default => null,
+        };
+        if ($number === null || $number < self::KEEP_MIN || $number > self::KEEP_MAX) {
+            throw new InvalidArgumentException(sprintf(
+                'TESSERARR_BACKUP_KEEP must be a whole number from %d to %d',
+                self::KEEP_MIN,
+                self::KEEP_MAX,
+            ));
+        }
+
+        return $number;
+    }
+
+    /**
+     * Removes all but the newest $keep backups.
      *
      * @return list<string> the names of the removed files
      */

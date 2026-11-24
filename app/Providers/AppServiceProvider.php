@@ -7,6 +7,8 @@ use App\Concurrency\ConcurrencyBarrier;
 use App\Concurrency\NullConcurrencyBarrier;
 use App\Database\Backup\DatabaseDumper;
 use App\Database\Backup\PgDump;
+use App\Database\MigrationLock;
+use App\Database\PostgresMigrationLock;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
 use Carbon\CarbonImmutable;
@@ -34,6 +36,7 @@ class AppServiceProvider extends ServiceProvider
             DB::connection()->getConfig(),
             (string) config('tesserarr.backup.pg_dump'),
         ));
+        $this->app->bind(MigrationLock::class, fn () => new PostgresMigrationLock(DB::connection()));
     }
 
     /**

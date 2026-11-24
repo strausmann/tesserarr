@@ -85,3 +85,51 @@ it('shortens a long error line', function () {
         ->and($message)->toEndWith('…')
         ->and($message)->not->toContain('PGPASSWORD');
 });
+
+/** @return string the BackupFailed message, or '' when nothing was thrown */
+function dumpWith(PgDump $dumper): string
+{
+    try {
+        $dumper->dump(sys_get_temp_dir().'/unused-'.bin2hex(random_bytes(4)).'.dump');
+    } catch (BackupFailed $failed) {
+        return $failed->getMessage();
+    }
+
+    return '';
+}
+
+/** @return string path of a throw-away executable script */
+function fakePgDump(string $body): string
+{
+    $script = sys_get_temp_dir().'/tesserarr-fake-pg-dump-'.bin2hex(random_bytes(4));
+    file_put_contents($script, "#!/bin/sh\n{$body}\n");
+    chmod($script, 0700);
+
+    return $script;
+}
+
+it('turns a timeout into BackupFailed', function () {
+    $script = fakePgDump('sleep 5');
+    try {
+        $message = dumpWith(new PgDump(['password' => 'x'], $script, 1));
+    } finally {
+        unlink($script);
+    }
+
+    expect($message)->toBe('pg_dump timed out after 1 s');
+});
+
+it('turns a kill by signal into BackupFailed', function () {
+    $script = fakePgDump('kill -9 $$');
+    try {
+        $message = dumpWith(new PgDump(['password' => 'x'], $script));
+    } finally {
+        unlink($script);
+    }
+
+    expect($message)->toBe('pg_dump was terminated by signal 9');
+});
+
+it('turns a missing pg_dump into BackupFailed', function () {
+    expect(dumpWith(new PgDump(['password' => 'x'], '/nonexistent/pg_dump')))->toStartWith('pg_dump ');
+});

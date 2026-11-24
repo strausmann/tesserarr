@@ -133,6 +133,21 @@ jobs:
           sparse-checkout: docker
           persist-credentials: false
 
+      # A release or preview image (non-empty tag) goes to both registries and
+      # must be signed; the signing step signs only main and milestone/x.y.0 or
+      # milestone/x.y.x. Refuse every other ref before anything is pushed.
+      - name: Refuse an unsigned release or preview
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          signed_refs='^refs/(heads/main|heads/milestone/[0-9]+\.[0-9]+\.(0|x))$'
+          if [ -n "$INPUT_TAG" ] && ! [[ "$REF" =~ $signed_refs ]]; then
+            echo "::error::Release and preview images are published from main or a milestone branch only, where they are signed"
+            exit 1
+          fi
+
       - name: Detect docker/Dockerfile
         id: app
         env:

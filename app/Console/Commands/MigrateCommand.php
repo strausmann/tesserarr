@@ -8,10 +8,11 @@ namespace App\Console\Commands;
 use App\Database\Backup\BackupFailed;
 use App\Database\Backup\DatabaseDumper;
 use App\Database\Backup\PreMigrateBackups;
+use App\Database\MigrationLock;
 use Illuminate\Console\Command;
-use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
 use Throwable;
 
@@ -22,33 +23,38 @@ use Throwable;
  *   1. Nothing pending: exit 0, no backup.
  *   2. Otherwise pg_dump (custom format) to TESSERARR_BACKUP_DIR first; a failed
  *      or empty backup stops the run with exit 1 and nothing is migrated.
- *   3. `migrate --force`, then keep the five newest backups.
+ *   3. `migrate --force`, then keep the newest backups (tesserarr.backups.keep,
+ *      TESSERARR_BACKUP_KEEP, default 5).
  *
- * The whole sequence holds a PostgreSQL advisory lock, so two migrate
- * containers never dump and migrate at the same time. `migrate --isolated`
- * cannot do that on a fresh installation: its lock lives in the cache table
- * the first migration creates. Migrations only go forward; going back means
- * restoring the backup with the previous image.
+ * The whole sequence holds the MigrationLock (a PostgreSQL advisory lock), so
+ * two migrate containers never dump and migrate at the same time. Migrations
+ * only go forward; going back means restoring the backup with the previous
+ * image.
  *
  * Logged with origin `cli`: start, the backup's file name and size, the result.
  * Never data from the database.
  */
 final class MigrateCommand extends Command
 {
-    /** pg_advisory_lock key: "tesserarr:migrate" as a fixed 64-bit number. */
-    public const LOCK_KEY = 7_514_731_002_316_401_517;
-
     protected $signature = 'tesserarr:migrate
         {--lock-timeout=300 : seconds to wait for another tesserarr:migrate}';
 
     protected $description = 'Back up the database, then run the pending migrations';
 
-    public function handle(Migrator $migrator, DatabaseDumper $dumper): int
+    public function handle(Migrator $migrator, DatabaseDumper $dumper, MigrationLock $lock): int
     {
-        $connection = $migrator->resolveConnection(null);
         $this->log('migrate.start');
 
-        if (! $this->acquireLock($connection)) {
+        try {
+            $keep = PreMigrateBackups::keep(config('tesserarr.backups.keep'));
+        } catch (InvalidArgumentException $invalid) {
+            $this->error($invalid->getMessage().'; nothing was migrated.');
+            $this->log('migrate.invalid_config', ['setting' => 'backups.keep'], 'error');
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        if (! $lock->acquire((int) $this->option('lock-timeout'))) {
             $this->error('Another tesserarr:migrate holds the migration lock; nothing was migrated.');
             $this->log('migrate.locked', [], 'error');
 
@@ -56,13 +62,19 @@ final class MigrateCommand extends Command
         }
 
         try {
-            return $this->migrate($migrator, $dumper);
+            return $this->migrate($migrator, $dumper, $keep);
         } finally {
-            $connection->select('select pg_advisory_unlock(?)', [self::LOCK_KEY]);
+            // A failed release must not replace the result or the original
+            // failure; the session lock falls when the connection ends anyway.
+            try {
+                $lock->release();
+            } catch (Throwable $unlock) {
+                $this->log('migrate.unlock_failed', ['error' => $unlock::class], 'warning');
+            }
         }
     }
 
-    private function migrate(Migrator $migrator, DatabaseDumper $dumper): int
+    private function migrate(Migrator $migrator, DatabaseDumper $dumper, int $keep): int
     {
         $pending = $this->pending($migrator);
         if ($pending === 0) {
@@ -84,21 +96,24 @@ final class MigrateCommand extends Command
         $this->info(sprintf('Backup written: %s (%d bytes)', $backup->name(), $backup->bytes));
         $this->log('migrate.backup_written', ['file' => $backup->name(), 'bytes' => $backup->bytes]);
 
+        // A failing migration is reported by its class only: the message of a
+        // QueryException carries SQL and bindings, so it reaches neither the log
+        // nor the console, and it is not rethrown to the console kernel either.
         try {
             $code = $this->call('migrate', ['--force' => true]);
         } catch (Throwable $failure) {
-            // The class only: a QueryException message carries SQL and bindings.
-            $this->log('migrate.failed', ['pending' => $pending, 'error' => $failure::class, 'backup' => $backup->name()], 'error');
-
-            throw $failure;
+            $code = null;
+            $error = $failure::class;
         }
         if ($code !== SymfonyCommand::SUCCESS) {
-            $this->log('migrate.failed', ['pending' => $pending, 'exit_code' => $code, 'backup' => $backup->name()], 'error');
+            $error ??= 'exit code '.var_export($code, true);
+            $this->error(sprintf('Migration failed (%s); the backup %s is kept.', $error, $backup->name()));
+            $this->log('migrate.failed', ['pending' => $pending, 'error' => $error, 'backup' => $backup->name()], 'error');
 
             return SymfonyCommand::FAILURE;
         }
 
-        $removed = $backups->prune();
+        $removed = $backups->prune($keep);
         $this->log('migrate.done', ['migrated' => $pending, 'backup' => $backup->name(), 'pruned' => $removed]);
 
         return SymfonyCommand::SUCCESS;
@@ -111,24 +126,6 @@ final class MigrateCommand extends Command
         $ran = $migrator->repositoryExists() ? $migrator->getRepository()->getRan() : [];
 
         return count(array_diff(array_keys($files), $ran));
-    }
-
-    /**
-     * Polls pg_try_advisory_lock instead of waiting in pg_advisory_lock with a
-     * lock_timeout: a timeout error would abort an enclosing transaction.
-     */
-    private function acquireLock(ConnectionInterface $connection): bool
-    {
-        $deadline = microtime(true) + max(1, (int) $this->option('lock-timeout'));
-        do {
-            $row = $connection->selectOne('select pg_try_advisory_lock(?) as locked', [self::LOCK_KEY]);
-            if ((bool) ($row->locked ?? false)) {
-                return true;
-            }
-            usleep(200_000);
-        } while (microtime(true) < $deadline);
-
-        return false;
     }
 
     /**

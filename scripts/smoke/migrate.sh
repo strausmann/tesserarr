@@ -68,6 +68,8 @@ migrate "$backups" >/dev/null || fail "tesserarr:migrate on a fresh database exi
 [ "$(tables)" -gt 0 ] || fail "no table after the migration"
 mapfile -t dumps < <(docker run --rm -v "$backups":/b --entrypoint sh "$image" -c 'cd /b && ls pre-migrate-*.dump')
 [ "${#dumps[@]}" -eq 1 ] || fail "expected one backup, found ${#dumps[@]}"
+leftovers="$(docker run --rm -v "$backups":/b --entrypoint sh "$image" -c 'ls /b | grep -c "\.partial$" || true')"
+[ "$leftovers" -eq 0 ] || fail "a .partial file is left in the backup directory"
 docker run --rm -v "$backups":/b --entrypoint sh "$image" -c "
     set -e
     f=/b/${dumps[0]}

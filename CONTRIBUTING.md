@@ -72,9 +72,9 @@ docker compose -f compose.dev.yaml up
 
 `up` first runs the one-off `migrate` service (`artisan tesserarr:migrate`); `web`, `worker` and `scheduler` start only
 after it has finished successfully. When migrations are pending, `tesserarr:migrate` first writes a `pg_dump` backup to
-`TESSERARR_BACKUP_DIR` (in the dev stack `.dev/backups/`), keeps the five newest and stops without migrating when the
-backup fails or is empty. Nothing pending means no backup. A satellite never migrates: it has no database. The web
-interface is then on <http://localhost:8080>.
+`TESSERARR_BACKUP_DIR` (in the dev stack `.dev/backups/`), keeps the newest five (`TESSERARR_BACKUP_KEEP`, 1 to 50)
+and stops without migrating when the backup fails or is empty. Nothing pending means no backup. A satellite never
+migrates: it has no database. The web interface is then on <http://localhost:8080>.
 
 ### 3. Create a branch
 
@@ -464,7 +464,9 @@ cosign verify docker.io/bstrausmann/tesserarr:0.1.0-rc.1 \
 ```
 
 **Previews.** Before a milestone ships, a maintainer runs `Preview image` on the milestone branch with the milestone
-version (`0.1.0`, or `0.1.x` for the next free patch). The rc number counts up from the tags in GHCR. A preview gets no
+version (`0.1.0`, or `0.1.x` for the next free patch); any other branch is refused, because only `main` and the
+milestone branches are signed. The rc number counts up from the tags in GHCR. A preview is signed like a release image
+(the signature covers the image index with its SBOM and provenance attestations), and gets no
 git tag, no release and no changelog entry. `Registry cleanup` removes a preview on both registries once its release
 exists; it deletes only when the repository variable `GHCR_CLEANUP_ENABLED` is `true`, a manual run is a dry run.
 
