@@ -8,6 +8,7 @@ use App\Database\Backup\DatabaseDumper;
 use App\Database\MigrationLock;
 use App\Database\PostgresMigrationLock;
 use App\Models\User;
+use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -343,3 +344,76 @@ it('refuses an invalid number of backups to keep before doing anything', functio
     expect($dumper->calls)->toBe(0)
         ->and(Schema::hasTable('t4_probe'))->toBeFalse();
 })->with([0, 51, -1, 'abc', '2.5', '', null]);
+
+it('removes partial backups left by a killed run and logs their names', function () {
+    File::ensureDirectoryExists($this->backupDir);
+    $stale = 'pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial';
+    file_put_contents($this->backupDir.'/'.$stale, 'half a dump from a killed run');
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'complete'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    $log = implode("\n", $this->logged);
+    expect(file_exists($this->backupDir.'/'.$stale))->toBeFalse()
+        ->and($log)->toContain('migrate.partials_removed')
+        ->and($log)->toContain('"count":1')
+        ->and($log)->toContain($stale)
+        ->and($log)->not->toContain('half a dump from a killed run');
+});
+
+it('leaves files alone that only look like a partial backup', function (string $name) {
+    File::ensureDirectoryExists($this->backupDir);
+    file_put_contents($this->backupDir.'/'.$name, 'not ours');
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'complete'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    expect(file_get_contents($this->backupDir.'/'.$name))->toBe('not ours');
+})->with([
+    'pre-migrate-20261101T000000Z-0.0.0-dev.partial',
+    'pre-migrate-20261101-0.0.0-dev.dump.partial',
+    'x-pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial',
+    'pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial.bak',
+]);
+
+it('does not follow a symlink named like a partial backup', function () {
+    File::ensureDirectoryExists($this->backupDir);
+    $target = $this->migrationDir.'/precious.dump';
+    file_put_contents($target, 'precious');
+    $link = $this->backupDir.'/pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial';
+    symlink($target, $link);
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'complete'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    expect(file_get_contents($target))->toBe('precious')
+        ->and(is_link($link))->toBeTrue();
+});
+
+it('keeps the original exception when releasing the lock fails as well', function () {
+    $migrator = Mockery::mock(Migrator::class);
+    $migrator->shouldReceive('paths')->andReturn([]);
+    $migrator->shouldReceive('getMigrationFiles')->andThrow(new RuntimeException('original failure'));
+    app()->instance('migrator', $migrator);
+    app()->instance(Migrator::class, $migrator);
+    app()->instance(MigrationLock::class, new class implements MigrationLock
+    {
+        public function acquire(int $timeoutSeconds): bool
+        {
+            return true;
+        }
+
+        public function release(): void
+        {
+            throw new LogicException('connection lost');
+        }
+    });
+
+    expect(fn () => $this->artisan('tesserarr:migrate')->run())
+        ->toThrow(RuntimeException::class, 'original failure');
+    expect(implode("\n", $this->logged))->toContain('migrate.unlock_failed')
+        ->and(implode("\n", $this->logged))->toContain('"error":"LogicException"');
+});

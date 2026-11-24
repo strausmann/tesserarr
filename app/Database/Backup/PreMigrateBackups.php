@@ -6,6 +6,7 @@
 namespace App\Database\Backup;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Throwable;
 
@@ -26,6 +27,9 @@ final class PreMigrateBackups
 
     private const PATTERN = '/^pre-migrate-\d{8}T\d{6}Z-[A-Za-z0-9._-]+\.dump$/';
 
+    /** The unfinished file of a backup: the backup name plus `.partial`. */
+    private const PARTIAL_PATTERN = '/^pre-migrate-\d{8}T\d{6}Z-[A-Za-z0-9._-]+\.dump\.partial$/';
+
     public function __construct(private readonly string $directory) {}
 
     /**
@@ -41,6 +45,8 @@ final class PreMigrateBackups
         if (! is_dir($this->directory) && ! @mkdir($this->directory, 0700, true) && ! is_dir($this->directory)) {
             throw new BackupFailed('the backup directory cannot be created');
         }
+
+        $this->removeStalePartials();
 
         $path = $this->directory.'/'.$this->name($version);
         $partial = $path.'.partial';
@@ -71,6 +77,39 @@ final class PreMigrateBackups
         }
 
         return new BackupFile($path, $bytes);
+    }
+
+    /**
+     * Removes the `.partial` files a hard-killed earlier run left behind
+     * (SIGKILL, OOM, host restart): they never count as backups, but would fill
+     * the disk. Safe because the caller holds the MigrationLock, so no other run
+     * is writing one. Only regular files matching PARTIAL_PATTERN go; symlinks
+     * and every other file stay. Logged with names and count, never contents.
+     *
+     * @return list<string> the names of the removed files
+     */
+    public function removeStalePartials(): array
+    {
+        $removed = [];
+        foreach (scandir($this->directory) ?: [] as $name) {
+            $path = $this->directory.'/'.$name;
+            if (preg_match(self::PARTIAL_PATTERN, $name) !== 1 || is_link($path) || ! is_file($path)) {
+                continue;
+            }
+            if (@unlink($path)) {
+                $removed[] = $name;
+            }
+        }
+        if ($removed !== []) {
+            Log::warning('migrate.partials_removed', [
+                'origin' => 'cli',
+                'command' => 'tesserarr:migrate',
+                'count' => count($removed),
+                'files' => $removed,
+            ]);
+        }
+
+        return $removed;
     }
 
     /**
