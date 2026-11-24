@@ -1,0 +1,53 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<!-- Self-test page of the artboard states (e2e/ui-gate.spec.ts): its "filled" state removes the Continue button, so the artboard must fail in that state although it holds on the first render. -->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Gate fixture</title>
+        <script>
+            document.documentElement.classList.toggle(
+                'dark',
+                matchMedia('(prefers-color-scheme: dark)').matches,
+            );
+        </script>
+        <style>
+            body {
+                margin: 0;
+                font: 16px/1.5 sans-serif;
+                color: #111;
+                background: #fff;
+            }
+            main {
+                padding: 1rem;
+            }
+            button {
+                font: inherit;
+                padding: 0.5rem 1rem;
+            }
+            button:focus-visible {
+                outline: 3px solid #1d4ed8;
+                outline-offset: 2px;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Gate fixture</h1>
+            <button type="button">Continue</button>
+            <p id="done" hidden>Done</p>
+            <script>
+                document
+                    .querySelector('button')
+                    .addEventListener('click', (event) => {
+                        event.target.remove();
+                        document.getElementById('done').hidden = false;
+                    });
+            </script>
+        </main>
+    </body>
+</html>

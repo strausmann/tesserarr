@@ -1,0 +1,167 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<!--
+Reference case of e2e/keyboard.spec.ts: a dialog with a combobox, laid out
+as CONTRIBUTING.md asks ("Web UI: the on-screen keyboard and inputs"). The
+overlay covers the visible area (--vv-top, --vvh from window.visualViewport),
+the dialog is at most that high, its body scrolls and its footer stays put.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
+        />
+        <title>Keyboard fixture</title>
+        <style>
+            :root {
+                --vvh: 100%;
+                --vv-top: 0px;
+            }
+            body {
+                margin: 0;
+                font: 16px/1.5 sans-serif;
+                min-height: 1600px;
+            }
+            .overlay {
+                position: fixed;
+                inset-inline: 0;
+                top: var(--vv-top);
+                height: var(--vvh);
+                display: grid;
+                place-items: center;
+                padding: 1rem;
+                box-sizing: border-box;
+                background: rgb(0 0 0 / 0.4);
+            }
+            .overlay[hidden] {
+                display: none;
+            }
+            [role='dialog'] {
+                display: flex;
+                flex-direction: column;
+                width: min(32rem, 100%);
+                max-height: calc(var(--vvh) - 2rem);
+                background: #fff;
+                border-radius: 0.5rem;
+            }
+            .body {
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                padding: 1rem;
+                flex: 1 1 auto;
+            }
+            footer {
+                display: flex;
+                justify-content: flex-end;
+                gap: 0.5rem;
+                padding: 0.75rem 1rem;
+                border-top: 1px solid #ddd;
+            }
+            input,
+            button {
+                font: inherit;
+            }
+            [role='option'] {
+                padding: 0.25rem 0.5rem;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Keyboard fixture</h1>
+            <button type="button" id="open">Add share</button>
+        </main>
+        <div class="overlay" hidden>
+            <div role="dialog" aria-modal="true" aria-labelledby="title">
+                <div class="body">
+                    <h2 id="title">Add share</h2>
+                    <label for="folder">Folder</label>
+                    <input
+                        id="folder"
+                        role="combobox"
+                        aria-expanded="false"
+                        aria-controls="folders"
+                        autocomplete="off"
+                    />
+                    <ul
+                        id="folders"
+                        role="listbox"
+                        aria-label="Folders"
+                        hidden
+                    ></ul>
+                    <p>
+                        A folder of the media library that the friend receives
+                        over the Syncthing link.
+                    </p>
+                    <p>
+                        Changes reach the friend with the next scan of the
+                        folder.
+                    </p>
+                    <p>Only the folders of this list can be shared.</p>
+                </div>
+                <footer>
+                    <button type="button" id="cancel">Cancel</button>
+                    <button type="button">Save</button>
+                </footer>
+            </div>
+        </div>
+        <script>
+            // The visible-area logic under test: publish the visual viewport.
+            const root = document.documentElement.style;
+            const track = () => {
+                const vv = window.visualViewport;
+                root.setProperty(
+                    '--vvh',
+                    `${vv ? vv.height : window.innerHeight}px`,
+                );
+                root.setProperty('--vv-top', `${vv ? vv.offsetTop : 0}px`);
+            };
+            track();
+            window.visualViewport?.addEventListener('resize', track);
+            window.visualViewport?.addEventListener('scroll', track);
+            window.addEventListener('resize', track);
+
+            const overlay = document.querySelector('.overlay');
+            const field = document.getElementById('folder');
+            const list = document.getElementById('folders');
+            const folders = [
+                'Films',
+                'Films (4K)',
+                'Series',
+                'Series (children)',
+                'Music',
+                'Audiobooks',
+                'Photos',
+                'Documentaries',
+            ];
+            document.getElementById('open').addEventListener('click', () => {
+                overlay.hidden = false;
+                field.focus();
+            });
+            document
+                .getElementById('cancel')
+                .addEventListener('click', () => (overlay.hidden = true));
+            field.addEventListener('input', () => {
+                const term = field.value.toLowerCase();
+                const hits = folders.filter((f) =>
+                    f.toLowerCase().includes(term),
+                );
+                list.replaceChildren(
+                    ...hits.map((f) =>
+                        Object.assign(document.createElement('li'), {
+                            role: 'option',
+                            textContent: f,
+                        }),
+                    ),
+                );
+                list.hidden = hits.length === 0;
+                field.setAttribute('aria-expanded', String(!list.hidden));
+            });
+        </script>
+    </body>
+</html>

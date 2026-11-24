@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<!-- Self-test page of the UI gate (e2e/ui-gate.spec.ts): clean.html with one defect, a second button whose focus ring is removed (the first tab stop keeps its ring, so only a walk over several stops finds it). The gate must fail for that reason. -->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Gate fixture</title>
+        <script>
+            document.documentElement.classList.toggle(
+                'dark',
+                matchMedia('(prefers-color-scheme: dark)').matches,
+            );
+        </script>
+        <style>
+            body {
+                margin: 0;
+                font: 16px/1.5 sans-serif;
+                color: #111;
+                background: #fff;
+            }
+            main {
+                padding: 1rem;
+            }
+            button {
+                font: inherit;
+                padding: 0.5rem 1rem;
+            }
+            button:focus-visible {
+                outline: 3px solid #1d4ed8;
+                outline-offset: 2px;
+            }
+            .no-ring:focus-visible {
+                outline: none;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Gate fixture</h1>
+            <button type="button">Back</button>
+            <button type="button" class="no-ring">Continue</button>
+        </main>
+    </body>
+</html>

@@ -9,6 +9,9 @@
 #   2. the satellite role boots without a database (artisan about, exit 0)
 #   3. the process runs as UID 10001
 #   4. code is read-only for that user; storage/ and bootstrap/cache/ are writable
+#   5. the sign-in of the browser tests is absent: no marker, no route file,
+#      no controller, and /_testing/login/operator answers 404 even with
+#      APP_ENV=testing and TESSERARR_E2E_LOGIN=true
 set -euo pipefail
 
 image="${1:-tesserarr:dev}"
@@ -42,3 +45,29 @@ docker run --rm --entrypoint sh "$image" -c '
     done
 ' || fail "file ownership: application code must be read-only for the runtime user"
 echo "ok: code read-only, storage/ and bootstrap/cache/ writable"
+
+docker run --rm --entrypoint sh "$image" -c '
+    for path in /app/.e2e-image /app/routes/testing.php /app/app/Testing; do
+        if [ -e "$path" ]; then echo "present: $path"; exit 1; fi
+    done
+    if grep -q E2eLoginController /app/vendor/composer/autoload_classmap.php; then
+        echo "the class map lists E2eLoginController"; exit 1
+    fi
+' || fail "the sign-in of the browser tests is part of the image"
+echo "ok: no e2e marker, route file or controller in the image"
+
+# The settings an operator could set by mistake (TESSERARR_E2E_LOGIN switched
+# the route on in an earlier design). No database is needed: an unregistered
+# route answers 404 before anything touches it.
+web="tesserarr-smoke-$$"
+docker run -d --name "$web" -e APP_ENV=testing -e TESSERARR_E2E_LOGIN=true \
+    -e APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" "$image" >/dev/null
+trap 'docker rm -f "$web" >/dev/null 2>&1 || true' EXIT
+status=000
+for _ in $(seq 1 30); do
+    status="$(docker exec "$web" curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/_testing/login/operator || true)"
+    [ "$status" != 000 ] && break
+    sleep 1
+done
+[ "$status" = 404 ] || fail "/_testing/login/operator answered $status with APP_ENV=testing, expected 404"
+echo "ok: /_testing/login answers 404 with APP_ENV=testing and TESSERARR_E2E_LOGIN=true"

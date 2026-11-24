@@ -20,6 +20,12 @@ resources/js/actions
 resources/js/routes
 resources/js/wayfinder
 .phpunit.cache
+# The marker of the e2e image is created in that stage only, never copied in.
+.e2e-image
+coverage
+e2e
+playwright-report
+test-results
 .superpowers
 .claude
 .agents

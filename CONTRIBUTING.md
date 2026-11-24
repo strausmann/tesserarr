@@ -174,7 +174,11 @@ composer validate --strict
 composer audit --locked --abandoned=fail
 ./vendor/bin/pest --coverage --min=80 --coverage-clover=clover.xml
 php scripts/coverage_gate.php clover.xml       # per-directory minimums, as listed in .github/workflows/ci.yml
-npm run types:check                            # svelte-check
+npm run types                                  # svelte-check
+npm run lint                                   # Oxlint (type-aware, warnings fail) and the formatter
+npm run test:coverage                          # Vitest; resources/js/lib at least 80 %
+npm run build
+scripts/e2e/run.sh                             # Playwright against the built image (see "Browser tests")
 ```
 
 | Check                               | Job in CI                                  |
@@ -217,6 +221,43 @@ input:
 - Every interface with an input gets a case in `e2e/keyboard.spec.ts`, in both modes: `resized` (layout viewport shrinks)
   and `covered` (the keyboard only covers the visual viewport). The case asserts that the field, its first option and
   the main buttons lie inside the visible area.
+
+### Browser tests
+
+`e2e/` holds the Playwright suite. It runs against the built image, as it ships, with PostgreSQL 17 next to it, in the
+production environment. The only difference is the `e2e` stage of `docker/Dockerfile`: it adds `routes/testing.php` and
+`app/Testing/`, which sign a test in through `/_testing/login/{role}`, and creates the marker file `.e2e-image`. The
+route is registered only when the marker and the route file exist (`App\Runtime\E2eImage`). The published image contains
+neither: the vendor stage deletes both files, `.dockerignore` keeps a marker out of the build context, and
+`scripts/smoke/runtime.sh` checks that the route answers 404 even with `APP_ENV=testing`. No environment variable can
+switch it on.
+
+```bash
+docker build -f docker/Dockerfile --target e2e -t tesserarr:e2e .
+npm ci
+scripts/e2e/run.sh tesserarr:e2e               # extra arguments go to `playwright test`
+```
+
+The script runs the suite in the official Playwright container, pinned by digest, so no browser is installed on the
+host. The container must be the same version as `@playwright/test` in `package-lock.json`; the script stops with a named
+error when the two differ.
+
+- **UI gate** (`e2e/ui-gate.spec.ts`, ADR-0006). Every view in `gatedViews` (`e2e/support/views.ts`) is rendered at 360,
+  768 and 1440 px and at 360 × 420 (keyboard open). Each size runs in the light and the dark theme. It fails on a
+  console error, an uncaught exception or a failed request (DNS, connection, abort). It fails on any 5xx answer, and on
+  a 4xx answer for the page or one of its stylesheets, scripts, images, fonts or media. A 4xx answer to `fetch` or XHR
+  is allowed. It also fails on horizontal scrolling and on any serious or critical axe violation. Tab walks every
+  focusable element, at most 30, and each must show a visible ring. Screenshots are attached to the report; nothing is
+  compared against them. Each rule has a self-test against a fixture page in `e2e/fixtures/` that breaks exactly that
+  rule.
+- **Artboards.** Each view names its artboard in the mockup canvas and lists what the artboard shows: headings, controls
+  (`role:name`, found with `getByRole`) and states (`empty`, `error`, `loading`, `filled`). Every state has a fixture in
+  `e2e/support/artboard.ts` that puts the view into it, and the artboard is checked again in every state. A task that
+  builds or changes a view adds the view, its artboard and its states in the same pull request. A deliberate difference
+  from the artboard is explained in the pull request.
+- **On-screen keyboard** (`e2e/keyboard.spec.ts`). Every dialog, search and combobox adds a case to `keyboardCases`;
+  each case runs in all four modes and uses `expectInSight` from `e2e/support/keyboard.ts`. A check on a real Android
+  phone with Chrome and an iPhone with Safari stays part of the release acceptance.
 
 ## Website
 
