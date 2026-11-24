@@ -13,7 +13,14 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Laravel'),
+    'name' => env('APP_NAME', 'Tesserarr'),
+
+    /*
+    | Version of this build; set by the image build (Dockerfile ARG
+    | TESSERARR_VERSION) and shown in the interface.
+    */
+
+    'version' => env('TESSERARR_VERSION', '0.0.0-dev'),
 
     /*
     |--------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 <script module lang="ts">
     export const layout = {
         title: 'Log in to your account',
-        description: 'Enter your email and password below to log in',
+        description: 'Enter your username or email and your password to log in',
     };
 </script>
 
@@ -10,22 +10,18 @@
     import AppHead from '@/components/AppHead.svelte';
     import InputError from '@/components/InputError.svelte';
     import PasswordInput from '@/components/PasswordInput.svelte';
-    import TextLink from '@/components/TextLink.svelte';
     import { Button } from '@/components/ui/button';
     import { Checkbox } from '@/components/ui/checkbox';
     import { Input } from '@/components/ui/input';
     import { Label } from '@/components/ui/label';
     import { Spinner } from '@/components/ui/spinner';
     import { store } from '@/routes/login';
-    import { request } from '@/routes/password';
     import PasskeyVerify from '@/components/PasskeyVerify.svelte';
 
     let {
         status = '',
-        canResetPassword,
     }: {
         status?: string;
-        canResetPassword: boolean;
     } = $props();
 </script>
 
@@ -47,27 +43,20 @@
     {#snippet children({ errors, processing })}
         <div class="grid gap-6">
             <div class="grid gap-2">
-                <Label for="email">Email address</Label>
+                <Label for="login">Username or email</Label>
                 <Input
-                    id="email"
-                    type="email"
-                    name="email"
+                    id="login"
+                    type="text"
+                    name="login"
                     required
-                    autocomplete="email"
-                    placeholder="email@example.com"
+                    autocomplete="username"
+                    placeholder="alice or alice@example.org"
                 />
-                <InputError message={errors.email} />
+                <InputError message={errors.login} />
             </div>
 
             <div class="grid gap-2">
-                <div class="flex items-center justify-between">
-                    <Label for="password">Password</Label>
-                    {#if canResetPassword}
-                        <TextLink href={request()} class="text-sm">
-                            Forgot your password?
-                        </TextLink>
-                    {/if}
-                </div>
+                <Label for="password">Password</Label>
                 <PasswordInput
                     id="password"
                     name="password"

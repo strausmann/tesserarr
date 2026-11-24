@@ -45,7 +45,9 @@ return [
     |
     */
 
-    'username' => 'email',
+    // The login field is "Username or email"; how it resolves to an account
+    // is decided by the authentication step (App\Providers\FortifyServiceProvider).
+    'username' => 'login',
 
     'email' => 'email',
 
@@ -161,7 +163,6 @@ return [
     */
 
     'features' => [
-        Features::resetPasswords(),
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,

@@ -30,6 +30,9 @@ export default defineConfig({
         svelte(),
         wayfinder({
             formVariants: true,
+            // The image build generates the Wayfinder files in the PHP stage and
+            // runs Vite in a Node-only stage, where it sets this to a no-op.
+            command: process.env.WAYFINDER_COMMAND,
         }),
     ]),
     server: {

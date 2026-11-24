@@ -1,0 +1,69 @@
+# Local development stack: PostgreSQL plus the central instance as web,
+# worker and scheduler, all from the same image.
+#
+#   cp .env.example .env && docker compose -f compose.dev.yaml run --rm web artisan key:generate --show
+#   (put the key into .env as APP_KEY)
+#   docker compose -f compose.dev.yaml up --build
+#
+# Data lives in bind mounts below .dev/ (git-ignored), never in named volumes.
+
+x-app:
+    &app # Built once by the web service; worker and scheduler reuse the image.
+    image: tesserarr:dev
+    pull_policy: never
+    env_file:
+        - path: .env
+          required: false
+    environment:
+        TESSERARR_ROLE: central
+        DB_CONNECTION: pgsql
+        DB_HOST: postgres
+        DB_PORT: '5432'
+        DB_DATABASE: tesserarr
+        DB_USERNAME: tesserarr
+        DB_PASSWORD: tesserarr
+    volumes:
+        - /etc/localtime:/etc/localtime:ro
+    depends_on:
+        postgres:
+            condition: service_healthy
+
+services:
+    postgres:
+        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        pull_policy: missing
+        environment:
+            POSTGRES_DB: tesserarr
+            POSTGRES_USER: tesserarr
+            POSTGRES_PASSWORD: tesserarr
+        volumes:
+            - ./.dev/postgres:/var/lib/postgresql/data
+            - /etc/localtime:/etc/localtime:ro
+        healthcheck:
+            test: ['CMD', 'pg_isready', '-U', 'tesserarr', '-d', 'tesserarr']
+            interval: 5s
+            timeout: 3s
+            retries: 20
+
+    web:
+        <<: *app
+        build:
+            context: .
+            dockerfile: docker/Dockerfile
+            target: runtime
+        pull_policy: build
+        command: ['web']
+        ports:
+            - '127.0.0.1:8080:8080'
+
+    worker:
+        <<: *app
+        command: ['worker']
+        healthcheck:
+            disable: true
+
+    scheduler:
+        <<: *app
+        command: ['scheduler']
+        healthcheck:
+            disable: true

@@ -1,0 +1,140 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Tesserarr container
+#
+# Stages:
+#   php-base  FrankenPHP (Caddy + PHP 8.4) with the extensions the app needs
+#   vendor    Composer production install, package discovery, Wayfinder files
+#   assets    Vite build of the web interface (Node only)
+#   test      php-base + pcov + dev dependencies, for the test suite in CI;
+#             never part of the runtime image
+#   runtime   the published image: non-root, port 8080, one role per process
+#
+# Build context is the repository root:
+#   docker build -f docker/Dockerfile -t tesserarr:dev .
+#
+# Base images are pinned by tag and digest.
+# https://frankenphp.dev/docs/docker/
+# =============================================================================
+
+ARG FRANKENPHP_IMAGE=dunglas/frankenphp:1.13.4-php8.4-bookworm@sha256:81ba601edfb650d1df63f54dafdedc021d9d1fb37517850a4e93278ab19cced1
+ARG COMPOSER_IMAGE=composer:2.10.3@sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48
+ARG NODE_IMAGE=node:22.23.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9
+
+FROM ${COMPOSER_IMAGE} AS composer
+
+# -----------------------------------------------------------------------------
+FROM ${FRANKENPHP_IMAGE} AS php-base
+
+RUN install-php-extensions pdo_pgsql intl pcntl opcache
+
+WORKDIR /app
+
+# -----------------------------------------------------------------------------
+FROM php-base AS vendor
+
+RUN install-php-extensions zip
+COPY --from=composer /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
+# Dependencies first: this layer is reused until composer.lock changes.
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist
+
+COPY . .
+RUN rm -rf tests \
+    && composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
+    && php artisan package:discover --ansi \
+    && php artisan wayfinder:generate --with-form
+
+# -----------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS assets
+
+WORKDIR /app
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --no-audit --no-fund
+
+COPY vite.config.ts tsconfig.json svelte.config.js components.json ./
+COPY resources/ resources/
+COPY public/ public/
+# Wayfinder needs PHP; its files were generated in the vendor stage, so the
+# Vite plugin runs a no-op here (vite.config.ts reads WAYFINDER_COMMAND).
+COPY --from=vendor /app/resources/js/actions resources/js/actions
+COPY --from=vendor /app/resources/js/routes resources/js/routes
+COPY --from=vendor /app/resources/js/wayfinder resources/js/wayfinder
+ENV WAYFINDER_COMMAND=true
+RUN npm run build
+
+# -----------------------------------------------------------------------------
+FROM php-base AS test
+
+RUN install-php-extensions pcov zip
+COPY --from=composer /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
+COPY composer.json composer.lock ./
+RUN composer install --no-scripts --no-autoloader --no-interaction --prefer-dist
+
+COPY . .
+# The suite expects a .env as in a checkout; APP_KEY comes from the environment.
+RUN cp .env.example .env
+COPY --from=assets /app/public/build public/build
+COPY --from=vendor /app/resources/js/actions resources/js/actions
+COPY --from=vendor /app/resources/js/routes resources/js/routes
+COPY --from=vendor /app/resources/js/wayfinder resources/js/wayfinder
+RUN composer dump-autoload --no-interaction && php artisan package:discover --ansi
+
+CMD ["./vendor/bin/pest"]
+
+# -----------------------------------------------------------------------------
+FROM php-base AS runtime
+
+ARG TESSERARR_VERSION=0.0.0-dev
+ARG REVISION=unknown
+ARG BUILD_DATE=1970-01-01T00:00:00Z
+
+# https://specs.opencontainers.org/image-spec/annotations/
+LABEL org.opencontainers.image.title="Tesserarr" \
+      org.opencontainers.image.description="Share parts of your media library with friends over an existing Syncthing link" \
+      org.opencontainers.image.source="https://github.com/strausmann/tesserarr" \
+      org.opencontainers.image.authors="Björn Strausmann <projects@strausmann.ch>" \
+      org.opencontainers.image.vendor="strausmann" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${TESSERARR_VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.base.name="docker.io/dunglas/frankenphp:1.13.4-php8.4-bookworm"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Production php.ini plus our overrides. zend.exception_ignore_args keeps
+# function arguments (addresses, tokens) out of every stack trace.
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+COPY docker/php.ini "$PHP_INI_DIR/conf.d/zz-tesserarr.ini"
+
+# Non-root: UID 10001. FrankenPHP needs no capability to bind :8080, so the
+# image's cap_net_bind_service is removed.
+RUN groupadd --system --gid 10001 tesserarr \
+    && useradd --system --uid 10001 --gid tesserarr --home-dir /app --no-create-home tesserarr \
+    && setcap -r /usr/local/bin/frankenphp \
+    && chown -R tesserarr:tesserarr /data/caddy /config/caddy
+
+COPY --from=vendor --chown=tesserarr:tesserarr /app /app
+COPY --from=assets --chown=tesserarr:tesserarr /app/public/build /app/public/build
+COPY docker/Caddyfile /etc/frankenphp/Caddyfile
+COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint
+
+ENV TESSERARR_VERSION="${TESSERARR_VERSION}" \
+    SERVER_NAME=":8080" \
+    LOG_CHANNEL=stderr
+
+USER tesserarr
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/up || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint"]
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]

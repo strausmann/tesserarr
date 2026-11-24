@@ -1,8 +1,9 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('profile page is displayed', function () {
     $user = User::factory()->create();
@@ -51,7 +52,7 @@ test('email is stored in lowercase so the user can still log in', function () {
     $this->post(route('logout'));
 
     $this->post(route('login.store'), [
-        'email' => 'Test@Example.com',
+        'login' => 'Test@Example.com',
         'password' => 'password',
     ]);
 

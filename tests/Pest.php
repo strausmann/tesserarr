@@ -29,10 +29,6 @@ pest()->extend(TestCase::class)
 |
 */
 
-expect()->extend('toBeOne', function () {
-    return $this->toBe(1);
-});
-
 /*
 |--------------------------------------------------------------------------
 | Functions
@@ -44,7 +40,20 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * A TCP port on 127.0.0.1 that nothing listens on: bound once to get a free
+ * number from the kernel, then closed again.
+ */
+function closedLocalPort(): int
 {
-    // ..
+    $socket = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+
+    if ($socket === false) {
+        throw new RuntimeException("cannot reserve a local port: {$errorMessage}");
+    }
+
+    $name = (string) stream_socket_get_name($socket, false);
+    fclose($socket);
+
+    return (int) substr($name, (int) strrpos($name, ':') + 1);
 }

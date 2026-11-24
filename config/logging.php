@@ -1,5 +1,6 @@
 <?php
 
+use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -51,6 +52,20 @@ return [
     */
 
     'channels' => [
+
+        // One line per request in nginx "combined" format (App\Http\Middleware\AccessLog).
+        'access' => [
+            'driver' => 'monolog',
+            'handler' => StreamHandler::class,
+            'handler_with' => [
+                'stream' => env('TESSERARR_ACCESS_LOG', 'php://stdout'),
+            ],
+            'formatter' => LineFormatter::class,
+            'formatter_with' => [
+                'format' => "%message%\n",
+            ],
+            'level' => 'info',
+        ],
 
         'stack' => [
             'driver' => 'stack',
