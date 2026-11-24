@@ -20,9 +20,9 @@ jobs:
   auto-merge:
     name: Auto-merge patch and minor Dependabot updates
     runs-on: ubuntu-24.04
-    # The author of the pull request, not the actor of the event: a re-run or a
-    # push by someone else must not make a human pull request look like Dependabot's.
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    # Both the actor of this event and the author of the pull request must be
+    # Dependabot; the next step also checks every commit of the pull request.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
       - name: Get Dependabot metadata
         id: meta
@@ -30,7 +30,32 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # A maintainer with write access can push a commit onto a Dependabot branch;
+      # the pull request author stays dependabot[bot]. Such a pull request is
+      # neither approved nor merged here. All pages of the commit list are read.
+      - name: Every commit is from Dependabot
+        id: commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          authors="$(gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[] | (.author.login // "(no GitHub account)")' | sort -u)"
+          if [ "$authors" = 'dependabot[bot]' ]; then
+            echo "only-dependabot=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "only-dependabot=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Not auto-merged"
+              echo
+              echo "Pull request #$PR_NUMBER has commits by other authors; review and merge it by hand:"
+              echo
+              printf '%s\n' "$authors" | sed 's/^/- /'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Wait for CI
+        if: steps.commits.outputs.only-dependabot == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -40,14 +65,14 @@ jobs:
           allowed-conclusions: success,skipped
 
       - name: Approve patch and minor updates
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        if: steps.commits.outputs.only-dependabot == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for patch and minor updates
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        if: steps.commits.outputs.only-dependabot == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
