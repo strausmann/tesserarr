@@ -74,12 +74,24 @@ it('passes when app/Authorization meets 90', function () {
 
 it('fails when an existing configured path has no lines', function () {
     $root = coverageFixture(['app/Authorization', 'app/Runtime'], ['app/Runtime/Role.php' => [10, 10]]);
+    file_put_contents($root.'/app/Authorization/Authorizer.php', "<?php\n");
 
     $result = runCoverageGate($root, 'app/Authorization:90');
 
     expect($result['exit'])->toBe(1)
         ->and($result['output'])->toContain('app/Authorization')
         ->and($result['output'])->toContain('no lines');
+});
+
+it('passes a directory that only holds declarations', function () {
+    $root = coverageFixture(['app/Tokens'], ['app/Tokens/TokenIssuer.php' => [0, 0]]);
+    file_put_contents($root.'/app/Tokens/TokenIssuer.php', "<?php\n\ninterface TokenIssuer {}\n");
+
+    $result = runCoverageGate($root, 'app/Tokens:90');
+
+    expect($result['exit'])->toBe(0)
+        ->and($result['output'])->toContain('app/Tokens')
+        ->and($result['output'])->toContain('only declarations');
 });
 
 it('skips a configured path whose directory does not exist yet', function () {

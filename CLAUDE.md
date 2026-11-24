@@ -40,8 +40,10 @@ If you are about to make a non-trivial change without having read those, stop an
 - **Fixes, docs, CI, chores** branch from `main` and target `main`. Workflow and repository files go to `main` in their
   own pull request first (see CONTRIBUTING.md).
 - **Milestone pull requests** (`milestone/X.Y.0` into `main`) and **sync pull requests** (`main` into the milestone) are
-  merged with a **merge commit** and the standard subject `Merge pull request #N from strausmann/milestone/X.Y.Z`. Never
-  squash or rebase them, never change the subject.
+  merged with a **merge commit**. Never squash or rebase them.
+- A milestone pull request keeps the standard subject GitHub writes, which the release guard recognises:
+  `Merge pull request #N from strausmann/milestone/X.Y.Z`. Never change that subject. Sync pull requests have no
+  required subject.
 - Releases happen from `main` only. Never tag, release or publish from a milestone branch.
 
 ## Things you should propose, not do silently

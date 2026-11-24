@@ -30,3 +30,11 @@ container.
 | `Prose` | Vale (`prose.yml`) | 0.4 | < 1 *(local)* | pending | 0 | No glossary yet; the error rule is German prose in English documents |
 | `commitlint` | commitlint | 0.2 | 3 *(local)* | pending | 0 | Same rules; config copied next to the installed packages |
 | `Docker — build smoke test` | Docker build smoke test | 0.2 | pending | pending | pending | Reuses the smoke scripts of task 1; no SBOM yet |
+
+## Known sources of false alarms
+
+- **Semgrep rule packs are not pinned.** `semgrep.yml` loads `p/php`, `r/php.lang.security`, `p/phpcs-security-audit`,
+  `p/javascript`, `p/typescript` and `p/secrets` from the registry at run time; only the Semgrep engine is pinned (image
+  digest). A new or changed upstream rule can turn the required check red without a change in this repository. Each such
+  run is counted as a false alarm in the table above. If they become frequent, the rules are vendored into the repository
+  at a fixed revision and loaded from there.

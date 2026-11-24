@@ -7,7 +7,7 @@
 # German on purpose. Files come from `git ls-files`, so scratch files are not linted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# grep exits 1 when every line is filtered out; that alone counts as success
+# (the Prose job then fails on the empty scope). Any other failure fails.
 git ls-files -- '*.md' '*.mdx' \
-  | grep -vE '^website/src/content/docs/de/' \
-  | grep -vE '^(LICENSES/|packages/[^/]+/vendor/)' \
-  | grep -vE '^(CHANGELOG\.md|release-notes/)' || true
+  | { grep -vE '^(website/src/content/docs/de/|LICENSES/|packages/[^/]+/vendor/|CHANGELOG\.md$|release-notes/)' || [ $? -eq 1 ]; }
