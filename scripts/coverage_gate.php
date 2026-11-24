@@ -145,6 +145,44 @@ function coverage_count_php_files(string $dir): int
     return $count;
 }
 
+/**
+ * Removes the self-test's own temporary tree. Refuses any path that does not
+ * resolve to a coverage-self-test-* directory directly below the system temp
+ * directory, so a wrong argument can never delete anything else.
+ */
+function coverage_remove_self_test_root(string $root): void
+{
+    $temp = realpath(sys_get_temp_dir());
+    $resolved = realpath($root);
+    if ($temp === false || $resolved === false || dirname($resolved) !== $temp
+        || preg_match('/^coverage-self-test-[0-9a-f]{8}$/', basename($resolved)) !== 1) {
+        throw new RuntimeException("refusing to remove {$root}: not the self-test's temp directory");
+    }
+
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($resolved, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($entries as $entry) {
+        if (! $entry instanceof SplFileInfo) {
+            continue;
+        }
+        $path = $entry->getPathname();
+        if (! str_starts_with($path, $resolved.'/') || $entry->isLink()) {
+            throw new RuntimeException("refusing to remove {$path}: outside the self-test's temp directory");
+        }
+        if ($entry->isDir()) {
+            rmdir($path);
+        } else {
+            // The path comes from iterating the self-test's own temp directory, which was checked
+            // with realpath above; it is never user input, and links are refused.
+            // nosemgrep: php.lang.security.unlink-use.unlink-use
+            unlink($path);
+        }
+    }
+    rmdir($resolved);
+}
+
 function coverage_self_test(): int
 {
     $root = sys_get_temp_dir().'/coverage-self-test-'.bin2hex(random_bytes(4));
@@ -184,11 +222,7 @@ function coverage_self_test(): int
         } catch (CoverageGateInputError) {
         }
     }
-    unlink($root.'/app/Mfa/Policy.php');
-    foreach (['app/Tokens', 'app/MfaOld', 'app/Mfa', 'app/Authorization', 'app'] as $dir) {
-        rmdir($root.'/'.$dir);
-    }
-    rmdir($root);
+    coverage_remove_self_test_root($root);
 
     echo $failures === 0 ? "coverage gate self-test: 9 checks passed\n" : "coverage gate self-test: {$failures} failed\n";
 
