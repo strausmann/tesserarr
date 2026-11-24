@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 # Tesserarr web server (FrankenPHP = Caddy + PHP).
 #
 # Body limit, first stage: Caddy rejects bodies above 2 MiB with 413 and gives

@@ -9,7 +9,7 @@
         "sonarr",
         "radarr"
     ],
-    "license": "MIT",
+    "license": "AGPL-3.0-or-later",
     "require": {
         "php": "^8.3",
         "inertiajs/inertia-laravel": "^3.0",

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Tesserarr container entrypoint.
 #
 #   entrypoint.sh <web|worker|scheduler|reverb|satellite|artisan …>

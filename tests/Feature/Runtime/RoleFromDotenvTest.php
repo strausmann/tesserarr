@@ -1,5 +1,8 @@
 <?php
 
+// SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Application;
 use Tests\Support\EnvSnapshot;

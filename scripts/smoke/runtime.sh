@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Smoke test of the runtime settings of a built image.
 #
 #   scripts/smoke/runtime.sh [image]     default image: tesserarr:dev

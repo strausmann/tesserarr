@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Licence gate
+
+# Judges the whole locked dependency tree (not only a pull request's diff)
+# against licence-policy.yml, and runs composer audit and npm audit. Replaces
+# actions/dependency-review-action, which needs a GitHub Code Security licence
+# on a private repository. No paths filter: this is a required check.
+
+on:
+  push:
+    branches: [main, 'milestone/**']
+  pull_request:
+    branches: [main, 'milestone/**']
+
+permissions:
+  contents: read
+
+jobs:
+  licence-gate:
+    name: Licence gate (composer, npm)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect manifests
+        id: app
+        env:
+          TARGET: ${{ github.base_ref || github.ref_name }}
+        run: |
+          if [ -f composer.json ] && [ -f package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TARGET" = main ] && [ ! -f composer.json ] && [ ! -f package.json ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::composer.json or package.json is missing. Only main may run without the application."
+            exit 1
+          fi
+
+      - name: Set up PHP 8.4
+        if: steps.app.outputs.exists == 'true'
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: composer:v2
+
+      # license-checker-rseidelsohn 5.0.1 requires Node 24.
+      - name: Set up Node 24
+        if: steps.app.outputs.exists == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Install the npm production tree
+        if: steps.app.outputs.exists == 'true'
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
+      - name: Licence lists
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          composer licenses --format=json --no-dev --locked > "$RUNNER_TEMP/composer-licences.json"
+          npx --yes license-checker-rseidelsohn@5.0.1 --production --excludePrivatePackages --json > "$RUNNER_TEMP/npm-licences.json"
+
+      - name: Licence gate
+        if: steps.app.outputs.exists == 'true'
+        run: php scripts/licence_gate.php "$RUNNER_TEMP/composer-licences.json" "$RUNNER_TEMP/npm-licences.json" licence-policy.yml
+
+      - name: composer audit
+        if: steps.app.outputs.exists == 'true'
+        run: composer audit --locked --abandoned=fail
+
+      - name: npm audit
+        if: steps.app.outputs.exists == 'true'
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: No-op (no manifests on main yet)
+        if: steps.app.outputs.exists != 'true'
+        run: echo "No composer.json or package.json on main yet; the licence gate runs on the milestone branch and after its merge."

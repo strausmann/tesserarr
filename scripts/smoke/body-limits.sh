@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Smoke test of both request-body limit stages on a built image (Go audit #3).
 #
 #   scripts/smoke/body-limits.sh [image]     default image: tesserarr:dev

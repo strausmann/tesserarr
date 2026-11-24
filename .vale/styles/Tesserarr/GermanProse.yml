@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Repository prose is English (CONTRIBUTING.md, "Writing"). German letters and
+# quotation marks outside code mark a German sentence in an English document.
+# The German website pages (website/src/content/docs/de/) are outside the scope
+# of scripts/vale_scope.sh.
+extends: existence
+message: "'%s' looks like German prose. Repository prose is English."
+level: error
+nonword: true
+tokens:
+    - '[äöüÄÖÜß„“]'

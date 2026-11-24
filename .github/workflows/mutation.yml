@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Mutation tests
+
+# Nightly mutation tests (pest --mutate) on the directories that carry
+# authorisation, invitations, second factors, execution and the catalogue,
+# minimum score 70 %. Scheduled workflows run only from main, so until the
+# milestone is merged this is an explicitly named no-op there. A directory that
+# does not exist yet is skipped.
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Mutation tests (min 70 %)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        env:
+          POSTGRES_DB: tesserarr_test
+          POSTGRES_USER: tesserarr
+          POSTGRES_PASSWORD: tesserarr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tesserarr -d tesserarr_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Directories to mutate
+        id: dirs
+        run: |
+          dirs=""
+          for d in app/Authorization app/Invitations app/Mfa app/Execution app/Catalog; do
+            [ -d "$d" ] && dirs="$dirs $d"
+          done
+          if [ -f composer.json ] && [ -n "$dirs" ]; then
+            echo "list=$dirs" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up PHP 8.4 with pcov
+        if: steps.dirs.outputs.list != ''
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, intl, pcntl
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Set up Node
+        if: steps.dirs.outputs.list != ''
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install and build
+        if: steps.dirs.outputs.list != ''
+        run: |
+          composer install --no-interaction --no-progress --prefer-dist
+          cp .env.example .env
+          php artisan key:generate --ansi
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Mutate
+        if: steps.dirs.outputs.list != ''
+        env:
+          DIRS: ${{ steps.dirs.outputs.list }}
+        run: |
+          for d in $DIRS; do
+            echo "::group::$d"
+            ./vendor/bin/pest --mutate --everything --covered-only --path="$d" --min=70
+            echo "::endgroup::"
+          done
+
+      - name: No-op (nothing to mutate yet)
+        if: steps.dirs.outputs.list == ''
+        run: echo "None of the mutated directories exists on this branch yet."

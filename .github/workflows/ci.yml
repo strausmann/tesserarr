@@ -1,0 +1,323 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: CI
+
+# Required checks of the ruleset on main and milestone/** (job names are the
+# check names, do not rename them). Every step is a hard gate: no `|| true`, no
+# continue-on-error.
+#
+# Bootstrap: these files reach main before the application does (CONTRIBUTING.md,
+# "Milestones, branches and releases"). A job that needs the application passes
+# as an explicitly named no-op only when the target is main and the file is
+# missing; on every other branch a missing composer.json or Dockerfile fails it.
+
+on:
+  push:
+    branches: [main, 'milestone/**']
+  pull_request:
+    branches: [main, 'milestone/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    name: PHP — lint, static analysis, test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        env:
+          POSTGRES_DB: tesserarr_test
+          POSTGRES_USER: tesserarr
+          POSTGRES_PASSWORD: tesserarr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tesserarr -d tesserarr_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # The throwaway test database of phpunit.xml; artisan migrate reads the
+      # environment, Pest reads phpunit.xml.
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_DATABASE: tesserarr_test
+      DB_USERNAME: tesserarr
+      DB_PASSWORD: tesserarr
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect PHP application
+        id: app
+        env:
+          TARGET: ${{ github.base_ref || github.ref_name }}
+        run: |
+          if [ -f composer.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TARGET" = main ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::composer.json is missing. Only main may run without the application."
+            exit 1
+          fi
+
+      - name: Set up PHP 8.4 with pcov
+        if: steps.app.outputs.exists == 'true'
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, intl, pcntl
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Composer validate
+        if: steps.app.outputs.exists == 'true'
+        run: composer validate --strict
+
+      - name: Composer install
+        if: steps.app.outputs.exists == 'true'
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Environment file and key
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          cp .env.example .env
+          php artisan key:generate --ansi
+
+      - name: Pint
+        if: steps.app.outputs.exists == 'true'
+        run: ./vendor/bin/pint --test
+
+      - name: Larastan (level 8, no baseline)
+        if: steps.app.outputs.exists == 'true'
+        run: ./vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+
+      - name: Composer audit
+        if: steps.app.outputs.exists == 'true'
+        run: composer audit --locked --abandoned=fail
+
+      - name: Migrations — run, then nothing pending
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          php artisan migrate --force --no-interaction
+          out="$(php artisan migrate --pretend --force --no-interaction)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -q 'Nothing to migrate'
+
+      # The feature tests render Inertia pages, which need the Vite manifest. The
+      # build calls `artisan wayfinder:generate`, so it runs after composer install.
+      - name: Set up Node
+        if: steps.app.outputs.exists == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Build the assets
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      # --min is evaluated only together with --coverage (pest Coverage plugin).
+      - name: Pest (coverage at least 80 %)
+        if: steps.app.outputs.exists == 'true'
+        run: ./vendor/bin/pest --coverage --min=80 --coverage-clover=clover.xml
+
+      # Per-directory minimums (CONTRIBUTING.md, "Local CI checks"). A path is
+      # checked once its directory exists; the pull request that creates one of
+      # these directories adds it here:
+      #   app/Authorization:90 app/Invitations:90 app/Mfa:90 app/Identity:90 app/Tokens:90
+      #   app/Execution:85 app/Catalog:85 app/Satellites:85 app/Connections:85
+      - name: Coverage gate per directory
+        if: steps.app.outputs.exists == 'true'
+        run: php scripts/coverage_gate.php clover.xml
+
+      - name: No-op (no PHP application on main yet)
+        if: steps.app.outputs.exists != 'true'
+        run: echo "No composer.json on main yet; the PHP checks run on the milestone branch and after its merge."
+
+  scripts:
+    name: Scripts — self-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP 8.4
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: none
+
+      - name: Licence gate self-test
+        run: php scripts/licence_gate.php --self-test
+
+      - name: Coverage gate self-test
+        run: php scripts/coverage_gate.php --self-test
+
+  docker-build:
+    name: Docker — build smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE: tesserarr:ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect Dockerfile
+        id: app
+        env:
+          TARGET: ${{ github.base_ref || github.ref_name }}
+        run: |
+          if [ -f docker/Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TARGET" = main ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::docker/Dockerfile is missing. Only main may run without the application."
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.app.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the runtime stage (no push)
+        if: steps.app.outputs.exists == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Runtime smoke test
+        if: steps.app.outputs.exists == 'true'
+        run: scripts/smoke/runtime.sh "$IMAGE"
+
+      - name: Request body limits
+        if: steps.app.outputs.exists == 'true'
+        run: scripts/smoke/body-limits.sh "$IMAGE"
+
+      - name: Licence files in the image
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c \
+            'test -s /app/LICENSE && grep -q "GNU AFFERO GENERAL PUBLIC LICENSE" /app/LICENSE && test -s /app/LICENSES/MIT.txt'
+
+      - name: No-op (no Dockerfile on main yet)
+        if: steps.app.outputs.exists != 'true'
+        run: echo "No docker/Dockerfile on main yet; the image is built on the milestone branch and after its merge."
+
+  privacy-scan:
+    name: Privacy / secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Real data of an installation never belongs in the repository
+      # (CONTRIBUTING.md, "No environment details, ever"). IP patterns use PCRE
+      # lookarounds so that version strings do not match. Tests use the
+      # documentation ranges 192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24.
+      - name: Scan for private network artefacts
+        run: |
+          set +e
+          # git grep exits 0 on a match, 1 on none and 2 or more on an error (for
+          # example a git without PCRE for -P). An error must not look like "no match".
+          scan() { # mode pattern
+            hits=$(git grep -nI"$1" "$2" -- "${exempt[@]}")
+            rc=$?
+            if [ "$rc" -gt 1 ]; then
+              echo "::error title=Scan failed::git grep exited $rc for pattern '$2'"
+              exit 2
+            fi
+          }
+          ip_patterns=(
+            '(?<![0-9.])10\.[0-9]+\.[0-9]+\.[0-9]+(?![0-9.])'
+            '(?<![0-9.])172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+(?![0-9.])'
+            '(?<![0-9.])192\.168\.[0-9]+\.[0-9]+(?![0-9.])'
+            '(?<![0-9.])100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+(?![0-9.])'
+          )
+          str_patterns=(
+            'hhdocker'
+            'hhplex'
+            'strausmann\.(cloud|de|net)'
+          )
+          # This file lists the patterns; lockfiles carry the e-mail addresses of
+          # package authors.
+          exempt=(
+            ':!.github/workflows/ci.yml'
+            ':!composer.lock'
+            ':!package-lock.json'
+          )
+          fail=0
+          for p in "${ip_patterns[@]}"; do
+            scan P "$p"
+            if [ -n "$hits" ]; then
+              echo "::error title=Private IP address::Pattern '$p' matched:"
+              printf '%s\n' "$hits"
+              fail=1
+            fi
+          done
+          for p in "${str_patterns[@]}"; do
+            scan E "$p"
+            if [ -n "$hits" ]; then
+              echo "::error title=Private artefact::Pattern '$p' matched:"
+              printf '%s\n' "$hits"
+              fail=1
+            fi
+          done
+          # E-mail addresses: only the project addresses and reserved example domains.
+          scan E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+          hits=$(printf '%s\n' "$hits" \
+            | grep -vE '(projects|security)@strausmann\.ch' \
+            | grep -viE '@([A-Za-z0-9-]+\.)*(example\.(com|org|net)|invalid|test)\b' \
+            | grep -vE 'git@github\.com|noreply@github\.com|dependabot\[bot\]')
+          if [ -n "$hits" ]; then
+            echo "::error title=E-mail address::Only the project addresses and example domains may appear:"
+            printf '%s\n' "$hits"
+            fail=1
+          fi
+          exit $fail
+
+      # gitleaks over the history of this branch only (HEAD), not every ref:
+      # the archived tags of the former Go code carry test fixtures.
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            git /repo --config /repo/.gitleaks.toml --log-opts=HEAD --redact --no-banner --exit-code 1
+
+  reuse:
+    name: REUSE — licensing of every file
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: reuse lint
+        uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
