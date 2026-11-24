@@ -5,6 +5,8 @@
 #
 #   1. body above 2 MiB on a non-API path   -> 413 from Caddy (request_body max_size)
 #   2. body above 64 KiB on /api/...        -> 413 from the app ({"error":"payload_too_large"})
+#   2b. multipart above 64 KiB on /api/...  -> 415 (PHP parses it before the app; php://input is empty)
+#   2c. chunked multipart on /api/...        -> 411 (no Content-Length)
 #   3. body sent at 1 byte/s                -> connection closed within 12 s (read_body 10s
 #                                              plus Connection: close, see docker/Caddyfile)
 #
@@ -57,6 +59,17 @@ code="$(curl --silent --output "$work/app.out" --write-out '%{http_code}' \
 [ "$code" = 413 ] || fail "body above 64 KiB on /api: expected 413 from the app, got $code"
 grep -q '"error":"payload_too_large"' "$work/app.out" || fail "the 413 on /api did not come from the app: $(cat "$work/app.out")"
 echo "ok: body above 64 KiB on /api -> 413 from the app"
+
+head -c 70000 /dev/urandom >"$work/blob.bin"
+code="$(curl --silent --output "$work/multipart.out" --write-out '%{http_code}' \
+    -F "blob=@$work/blob.bin" "$base/api/v1/smoke")"
+[ "$code" = 415 ] || fail "multipart above 64 KiB on /api: expected 415, got $code"
+echo "ok: multipart on /api -> 415"
+
+code="$(curl --silent --output "$work/chunked.out" --write-out '%{http_code}' \
+    -H 'Transfer-Encoding: chunked' -F "blob=@$work/blob.bin" "$base/api/v1/smoke")"
+[ "$code" = 411 ] || fail "chunked multipart on /api: expected 411, got $code"
+echo "ok: chunked body without Content-Length on /api -> 411"
 
 # 3. Slow body: 100 declared bytes, one per second, streamed from a
 # generator. curl's own --limit-rate throttles the download of the response
