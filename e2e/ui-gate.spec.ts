@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { expect, test } from '@playwright/test';
-import { assertArtboard, assertArtboardStates } from './support/artboard';
+import {
+    assertArtboard,
+    assertArtboardStates,
+    stateFixtures,
+} from './support/artboard';
 import { serveFixtures } from './support/fixtures';
 import { assertUiGate, signInAs } from './support/gate';
 import { gatedViews, gateViewports, themes } from './support/views';
@@ -39,6 +43,70 @@ test.describe('the gate itself', () => {
             assertUiGate(page, fixtureView('overflow.html'), phone, 'light'),
         ).rejects.toThrow(
             /no horizontal scrolling: content 20\d\dpx wide in a 360px viewport/,
+        );
+    });
+
+    // One defect per fixture; each test names the rule that must catch it.
+    const broken: Array<[string, string, RegExp]> = [
+        [
+            'logs a console error',
+            'console-error.html',
+            /no console error[\s\S]*broken fixture/,
+        ],
+        [
+            'has a tab stop without a focus ring',
+            'no-focus-ring.html',
+            /every tab stop shows a focus ring[\s\S]*button \\?"Continue/,
+        ],
+        [
+            'has a serious or critical axe violation',
+            'axe-violation.html',
+            /no serious or critical accessibility violation[\s\S]*critical: button-name/,
+        ],
+        [
+            'loads from a host that does not resolve',
+            'failed-request.html',
+            /no failed request[\s\S]*unreachable\.invalid\/pixel\.png \(net::ERR_NAME_NOT_RESOLVED\)/,
+        ],
+        [
+            'gets a 500 answer to a fetch',
+            'server-error.html',
+            /no 5xx answer and no 4xx answer for a page resource[\s\S]*500 fetch \S*\/_fixtures\/server-error/,
+        ],
+        [
+            'loads a stylesheet that answers 404',
+            'missing-stylesheet.html',
+            /no 5xx answer and no 4xx answer for a page resource[\s\S]*404 stylesheet \S*\/_fixtures\/missing\.css/,
+        ],
+    ];
+    for (const [defect, file, reason] of broken) {
+        test(`fails on a page that ${defect}`, async ({ page }) => {
+            await expect(
+                assertUiGate(page, fixtureView(file), phone, 'light'),
+            ).rejects.toThrow(reason);
+        });
+    }
+
+    test('fails when a state of the view loses an artboard control', async ({
+        page,
+    }) => {
+        const view = {
+            ...fixtureView('state-breaks-artboard.html'),
+            expect: {
+                headings: ['Gate fixture'],
+                controls: ['button:Continue'],
+                states: ['filled' as const],
+            },
+        };
+        stateFixtures[view.name] = {
+            filled: async (p) => {
+                await p.getByRole('button', { name: 'Continue' }).click();
+                await expect(p.getByText('Done')).toBeVisible();
+            },
+        };
+
+        await expect(assertArtboardStates(page, view)).rejects.toThrow(
+            /artboard control "button:Continue" is shown/,
         );
     });
 

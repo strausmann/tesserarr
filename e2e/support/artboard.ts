@@ -101,5 +101,7 @@ export async function assertArtboardStates(
         ).toBeDefined();
         await page.goto(view.path);
         await fixture!(page);
+        // The artboard holds in every state, not only on the first render.
+        await assertArtboard(page, view.expect);
     }
 }

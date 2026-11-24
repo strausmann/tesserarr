@@ -54,3 +54,6 @@ yarn-error.log
 
 # Vale binary (scripts/vale_setup.sh)
 /.vale/bin
+
+# marker of the e2e image (docker/Dockerfile, stage e2e); never committed
+/.e2e-image

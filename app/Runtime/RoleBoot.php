@@ -48,6 +48,8 @@ final class RoleBoot
         $routes = dirname(__DIR__, 2).'/routes';
 
         Route::middleware('web')->group($routes.'/web.php');
+        // The sign-in of the browser tests, in the e2e image only.
+        E2eImage::registerRoutes();
         // The app API (session) before the token API, so /api/v1/app/* never
         // falls into a token route.
         Route::middleware('web')->prefix('api/v1/app')->name('app-api.')->group($routes.'/api_app.php');

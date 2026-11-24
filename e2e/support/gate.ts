@@ -20,63 +20,126 @@ export async function signInAs(page: Page, role: Role): Promise<void> {
     );
 }
 
-type FocusReport = { tag: string; name: string; ring: boolean } | null;
+type FocusStop = { tag: string; name: string; ring: boolean };
+
+/** How many tab stops the gate walks at least (or all, if the page has fewer). */
+export const FOCUS_STOPS = 5;
 
 /**
- * Presses Tab once and reports whether the focused element shows a ring: the
- * browser's own ring (`outline-style: auto`), an opaque outline of at least
- * 2 px, or a box-shadow that only the focused state has (the kit draws its
- * rings with box-shadow and also has a resting shadow).
+ * Walks the tab order from the start of the page and reports each stop:
+ * whether the focused element shows a ring, that is the browser's own ring
+ * (`outline-style: auto`), an opaque outline of at least 2 px, or a
+ * box-shadow that only the focused state has (the kit draws its rings with
+ * box-shadow and also has a resting shadow). Stops at FOCUS_STOPS stops, or
+ * earlier when the focus leaves the page or comes back to the first stop.
  */
-async function tabAndInspectFocus(page: Page): Promise<FocusReport> {
-    await page.keyboard.press('Tab');
-
-    return page.evaluate(() => {
-        const el = document.activeElement as HTMLElement | null;
-        if (!el || el === document.body) {
-            return null;
-        }
-        const look = () => {
-            const s = getComputedStyle(el);
-            return {
-                outline: s.outlineStyle,
-                width: parseFloat(s.outlineWidth),
-                color: s.outlineColor,
-                shadow: s.boxShadow,
+async function walkFocus(
+    page: Page,
+): Promise<{ tabbable: number; stops: FocusStop[] }> {
+    const tabbable = await page.evaluate(
+        () =>
+            [
+                ...document.querySelectorAll<HTMLElement>(
+                    'a[href], button, input, select, textarea, summary, [tabindex]',
+                ),
+            ].filter(
+                (el) =>
+                    el.tabIndex >= 0 &&
+                    !(el as HTMLButtonElement).disabled &&
+                    el.getClientRects().length > 0 &&
+                    !el.closest('[inert]'),
+            ).length,
+    );
+    await page.evaluate(() =>
+        (document.activeElement as HTMLElement | null)?.blur(),
+    );
+    const stops: FocusStop[] = [];
+    let first: string | null = null;
+    for (let i = 0; i < FOCUS_STOPS; i++) {
+        await page.keyboard.press('Tab');
+        const stop = await page.evaluate(async () => {
+            const el = document.activeElement as HTMLElement | null;
+            if (!el || el === document.body) {
+                return null;
+            }
+            el.dataset.gateStop ??= String(Math.random());
+            const look = () => {
+                const s = getComputedStyle(el);
+                return {
+                    outline: s.outlineStyle,
+                    width: parseFloat(s.outlineWidth),
+                    color: s.outlineColor,
+                    shadow: s.boxShadow,
+                };
             };
-        };
-        const focused = look();
-        el.blur();
-        const resting = look();
-        const transparent = (c: string) =>
-            c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c);
-        // `auto` is the browser's own focus ring, drawn whatever the width says.
-        const outlined =
-            focused.outline === 'auto' ||
-            (focused.outline !== 'none' &&
-                focused.width >= 2 &&
-                !transparent(focused.color));
-        const shadowed =
-            focused.shadow !== 'none' && focused.shadow !== resting.shadow;
-        const name = (el.getAttribute('aria-label') ?? el.textContent ?? '')
-            .trim()
-            .slice(0, 40);
+            // A ring that fades in (`transition-shadow`) is measured once its
+            // transition has finished, not in its first frame.
+            const settled = () =>
+                Promise.all(
+                    el
+                        .getAnimations()
+                        .map((a) => a.finished.catch(() => undefined)),
+                );
+            await settled();
+            const focused = look();
+            el.blur();
+            await settled();
+            const resting = look();
+            // Back onto the element, so the next Tab continues from here.
+            el.focus({
+                preventScroll: true,
+                focusVisible: true,
+            } as FocusOptions);
+            const transparent = (c: string) =>
+                c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c);
+            // `auto` is the browser's own focus ring, drawn whatever the width says.
+            const outlined =
+                focused.outline === 'auto' ||
+                (focused.outline !== 'none' &&
+                    focused.width >= 2 &&
+                    !transparent(focused.color));
+            const shadowed =
+                focused.shadow !== 'none' && focused.shadow !== resting.shadow;
+            const name = (el.getAttribute('aria-label') ?? el.textContent ?? '')
+                .trim()
+                .slice(0, 40);
 
-        return {
-            tag: el.tagName.toLowerCase(),
-            name,
-            ring: outlined || shadowed,
-        };
-    });
+            return {
+                id: el.dataset.gateStop,
+                tag: el.tagName.toLowerCase(),
+                name,
+                ring: outlined || shadowed,
+            };
+        });
+        if (!stop || stop.id === first) {
+            break;
+        }
+        first ??= stop.id;
+        stops.push({ tag: stop.tag, name: stop.name, ring: stop.ring });
+    }
+
+    return { tabbable, stops };
 }
+
+/** Resource types whose 4xx answer breaks the page; 4xx on fetch/XHR can be correct behaviour. */
+const PAGE_RESOURCES = new Set([
+    'document',
+    'stylesheet',
+    'script',
+    'image',
+    'font',
+    'media',
+]);
 
 /**
  * The UI gate of ADR-0006 for one view, one viewport and one theme. Renders the
- * view and requires: no console error and no uncaught exception, no failed
- * request (DNS, connection, abort; a 4xx/5xx answer is not a failed request),
- * no horizontal scrolling, a visible focus ring after Tab, no serious or
- * critical axe violation, and every heading and control of the artboard. A
- * screenshot is attached to the report; it is not compared with anything.
+ * view and requires: every heading and control of the artboard, no horizontal
+ * scrolling, a visible focus ring on each of the first FOCUS_STOPS tab stops,
+ * no serious or critical axe violation, no failed request (DNS, connection,
+ * abort), no 5xx answer, no 4xx answer for the document or a stylesheet,
+ * script, image, font or media file (4xx on fetch/XHR is allowed), and no
+ * console error or uncaught exception. A screenshot is attached to the
+ * report; it is not compared with anything.
  */
 export async function assertUiGate(
     page: Page,
@@ -86,9 +149,10 @@ export async function assertUiGate(
 ): Promise<void> {
     const consoleErrors: string[] = [];
     const failedRequests: string[] = [];
-    // The browser reports every HTTP error answer as a console error. An HTTP
-    // status is not a failure of the page (a 401 of a session probe is correct
-    // behaviour); a request that does not complete is caught by `requestfailed`.
+    const badAnswers: string[] = [];
+    // The browser repeats every HTTP error answer as a console error. Those
+    // answers are judged by `onResponse` below, so the repeat is not counted
+    // twice; every other console error is.
     const httpStatusReport =
         /^Failed to load resource: the server responded with a status of \d{3}/;
     const onConsole = (msg: { type(): string; text(): string }) => {
@@ -105,6 +169,17 @@ export async function assertUiGate(
         failedRequests.push(
             `${request.url()} (${request.failure()?.errorText ?? 'failed'})`,
         );
+    const onResponse = (response: {
+        status(): number;
+        url(): string;
+        request(): { resourceType(): string };
+    }) => {
+        const status = response.status();
+        const type = response.request().resourceType();
+        if (status >= 500 || (status >= 400 && PAGE_RESOURCES.has(type))) {
+            badAnswers.push(`${status} ${type} ${response.url()}`);
+        }
+    };
 
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme: theme });
@@ -116,6 +191,7 @@ export async function assertUiGate(
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
     page.on('requestfailed', onRequestFailed);
+    page.on('response', onResponse);
     try {
         await page.goto(view.path, { waitUntil: 'networkidle' });
 
@@ -137,12 +213,19 @@ export async function assertUiGate(
             `no horizontal scrolling: content ${scroll.content}px wide in a ${scroll.viewport}px viewport`,
         ).toBeLessThanOrEqual(scroll.viewport);
 
-        const focus = await tabAndInspectFocus(page);
-        expect(focus, 'Tab moves the focus onto an element').not.toBeNull();
+        const focus = await walkFocus(page);
         expect(
-            focus!.ring,
-            `the focused ${focus!.tag} "${focus!.name}" shows a focus ring`,
-        ).toBe(true);
+            focus.stops.length,
+            `Tab reaches ${Math.min(FOCUS_STOPS, focus.tabbable)} of the ${focus.tabbable} tabbable elements`,
+        ).toBeGreaterThanOrEqual(Math.min(FOCUS_STOPS, focus.tabbable));
+        expect(
+            focus.tabbable,
+            'the page has a tabbable element',
+        ).toBeGreaterThan(0);
+        const ringless = focus.stops
+            .filter((s) => !s.ring)
+            .map((s) => `${s.tag} "${s.name}"`);
+        expect(ringless, 'every tab stop shows a focus ring').toEqual([]);
 
         const axe = await new AxeBuilder({ page }).analyze();
         const severe = axe.violations
@@ -153,14 +236,20 @@ export async function assertUiGate(
             'no serious or critical accessibility violation',
         ).toEqual([]);
 
-        // Requests first: the browser also logs a failed request as a console
-        // error, and the request names the cause.
+        // Answers and requests first: the browser also logs them as console
+        // errors, and they name the cause. An error answer first, because the
+        // browser may then also abort the request (a 404 page is no stylesheet).
+        expect(
+            badAnswers,
+            'no 5xx answer and no 4xx answer for a page resource',
+        ).toEqual([]);
         expect(failedRequests, 'no failed request').toEqual([]);
         expect(consoleErrors, 'no console error').toEqual([]);
     } finally {
         page.off('console', onConsole);
         page.off('pageerror', onPageError);
         page.off('requestfailed', onRequestFailed);
+        page.off('response', onResponse);
         await test
             .info()
             .attach(

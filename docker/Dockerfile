@@ -11,8 +11,8 @@
 #   test      php-base + pcov + dev dependencies, for the test suite in CI;
 #             never part of the runtime image
 #   app       everything the published image holds
-#   e2e       app plus the sign-in route of the browser tests (APP_ENV=testing,
-#             TESSERARR_E2E_LOGIN=true); built for Playwright, never published
+#   e2e       app plus the sign-in route of the browser tests and its marker
+#             file; built for Playwright, never published
 #   runtime   the published image: non-root, port 8080, one role per process.
 #             The last stage, so a build without --target yields it.
 #
@@ -48,7 +48,9 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist
 
 COPY . .
-RUN rm -rf tests CLAUDE.md playwright.config.ts vitest.config.ts \
+# app/Testing and routes/testing.php are the sign-in of the browser tests;
+# only the e2e stage puts them back (App\Runtime\E2eImage).
+RUN rm -rf tests CLAUDE.md playwright.config.ts vitest.config.ts app/Testing routes/testing.php \
     && composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
     && php artisan package:discover --ansi \
     && php artisan wayfinder:generate --with-form
@@ -150,12 +152,19 @@ CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]
 
 # -----------------------------------------------------------------------------
 # The browser tests run against the production image with one difference: the
-# route /_testing/login/{role} answers (App\Http\Controllers\Testing\
-# E2eLoginController needs both values; the runtime stage sets neither).
+# sign-in route /_testing/login/{role}. Its two files and the marker exist in
+# this stage only (App\Runtime\E2eImage); the environment stays as in
+# production. The class map is rebuilt so the controller can be loaded.
 FROM app AS e2e
 
-ENV APP_ENV=testing \
-    TESSERARR_E2E_LOGIN=true
+USER root
+COPY --from=composer /usr/bin/composer /usr/local/bin/composer
+COPY app/Testing/ /app/app/Testing/
+COPY routes/testing.php /app/routes/testing.php
+RUN composer dump-autoload --no-dev --classmap-authoritative --no-scripts --no-interaction \
+    && rm /usr/local/bin/composer \
+    && touch /app/.e2e-image
+USER tesserarr
 
 # -----------------------------------------------------------------------------
 FROM app AS runtime

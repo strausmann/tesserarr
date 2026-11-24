@@ -9,10 +9,14 @@ import { defineConfig } from 'vitest/config';
 // Playwright (playwright.config.ts), never here.
 //
 // Coverage minimums (CONTRIBUTING.md, "Local CI checks"): resources/js/lib at
-// 80 %. The 70 % for components applies from the first Tesserarr component
-// (Field, Dialog); the pull request that adds it adds its glob to `include`
-// and `thresholds`. The starter-kit components are replaced from task 8 on and
-// are not measured.
+// 80 %, components at 70 %.
+//
+// WHITELIST: resources/js/components (70 %)
+// Reason: only starter-kit components exist so far; they are replaced from
+//   task 8 on. The first Tesserarr component (Field, Dialog) adds its glob to
+//   `include` and `thresholds` below in the same pull request.
+// Issue: #83
+// Expires: 2027-02-22
 export default defineConfig({
     plugins: [svelte()],
     resolve: {

@@ -4,51 +4,54 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use App\Models\User;
+use App\Runtime\E2eImage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 
-// The browser tests sign in through /_testing/login/{role}. It exists only in
-// the e2e image: APP_ENV=testing and TESSERARR_E2E_LOGIN=true, both set by the
-// `e2e` stage of docker/Dockerfile. Everywhere else it answers 404.
+// The browser tests sign in through /_testing/login/{role}. The route exists
+// only in the e2e image: its stage adds routes/testing.php and app/Testing/
+// and creates the marker file. The repository holds both files, so these
+// tests switch the image on by creating the marker.
 
-beforeEach(function () {
-    $this->env = app()->environment();
-});
+/** Creates the marker and registers the routes as the e2e image would at boot. */
+function bootE2eImage(): void
+{
+    touch(base_path(E2eImage::MARKER));
+    E2eImage::registerRoutes();
+    Route::getRoutes()->refreshNameLookups();
+}
 
 afterEach(function () {
-    app()['env'] = $this->env;
+    @unlink(base_path(E2eImage::MARKER));
 });
 
-it('answers 404 on /_testing/login outside testing', function () {
-    config(['tesserarr.e2e_login' => true]);
-    app()['env'] = 'production';
+it('does not register /_testing/login without the marker of the e2e image', function () {
+    E2eImage::registerRoutes();
 
+    expect(Route::has('testing.login'))->toBeFalse();
     $this->get('/_testing/login/operator')->assertNotFound();
-
     $this->assertGuest();
     expect(User::query()->count())->toBe(0);
 });
 
-it('answers 404 on /_testing/login without the e2e image flag', function () {
-    config(['tesserarr.e2e_login' => false]);
+it('does not register /_testing/login when the route file is missing', function () {
+    touch(base_path(E2eImage::MARKER));
+    $routes = base_path(E2eImage::ROUTES);
+    rename($routes, $routes.'.away');
 
-    $this->get('/_testing/login/operator')->assertNotFound();
-
-    $this->assertGuest();
-    expect(User::query()->count())->toBe(0);
-});
-
-it('answers 404 on /_testing/login for an unknown role', function () {
-    config(['tesserarr.e2e_login' => true]);
-
-    $this->get('/_testing/login/root')->assertNotFound();
-
-    $this->assertGuest();
+    try {
+        expect(E2eImage::enabled())->toBeFalse();
+        E2eImage::registerRoutes();
+        expect(Route::has('testing.login'))->toBeFalse();
+    } finally {
+        rename($routes.'.away', $routes);
+    }
 });
 
 it('signs in the fixture account of the role and redirects to the dashboard', function (string $role) {
-    config(['tesserarr.e2e_login' => true]);
+    bootE2eImage();
 
     $this->get("/_testing/login/{$role}")->assertRedirect(route('dashboard'));
 
@@ -57,8 +60,24 @@ it('signs in the fixture account of the role and redirects to the dashboard', fu
     $this->assertAuthenticatedAs($user);
 })->with(['friend', 'operator']);
 
+it('answers 404 on /_testing/login for an unknown role', function () {
+    bootE2eImage();
+
+    $this->get('/_testing/login/root')->assertNotFound();
+    $this->assertGuest();
+});
+
+it('answers 404 when the marker disappears after the route was registered', function () {
+    bootE2eImage();
+    unlink(base_path(E2eImage::MARKER));
+
+    $this->get('/_testing/login/operator')->assertNotFound();
+    $this->assertGuest();
+    expect(User::query()->count())->toBe(0);
+});
+
 it('reuses the fixture account on a second sign-in', function () {
-    config(['tesserarr.e2e_login' => true]);
+    bootE2eImage();
 
     $this->get('/_testing/login/friend');
     $this->get('/_testing/login/friend');

@@ -16,12 +16,4 @@ return [
         explode(',', (string) env('TESSERARR_TRUSTED_PROXIES', '')),
     ))),
 
-    /*
-    | Sign-in for the browser tests (/_testing/login/{role}). Only the `e2e`
-    | stage of docker/Dockerfile sets it, and it also needs APP_ENV=testing;
-    | see App\Http\Controllers\Testing\E2eLoginController.
-    */
-
-    'e2e_login' => filter_var(env('TESSERARR_E2E_LOGIN', false), FILTER_VALIDATE_BOOL),
-
 ];

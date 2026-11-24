@@ -21,6 +21,22 @@ image="${1:-tesserarr:e2e}"
 PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
 POSTGRES_IMAGE=postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
 
+# The browsers come from the container, the test runner from node_modules:
+# both must be the same Playwright release, or the suite fails with a missing
+# browser executable that does not name the cause.
+container_version="${PLAYWRIGHT_IMAGE#*:v}"
+container_version="${container_version%%-*}"
+if [ ! -f node_modules/@playwright/test/package.json ]; then
+    echo "e2e: node_modules/@playwright/test is missing; run npm ci first" >&2
+    exit 1
+fi
+npm_version="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+if [ "$npm_version" != "$container_version" ]; then
+    echo "e2e: @playwright/test is $npm_version (package-lock.json), the container is $container_version." >&2
+    echo "e2e: update PLAYWRIGHT_IMAGE in scripts/e2e/run.sh (tag and digest) to v$npm_version." >&2
+    exit 1
+fi
+
 run_id="tesserarr-e2e-$$"
 net="$run_id"
 db="$run_id-db"

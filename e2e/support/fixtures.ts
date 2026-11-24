@@ -18,6 +18,20 @@ export async function serveFixtures(page: Page): Promise<void> {
             body: '{"message":"Unauthenticated."}',
         }),
     );
+    // The fetch of server-error.html.
+    await page.route('**/_fixtures/server-error', (route) =>
+        route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: '{"message":"Server Error"}',
+        }),
+    );
+    // The stylesheet of missing-stylesheet.html: a plain 404 with a CSS type,
+    // so the answer reaches the page. (A 404 page in HTML is blocked by the
+    // browser as a stylesheet and shows up as a failed request instead.)
+    await page.route('**/_fixtures/missing.css', (route) =>
+        route.fulfill({ status: 404, contentType: 'text/css', body: '' }),
+    );
     await page.route('**/_fixtures/*.html', (route) =>
         route.fulfill({
             path: fileURLToPath(
