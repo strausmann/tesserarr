@@ -245,6 +245,16 @@ jobs:
       - name: Scan for private network artefacts
         run: |
           set +e
+          # git grep exits 0 on a match, 1 on none and 2 or more on an error (for
+          # example a git without PCRE for -P). An error must not look like "no match".
+          scan() { # mode pattern
+            hits=$(git grep -nI"$1" "$2" -- "${exempt[@]}")
+            rc=$?
+            if [ "$rc" -gt 1 ]; then
+              echo "::error title=Scan failed::git grep exited $rc for pattern '$2'"
+              exit 2
+            fi
+          }
           ip_patterns=(
             '(?<![0-9.])10\.[0-9]+\.[0-9]+\.[0-9]+(?![0-9.])'
             '(?<![0-9.])172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+(?![0-9.])'
@@ -265,7 +275,7 @@ jobs:
           )
           fail=0
           for p in "${ip_patterns[@]}"; do
-            hits=$(git grep -nIP "$p" -- "${exempt[@]}")
+            scan P "$p"
             if [ -n "$hits" ]; then
               echo "::error title=Private IP address::Pattern '$p' matched:"
               printf '%s\n' "$hits"
@@ -273,7 +283,7 @@ jobs:
             fi
           done
           for p in "${str_patterns[@]}"; do
-            hits=$(git grep -nIE "$p" -- "${exempt[@]}")
+            scan E "$p"
             if [ -n "$hits" ]; then
               echo "::error title=Private artefact::Pattern '$p' matched:"
               printf '%s\n' "$hits"
@@ -281,7 +291,8 @@ jobs:
             fi
           done
           # E-mail addresses: only the project addresses and reserved example domains.
-          hits=$(git grep -nIE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' -- "${exempt[@]}" \
+          scan E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+          hits=$(printf '%s\n' "$hits" \
             | grep -vE '(projects|security)@strausmann\.ch' \
             | grep -viE '@([A-Za-z0-9-]+\.)*(example\.(com|org|net)|invalid|test)\b' \
             | grep -vE 'git@github\.com|noreply@github\.com|dependabot\[bot\]')

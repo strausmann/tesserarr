@@ -30,13 +30,23 @@ jobs:
       - name: Install Vale
         run: scripts/vale_setup.sh
 
+      # README.md and CONTRIBUTING.md always exist, so an empty scope is a defect
+      # of scripts/vale_scope.sh, never a reason to pass.
       - name: Vale errors (fail the job)
-        run: scripts/vale_scope.sh | xargs --no-run-if-empty .vale/bin/vale --minAlertLevel=error
+        run: |
+          files="$(scripts/vale_scope.sh)"
+          if [ -z "$files" ]; then
+            echo "::error::empty Vale scope"
+            exit 1
+          fi
+          mapfile -t scope <<< "$files"
+          .vale/bin/vale --minAlertLevel=error "${scope[@]}"
 
       - name: Warnings and suggestions (reported only)
         if: always()
         run: |
-          scripts/vale_scope.sh | xargs --no-run-if-empty .vale/bin/vale --minAlertLevel=suggestion --no-exit --output=line > "$RUNNER_TEMP/vale.txt"
+          mapfile -t scope < <(scripts/vale_scope.sh)
+          .vale/bin/vale --minAlertLevel=suggestion --no-exit --output=line "${scope[@]}" > "$RUNNER_TEMP/vale.txt"
           {
             echo "### Vale: warnings and suggestions"
             echo
