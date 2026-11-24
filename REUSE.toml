@@ -188,11 +188,11 @@ precedence = "override"
 SPDX-FileCopyrightText = ["2023 Hunter Johnston <https://github.com/huntabyte>", "2023 CokaKoala <https://github.com/adriangonz97>", "2026 Björn Strausmann and Tesserarr contributors"]
 SPDX-License-Identifier = "MIT"
 
-# The JMAP mail transport is MIT on purpose, so it can be used in projects under
+# The JMAP client (strausmann/laravel-jmap-client) is MIT on purpose, so it can be used in projects under
 # any licence (CONTRIBUTING.md, "Licence headers"). Its own files carry the MIT
 # header; this block covers the package's data files (composer.json).
 [[annotations]]
-path = "packages/laravel-jmap-mailer/composer.json"
+path = "packages/laravel-jmap-client/composer.json"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
 SPDX-License-Identifier = "MIT"

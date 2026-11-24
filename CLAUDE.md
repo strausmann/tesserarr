@@ -71,7 +71,7 @@ If you are about to make a non-trivial change without having read those, stop an
 | Catalogue and grants | `app/Catalog/` |
 | Folder index | `app/Indexing/` |
 | Encryption and redaction of personal data | `app/Privacy/` |
-| Mail (PGP/MIME) | `app/Mail/`; the JMAP transport is the MIT package `packages/laravel-jmap-mailer/` |
+| Mail (PGP/MIME) | `app/Mail/`; the JMAP client is the MIT package `packages/laravel-jmap-client/` (`Strausmann\JmapClient\`) |
 | Live updates | `app/Broadcasting/` |
 | Console commands (`tesserarr:*`) | `app/Console/Commands/` |
 | Routes | `routes/web.php` (session), `routes/api_app.php` (`/api/v1/app`), `routes/api.php` (`/api/v1`, token) |

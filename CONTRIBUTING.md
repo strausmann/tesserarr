@@ -304,7 +304,7 @@ JavaScript; Markdown and HTML use an HTML comment, Svelte components too, CSS us
 - Files that cannot carry a comment (JSON, lockfiles, images) and third-party files are covered by
   [`REUSE.toml`](REUSE.toml). A new entry there needs a comment that says why. Third-party files keep their own licence and
   copyright: the files taken over from the Laravel Svelte starter kit and the shadcn-svelte components stay MIT.
-- `packages/laravel-jmap-mailer/` is licensed under **MIT**, not AGPL, so the package can be used in projects under any
+- `packages/laravel-jmap-client/` is licensed under **MIT**, not AGPL, so the package can be used in projects under any
   licence. Its files carry `SPDX-License-Identifier: MIT`; the package has its own `LICENSE`.
 - `reuse lint` must pass (CI job `REUSE — licensing of every file`, locally
   `docker run --rm -v "$PWD":/data fsfe/reuse:6.3.0-debian lint`).

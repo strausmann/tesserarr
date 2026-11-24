@@ -18,15 +18,15 @@ container.
 
 | Gate (job) | Labelyard counterpart | Setup time (h) | CI runtime (s) | Commit | False alarms until green | Difference to Labelyard |
 |---|---|---|---|---|---|---|
-| `PHP — lint, static analysis, test`: Pint | Ruff lint and format | 0.1 | 3 *(local)* | pending | 0 | Kit preset (`laravel`) used as is |
-| `PHP — lint, static analysis, test`: Larastan level 8 | Mypy strict | 0.3 | 9 *(local)* | pending | 0 | Raising level 7 to 8 found 10 nullable `$request->user()` calls in the kit controllers; fixed with `#[CurrentUser]` |
+| `PHP — lint, static analysis, test`: Pint | Ruff lint and format | 0.1 | 9 *(local)* | pending | 0 | Kit preset (`laravel`) used as is |
+| `PHP — lint, static analysis, test`: Larastan level 8 | Mypy strict | 0.3 | 16 *(local)* | pending | 0 | Raising level 7 to 8 found 10 nullable `$request->user()` calls in the kit controllers; fixed with `#[CurrentUser]` |
 | `PHP — lint, static analysis, test`: Pest with coverage | pytest `--cov-fail-under=80` | 0.2 | 32 *(local)* | pending | 0 | Codecov left out; total 87.6 % at the start |
 | `PHP — lint, static analysis, test`: coverage gate per directory | (none) | 0.8 | < 1 *(local)* | pending | 0 | Own script; starts with no path, each task adds its directory |
 | `PHP — lint, static analysis, test`: migrations, nothing pending | Alembic `check` | 0.1 | 2 *(local)* | pending | 0 | `migrate --pretend` must print "Nothing to migrate" |
 | `Licence gate (composer, npm)` | Dependency review + licence gate | 1.5 | 25 *(local)* | pending | 0 | Judges the whole locked tree (232 packages), not a diff; own script, same allow list |
-| `Semgrep` | CodeQL | 0.3 | 67 *(local)* | pending | 0 | CodeQL needs a Code Security licence on a private repository and has no PHP; 0 findings at the start |
+| `Semgrep` | CodeQL | 0.6 | 17–67 *(local, first run pulls the rules)* | pending | 0 | CodeQL needs a Code Security licence on a private repository and has no PHP. `p/php` alone missed `eval($_GET[...])` in the counter-test; `r/php.lang.security` and `p/phpcs-security-audit` added. 0 findings at the start |
 | `Privacy / secret scan` | Privacy / secret scan | 0.5 | 9 *(local, gitleaks)* | pending | 1 | Adds e-mail addresses and gitleaks over the branch history; the test fixtures moved from `10.0.0.x` to the documentation range |
-| `REUSE — licensing of every file` | REUSE lint | 1.5 | 6 *(local)* | pending | 0 | Kit files stay MIT and are listed one by one in `REUSE.toml` |
+| `REUSE — licensing of every file` | REUSE lint | 1.5 | 4 *(local)* | pending | 0 | Kit files stay MIT and are listed one by one in `REUSE.toml` |
 | `Prose` | Vale (`prose.yml`) | 0.4 | < 1 *(local)* | pending | 0 | No glossary yet; the error rule is German prose in English documents |
 | `commitlint` | commitlint | 0.2 | 3 *(local)* | pending | 0 | Same rules; config copied next to the installed packages |
 | `Docker — build smoke test` | Docker build smoke test | 0.2 | pending | pending | pending | Reuses the smoke scripts of task 1; no SBOM yet |

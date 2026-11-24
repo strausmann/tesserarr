@@ -110,4 +110,4 @@ documentation site.
 Tesserarr is licensed under the GNU Affero General Public License v3.0 or later
 (AGPL-3.0-or-later), see [LICENSE](LICENSE). Contributions need a signed
 [Contributor License Agreement](CLA.md), see [CONTRIBUTING.md](CONTRIBUTING.md).
-The JMAP mail transport in `packages/laravel-jmap-mailer/` is licensed under MIT.
+The JMAP client in `packages/laravel-jmap-client/` (`strausmann/laravel-jmap-client`) is licensed under MIT.
