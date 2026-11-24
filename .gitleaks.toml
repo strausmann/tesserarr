@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# gitleaks configuration for the "Privacy / secret scan" job (ci.yml), which
+# scans the history of the checked-out branch. Default rules plus project ones.
+title = "tesserarr gitleaks config"
+
+[extend]
+useDefault = true

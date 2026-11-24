@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Semgrep
+
+# Static analysis for exploitable bugs in PHP and TypeScript. Replaces CodeQL on
+# the private repository: Code Scanning and SARIF upload need a GitHub Code
+# Security licence there, CodeQL has no PHP. Findings fail the job (--error); the
+# SARIF report is kept as an artefact and summarised in the job summary.
+# No paths filter: this is a required check.
+
+on:
+  push:
+    branches: [main, 'milestone/**']
+  pull_request:
+    branches: [main, 'milestone/**']
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: semgrep scan
+        run: >-
+          semgrep scan --metrics=off --error
+          --config p/php --config p/javascript --config p/typescript --config p/secrets
+          --sarif-output=semgrep.sarif
+
+      - name: Summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          if not os.path.exists("semgrep.sarif"):
+              print("### Semgrep\n\nNo report was written.")
+              raise SystemExit
+          runs = json.load(open("semgrep.sarif"))["runs"]
+          results = [r for run in runs for r in run.get("results", [])]
+          print(f"### Semgrep: {len(results)} findings\n")
+          for r in results:
+              loc = r["locations"][0]["physicalLocation"]
+              print(f"- `{loc['artifactLocation']['uri']}:{loc['region']['startLine']}` {r['ruleId']}")
+          PY
+
+      - name: Keep the SARIF report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          if-no-files-found: ignore
+          retention-days: 14

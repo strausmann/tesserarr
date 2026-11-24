@@ -1,6 +1,11 @@
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 # Tesserarr
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/adr/)
 [![PHP](https://img.shields.io/badge/PHP-8.4-777BB4.svg?logo=php&logoColor=white)](https://www.php.net)
 [![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20.svg?logo=laravel&logoColor=white)](https://laravel.com)
@@ -102,4 +107,7 @@ documentation site.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Tesserarr is licensed under the GNU Affero General Public License v3.0 or later
+(AGPL-3.0-or-later), see [LICENSE](LICENSE). Contributions need a signed
+[Contributor License Agreement](CLA.md), see [CONTRIBUTING.md](CONTRIBUTING.md).
+The JMAP mail transport in `packages/laravel-jmap-mailer/` is licensed under MIT.

@@ -1,10 +1,13 @@
 <?php
 
+// SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 use Illuminate\Support\Facades\Route;
 use Tests\Support\EnvSnapshot;
 
 beforeEach(function () {
-    $this->env = (new EnvSnapshot)->set(['TESSERARR_TRUSTED_PROXIES' => '10.0.0.1']);
+    $this->env = (new EnvSnapshot)->set(['TESSERARR_TRUSTED_PROXIES' => '192.0.2.1']);
     $this->refreshApplication();
 
     $this->logFile = tempnam(sys_get_temp_dir(), 'access-log-');
@@ -24,7 +27,7 @@ function accessLogLines(string $file): array
 }
 
 it('logs the real client address in combined format', function () {
-    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])
+    $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
         ->withHeaders([
             'X-Forwarded-For' => '198.51.100.7',
             'Referer' => 'https://example.invalid/start',
@@ -41,15 +44,15 @@ it('logs the real client address in combined format', function () {
 });
 
 it('logs the peer address when the request does not come from a trusted proxy', function () {
-    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])
+    $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])
         ->withHeader('X-Forwarded-For', '198.51.100.7')
         ->get('/_probe/access-log');
 
-    expect(accessLogLines($this->logFile)[0])->toStartWith('10.0.0.2 - - [');
+    expect(accessLogLines($this->logFile)[0])->toStartWith('192.0.2.2 - - [');
 });
 
 it('redacts query string values', function () {
-    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])
+    $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])
         ->get('/_probe/access-log?token=s3cr3t&page=2');
 
     expect(accessLogLines($this->logFile)[0])
@@ -58,7 +61,7 @@ it('redacts query string values', function () {
 });
 
 it('escapes quotes and control characters so a header cannot forge a log line', function () {
-    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])
+    $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])
         ->withHeader('User-Agent', "evil\" 200 0 \"-\" \"x\nforged line")
         ->get('/_probe/access-log');
 
@@ -69,7 +72,7 @@ it('escapes quotes and control characters so a header cannot forge a log line', 
 });
 
 it('logs only scheme, host and path of the referer', function () {
-    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])
+    $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])
         ->withHeader('Referer', 'https://example.invalid:8443/invite/accept?token=s3cr3t#frag')
         ->get('/_probe/access-log');
 

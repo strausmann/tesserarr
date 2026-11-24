@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 # Local development stack: PostgreSQL plus the central instance as web,
 # worker and scheduler, all from the same image.
 #

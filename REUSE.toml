@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Licensing of the files that cannot or must not carry an inline SPDX header
+# (https://reuse.software/spec-3.3/). Every own file whose format allows a
+# comment carries the header inline instead (CONTRIBUTING.md, "Licence headers").
+# Paths are listed one by one, not with wide globs, so a new file without a
+# header fails `reuse lint` instead of being covered silently. Each block says
+# why its files are here. Paths that do not exist (yet) on a branch are ignored.
+# Third-party blocks use precedence = "override" so an own glob can never
+# relicense them.
+
+version = 1
+
+# Data formats without comment syntax: Composer and npm manifests and lockfiles,
+# and licence-policy.yml, which the licence gate parses as JSON.
+[[annotations]]
+path = ["composer.json", "composer.lock", "package.json", "package-lock.json", "licence-policy.yml"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Files taken over from the Laravel Svelte starter kit
+# (https://github.com/laravel/svelte-starter-kit, MIT, imported in commit 73baace).
+# They keep the kit's licence; changes made in Tesserarr are contributed under the
+# same licence. When a file is rewritten from scratch, remove it here and give it
+# the Tesserarr header.
+[[annotations]]
+path = [
+  "app/Concerns/PasswordValidationRules.php",
+  "app/Concerns/ProfileValidationRules.php",
+  "app/Http/Controllers/Controller.php",
+  "app/Http/Controllers/Settings/ProfileController.php",
+  "app/Http/Controllers/Settings/SecurityController.php",
+  "app/Http/Middleware/HandleAppearance.php",
+  "app/Http/Middleware/HandleInertiaRequests.php",
+  "app/Http/Requests/Settings/PasswordUpdateRequest.php",
+  "app/Http/Requests/Settings/ProfileDeleteRequest.php",
+  "app/Http/Requests/Settings/ProfileUpdateRequest.php",
+  "app/Http/Requests/Settings/TwoFactorAuthenticationRequest.php",
+  "app/Models/User.php",
+  "app/Providers/AppServiceProvider.php",
+  "app/Providers/FortifyServiceProvider.php",
+  "artisan",
+  "bootstrap/app.php",
+  "bootstrap/cache/.gitignore",
+  "bootstrap/providers.php",
+  "components.json",
+  "config/app.php",
+  "config/auth.php",
+  "config/cache.php",
+  "config/database.php",
+  "config/filesystems.php",
+  "config/fortify.php",
+  "config/inertia.php",
+  "config/logging.php",
+  "config/mail.php",
+  "config/queue.php",
+  "config/services.php",
+  "config/session.php",
+  "database/factories/UserFactory.php",
+  "database/.gitignore",
+  "database/migrations/0001_01_01_000000_create_users_table.php",
+  "database/migrations/0001_01_01_000001_create_cache_table.php",
+  "database/migrations/0001_01_01_000002_create_jobs_table.php",
+  "database/migrations/2024_01_01_000000_create_passkeys_table.php",
+  "database/migrations/2025_08_14_170933_add_two_factor_columns_to_users_table.php",
+  "database/seeders/DatabaseSeeder.php",
+  ".editorconfig",
+  ".env.example",
+  ".gitattributes",
+  ".gitignore",
+  ".npmrc",
+  "phpstan.neon",
+  "phpunit.xml",
+  "pint.json",
+  "public/apple-touch-icon.png",
+  "public/favicon.ico",
+  "public/favicon.svg",
+  "public/.htaccess",
+  "public/index.php",
+  "public/robots.txt",
+  "resources/css/app.css",
+  "resources/js/app.ts",
+  "resources/js/components/AlertError.svelte",
+  "resources/js/components/AppContent.svelte",
+  "resources/js/components/AppearanceTabs.svelte",
+  "resources/js/components/AppHeader.svelte",
+  "resources/js/components/AppHead.svelte",
+  "resources/js/components/AppLogoIcon.svelte",
+  "resources/js/components/AppLogo.svelte",
+  "resources/js/components/AppShell.svelte",
+  "resources/js/components/AppSidebarHeader.svelte",
+  "resources/js/components/AppSidebar.svelte",
+  "resources/js/components/Breadcrumbs.svelte",
+  "resources/js/components/DeleteUser.svelte",
+  "resources/js/components/Heading.svelte",
+  "resources/js/components/InputError.svelte",
+  "resources/js/components/ManagePasskeys.svelte",
+  "resources/js/components/ManageTwoFactor.svelte",
+  "resources/js/components/NavFooter.svelte",
+  "resources/js/components/NavMain.svelte",
+  "resources/js/components/NavUser.svelte",
+  "resources/js/components/PasskeyItem.svelte",
+  "resources/js/components/PasskeyRegister.svelte",
+  "resources/js/components/PasskeyVerify.svelte",
+  "resources/js/components/PasswordInput.svelte",
+  "resources/js/components/PlaceholderPattern.svelte",
+  "resources/js/components/TextLink.svelte",
+  "resources/js/components/TwoFactorRecoveryCodes.svelte",
+  "resources/js/components/TwoFactorSetupModal.svelte",
+  "resources/js/components/UserInfo.svelte",
+  "resources/js/components/UserMenuContent.svelte",
+  "resources/js/layouts/app/AppHeaderLayout.svelte",
+  "resources/js/layouts/app/AppSidebarLayout.svelte",
+  "resources/js/layouts/AppLayout.svelte",
+  "resources/js/layouts/auth/AuthCardLayout.svelte",
+  "resources/js/layouts/auth/AuthSimpleLayout.svelte",
+  "resources/js/layouts/auth/AuthSplitLayout.svelte",
+  "resources/js/layouts/AuthLayout.svelte",
+  "resources/js/layouts/settings/Layout.svelte",
+  "resources/js/lib/currentUrl.svelte.ts",
+  "resources/js/lib/flash-toast.ts",
+  "resources/js/lib/initials.ts",
+  "resources/js/lib/theme.svelte.ts",
+  "resources/js/lib/twoFactorAuth.svelte.ts",
+  "resources/js/lib/utils.ts",
+  "resources/js/pages/auth/ConfirmPassword.svelte",
+  "resources/js/pages/auth/Login.svelte",
+  "resources/js/pages/auth/TwoFactorChallenge.svelte",
+  "resources/js/pages/Dashboard.svelte",
+  "resources/js/pages/settings/Appearance.svelte",
+  "resources/js/pages/settings/Profile.svelte",
+  "resources/js/pages/settings/Security.svelte",
+  "resources/js/pages/Welcome.svelte",
+  "resources/js/types/auth.ts",
+  "resources/js/types/global.d.ts",
+  "resources/js/types/index.ts",
+  "resources/js/types/navigation.ts",
+  "resources/js/types/ui.ts",
+  "resources/views/app.blade.php",
+  "routes/console.php",
+  "routes/settings.php",
+  "routes/web.php",
+  "storage/app/.gitignore",
+  "storage/app/private/.gitignore",
+  "storage/app/public/.gitignore",
+  "storage/framework/cache/data/.gitignore",
+  "storage/framework/cache/.gitignore",
+  "storage/framework/cache/locks/.gitignore",
+  "storage/framework/.gitignore",
+  "storage/framework/sessions/.gitignore",
+  "storage/framework/testing/.gitignore",
+  "storage/framework/views/.gitignore",
+  "storage/logs/.gitignore",
+  "svelte.config.js",
+  "tests/Feature/Auth/AuthenticationTest.php",
+  "tests/Feature/Auth/PasswordConfirmationTest.php",
+  "tests/Feature/Auth/TwoFactorChallengeTest.php",
+  "tests/Feature/DashboardTest.php",
+  "tests/Feature/ExampleTest.php",
+  "tests/Feature/Settings/ProfileUpdateTest.php",
+  "tests/Feature/Settings/SecurityTest.php",
+  "tests/Pest.php",
+  "tests/TestCase.php",
+  "tests/Unit/ExampleTest.php",
+  "tsconfig.json",
+  "vite.config.ts",
+]
+precedence = "override"
+SPDX-FileCopyrightText = ["The laravel/svelte-starter-kit contributors", "2026 Björn Strausmann and Tesserarr contributors"]
+SPDX-License-Identifier = "MIT"
+
+# Configuration files published by Laravel packages (`artisan install:broadcasting`
+# copies them from laravel/framework and laravel/reverb, both MIT).
+[[annotations]]
+path = ["config/broadcasting.php", "config/reverb.php"]
+precedence = "override"
+SPDX-FileCopyrightText = ["Taylor Otwell", "2026 Björn Strausmann and Tesserarr contributors"]
+SPDX-License-Identifier = "MIT"
+
+# Interface components generated by the shadcn-svelte CLI
+# (https://github.com/huntabyte/shadcn-svelte, MIT). The CLI writes the whole
+# directory, so it is covered as one tree.
+[[annotations]]
+path = "resources/js/components/ui/**"
+precedence = "override"
+SPDX-FileCopyrightText = ["2023 Hunter Johnston <https://github.com/huntabyte>", "2023 CokaKoala <https://github.com/adriangonz97>", "2026 Björn Strausmann and Tesserarr contributors"]
+SPDX-License-Identifier = "MIT"
+
+# The JMAP mail transport is MIT on purpose, so it can be used in projects under
+# any licence (CONTRIBUTING.md, "Licence headers"). Its own files carry the MIT
+# header; this block covers the package's data files (composer.json).
+[[annotations]]
+path = "packages/laravel-jmap-mailer/composer.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
+SPDX-License-Identifier = "MIT"

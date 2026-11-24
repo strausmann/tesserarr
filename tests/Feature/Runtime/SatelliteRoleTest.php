@@ -1,5 +1,8 @@
 <?php
 
+// SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 use App\Runtime\SatelliteHasNoDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;

@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: CodeQL
+
+# Prepared, not active: Code Scanning on a private repository needs a GitHub Code
+# Security licence, and CodeQL has no PHP. Semgrep is the gate meanwhile
+# (semgrep.yml). The job runs once the repository is public; then add it to the
+# ruleset.
+
+on:
+  push:
+    branches: [main, 'milestone/**']
+  pull_request:
+    branches: [main, 'milestone/**']
+  schedule:
+    - cron: '30 3 * * 1'
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          category: /language:${{ matrix.language }}

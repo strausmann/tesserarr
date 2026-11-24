@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Prose
+
+# Vale (v3.26.0, installed by scripts/vale_setup.sh with a verified checksum) on
+# the English Markdown (scripts/vale_scope.sh). Rules: .vale.ini and .vale/.
+# Only errors fail the job (German prose in an English document); warnings are
+# reported in the job summary. No paths filter: this is a required check.
+
+on:
+  push:
+    branches: [main, 'milestone/**']
+  pull_request:
+    branches: [main, 'milestone/**']
+
+permissions:
+  contents: read
+
+jobs:
+  prose:
+    name: Prose
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Vale
+        run: scripts/vale_setup.sh
+
+      - name: Vale errors (fail the job)
+        run: scripts/vale_scope.sh | xargs --no-run-if-empty .vale/bin/vale --minAlertLevel=error
+
+      - name: Warnings and suggestions (reported only)
+        if: always()
+        run: |
+          scripts/vale_scope.sh | xargs --no-run-if-empty .vale/bin/vale --minAlertLevel=suggestion --no-exit --output=line > "$RUNNER_TEMP/vale.txt"
+          {
+            echo "### Vale: warnings and suggestions"
+            echo
+            echo "Reported only; the step above is the gate."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/vale.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
