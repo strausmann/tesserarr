@@ -1,6 +1,11 @@
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 # Tesserarr
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/adr/)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
 
@@ -58,4 +63,7 @@ documentation site.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Tesserarr is licensed under the GNU Affero General Public License v3.0 or later
+(AGPL-3.0-or-later), see [LICENSE](LICENSE). Contributions need a signed
+[Contributor License Agreement](CLA.md), see [CONTRIBUTING.md](CONTRIBUTING.md).
+The JMAP client in `packages/laravel-jmap-client/` (`strausmann/laravel-jmap-client`) is licensed under MIT.
