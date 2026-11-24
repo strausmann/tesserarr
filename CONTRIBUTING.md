@@ -174,7 +174,11 @@ composer validate --strict
 composer audit --locked --abandoned=fail
 ./vendor/bin/pest --coverage --min=80 --coverage-clover=clover.xml
 php scripts/coverage_gate.php clover.xml       # per-directory minimums, as listed in .github/workflows/ci.yml
-npm run types:check                            # svelte-check
+npm run types                                  # svelte-check
+npm run lint                                   # Oxlint (type-aware, warnings fail) and the formatter
+npm run test:coverage                          # Vitest; resources/js/lib at least 80 %
+npm run build
+scripts/e2e/run.sh                             # Playwright against the built image (see "Browser tests")
 ```
 
 | Check                               | Job in CI                                  |
@@ -217,6 +221,34 @@ input:
 - Every interface with an input gets a case in `e2e/keyboard.spec.ts`, in both modes: `resized` (layout viewport shrinks)
   and `covered` (the keyboard only covers the visual viewport). The case asserts that the field, its first option and
   the main buttons lie inside the visible area.
+
+### Browser tests
+
+`e2e/` holds the Playwright suite. It runs against the built image, as it ships, with PostgreSQL 17 next to it; the only
+difference is the `e2e` stage of `docker/Dockerfile`, which sets `APP_ENV=testing` and `TESSERARR_E2E_LOGIN=true` so that
+`/_testing/login/{role}` signs a test in. Everywhere else that route answers 404.
+
+```bash
+docker build -f docker/Dockerfile --target e2e -t tesserarr:e2e .
+npm ci
+scripts/e2e/run.sh tesserarr:e2e               # extra arguments go to `playwright test`
+```
+
+The script runs the suite in the official Playwright container (pinned by digest, the same version as `@playwright/test`
+in `package-lock.json`), so no browser is installed on the host.
+
+- **UI gate** (`e2e/ui-gate.spec.ts`, ADR-0006). Every view in `gatedViews` (`e2e/support/views.ts`) is rendered at 360,
+  768 and 1440 px and at 360 × 420 (keyboard open), each in the light and the dark theme. It fails on a console error, an
+  uncaught exception or a failed request (DNS, connection, abort; an HTTP error answer is not a failed request). It also
+  fails on horizontal scrolling, on a focused element without a visible ring after Tab and on any serious or critical axe
+  violation. Screenshots are attached to the report; nothing is compared against them.
+- **Artboards.** Each view names its artboard in the mockup canvas and lists what the artboard shows: headings, controls
+  (`role:name`, found with `getByRole`) and states (`empty`, `error`, `loading`, `filled`). Every state has a fixture in
+  `e2e/support/artboard.ts` that puts the view into it. A task that builds or changes a view adds the view, its artboard
+  and its states in the same pull request. A deliberate difference from the artboard is explained in the pull request.
+- **On-screen keyboard** (`e2e/keyboard.spec.ts`). Every dialog, search and combobox adds a case to `keyboardCases`; each
+  case runs in all four modes and uses `expectInSight` from `e2e/support/keyboard.ts`. A check on a real Android phone
+  with Chrome and an iPhone with Safari stays part of the release acceptance.
 
 ## Website
 
