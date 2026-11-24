@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# CODEOWNERS: who must approve a change
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# The ruleset on main and milestone/** requires a code owner's approval. The last
+# matching pattern wins.
+
+# Default: the maintainer owns everything.
+*                       @strausmann
+
+# Security-relevant code and configuration, listed explicitly so they stay owned
+# even if the default above is ever narrowed.
+/app/Authorization/     @strausmann
+/app/Identity/          @strausmann
+/app/Mfa/               @strausmann
+/app/Tokens/            @strausmann
+/app/Invitations/       @strausmann
+/app/Catalog/           @strausmann
+/config/                @strausmann
+/docker/                @strausmann
+/.github/               @strausmann
+/SECURITY.md            @strausmann
+/LICENSE                @strausmann
+/CLA.md                 @strausmann
+/licence-policy.yml     @strausmann
+/.releaserc.json        @strausmann
+/CONTRIBUTING.md        @strausmann
+/README.md              @strausmann
+/docs/dockerhub/        @strausmann
+
+# Dependency manifests and lockfiles have no code owner: Dependabot patch and
+# minor updates are approved and merged by dependabot-auto-merge.yml after CI
+# (including the licence gate) is green. Major updates are never merged
+# automatically. Updates to workflows (.github/) and the Docker base images
+# (docker/) stay owned.
+/composer.json
+/composer.lock
+/package.json
+/package-lock.json
