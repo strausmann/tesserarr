@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Models\User;
+use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\Worker\StateLeak;
+use Tests\Support\Worker\UserRequest;
 use Tests\TestCase;
 
 /*
@@ -58,4 +62,44 @@ function closedLocalPort(): int
     fclose($socket);
 
     return (int) substr($name, (int) strrpos($name, ':') + 1);
+}
+
+/**
+ * Two users one after the other in ONE application instance, without a boot
+ * in between, the way a FrankenPHP/Octane worker serves them. The second
+ * user, and a guest after them, must not see anything of the first user.
+ * Mandatory for every page and controller that loads user-specific data
+ * (CONTRIBUTING.md, "Worker-safe code").
+ *
+ * Each closure returns a fresh UserRequest: the user, the request and the
+ * strings only that user may see. $boot runs once on the booted worker
+ * application, for fixtures. Details: Tests\Support\Worker\StateLeak.
+ *
+ * @param  Closure(): UserRequest  $requestAsA
+ * @param  Closure(): UserRequest  $requestAsB
+ * @param  (Closure(Application): void)|null  $boot
+ */
+function assertNoStateLeakBetweenUsers(Closure $requestAsA, Closure $requestAsB, ?Closure $boot = null): void
+{
+    StateLeak::assertNone($requestAsA, $requestAsB, $boot);
+}
+
+/**
+ * A signed-in user for OneWorker that exists only in memory: the worker
+ * application has its own database connection, which cannot see rows a test
+ * wrote inside its transaction.
+ */
+function workerUser(string $name, int $id = 0): User
+{
+    $user = new User;
+    // Raw attributes: casting a date here would need a database connection.
+    $user->setRawAttributes([
+        'id' => $id !== 0 ? $id : crc32($name),
+        'name' => $name,
+        'email' => strtolower($name).'@example.org',
+        'email_verified_at' => '2026-01-01 00:00:00',
+    ], true);
+    $user->exists = true;
+
+    return $user;
 }
