@@ -121,7 +121,9 @@ LABEL org.opencontainers.image.title="Tesserarr" \
 # Debian 13 only ships 17, so the package comes from the PostgreSQL apt
 # repository (apt.postgresql.org, https://www.postgresql.org/download/linux/debian/).
 # Its signing key is pinned by checksum
-# (key B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC 4CF8).
+# (key B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC 4CF8). Source and key are
+# removed again after the install: the final image lists no third-party
+# repository, and a later apt-get in a derived stage does not use PGDG.
 #
 # The base image carries the compiler toolchain for phpize ($PHPIZE_DEPS) and
 # the C and kernel headers; the runtime needs none of it, and it holds most of
@@ -145,7 +147,7 @@ RUN curl --fail --silent --show-error --location --output /usr/share/keyrings/pg
         | grep -E '^(cpp|gcc|g\+\+|binutils|libbinutils|libgcc-[0-9]+-dev|libstdc\+\+-[0-9]+-dev|libasan|libcc1|libhwasan|libisl|libitm|liblsan|libmpc|libmpfr|libquadmath|libtsan|libubsan|libgomp|libatomic|libctf|libsframe|libjansson|libc-dev-bin|libcrypt-dev|m4$|patch$|pkgconf|rpcsvc-proto)' \
         | grep -vE '^gcc-[0-9]+-base') >/dev/null \
     && apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/pgdg.list /usr/share/keyrings/pgdg.asc
 
 # Production php.ini plus our overrides. zend.exception_ignore_args keeps
 # function arguments (addresses, tokens) out of every stack trace.
