@@ -566,11 +566,13 @@ def _published(pkg: str, version: str, fetch: Fetch, cache: dict[str, list[dict[
     return next((v for v in cache[url] if v.get("version") == version), None)
 
 
-# Text that does not change what Composer downloads or installs. Packagist
+# Text that does not change what Composer downloads or installs. `license` is
+# not one of them: the licence gate reads it from the lock (composer licenses
+# --locked), so it is compared like everything else. Packagist
 # writes some of them differently (keyword order, empty lists left out), so
 # they are not compared. Everything else is.
 DESCRIPTIVE_FIELDS = frozenset(
-    {"authors", "description", "funding", "homepage", "keywords", "license", "support", "time"}
+    {"authors", "description", "funding", "homepage", "keywords", "support", "time"}
 )
 # Composer posts the installed package list to notification-url; only
 # Packagist's own address is accepted (or none).
