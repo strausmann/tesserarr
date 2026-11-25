@@ -293,7 +293,7 @@ jobs:
       # Release guard and registry rules (scripts/test_*.py); standard library
       # only, pytest runs the unittest cases.
       - name: Install pytest
-        run: python3 -m pip install --user --no-cache-dir 'pytest==9.1.1'
+        run: python3 -m pip install --user --no-cache-dir 'pytest==9.2.0'
 
       - name: Python scripts self-test
         env:
