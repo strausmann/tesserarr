@@ -57,8 +57,36 @@ class NpmTest(unittest.TestCase):
         self.assertEqual(ls.npm_errors(npm_lock(**{"node_modules/a": npm_pkg()}), "package-lock.json"), [])
 
     def test_a_bundled_entry_needs_no_resolved(self) -> None:
-        lock = npm_lock(**{"node_modules/a/node_modules/b": {"version": "1", "inBundle": True}})
+        lock = npm_lock(**{"node_modules/a": {**npm_pkg(), "bundleDependencies": ["b"]}, "node_modules/a/node_modules/b": {"version": "1", "inBundle": True}})
         self.assertEqual(ls.npm_errors(lock, "package-lock.json"), [])
+
+    @staticmethod
+    def bundling_lock() -> dict[str, Any]:
+        # a bundles b; b depends on c, which sits inside a as well and is bundled
+        # with it although a does not name it (npm marks the whole closure).
+        return npm_lock(
+            **{
+                "node_modules/a": {**npm_pkg(), "bundleDependencies": ["b"]},
+                "node_modules/a/node_modules/b": {"version": "1.0.0", "inBundle": True, "dependencies": {"c": "^1"}},
+                "node_modules/a/node_modules/c": {"version": "1.0.0", "inBundle": True},
+                "node_modules/a/node_modules/e": {**npm_pkg("https://registry.npmjs.org/e/-/e-1.0.0.tgz")},
+            }
+        )
+
+    def test_bundling_follows_the_structure_not_the_flag(self) -> None:
+        self.assertEqual(ls.npm_errors(self.bundling_lock(), "x"), [])
+        self.assertEqual(ls.bundled_keys(self.bundling_lock()["packages"]), {"node_modules/a/node_modules/b", "node_modules/a/node_modules/c"})
+        cases = {
+            "flag without a bundling ancestor": ("node_modules/e", {**npm_pkg("https://registry.npmjs.org/e/-/e-1.0.0.tgz"), "inBundle": True}, "x: node_modules/e is marked inBundle, but no package above it bundles it"),
+            "flag together with resolved": ("node_modules/a/node_modules/c", {**npm_pkg("https://registry.npmjs.org/c/-/c-1.0.0.tgz"), "inBundle": True}, "x: node_modules/a/node_modules/c is bundled but has a resolved URL"),
+            "flag on a nested package a does not bundle": ("node_modules/a/node_modules/e", {"version": "1.0.0", "inBundle": True}, "x: node_modules/a/node_modules/e is marked inBundle, but no package above it bundles it"),
+            "bundled position without the flag": ("node_modules/a/node_modules/c", {"version": "1.0.0"}, "x: node_modules/a/node_modules/c is bundled by node_modules/a but not marked inBundle"),
+        }
+        for label, (key, entry, error) in cases.items():
+            with self.subTest(label):
+                lock = self.bundling_lock()
+                lock["packages"][key] = entry
+                self.assertIn(error, ls.npm_errors(lock, "x"))
 
     def test_a_scoped_package_and_an_alias_resolve_to_their_own_tarballs(self) -> None:
         lock = npm_lock(
@@ -567,13 +595,16 @@ class ConsumerTest(unittest.TestCase):
             "moved, copy below it": (nested, f"{nested}/node_modules/d", "3.0.23"),
             "another bundled version": (nested, f"{nested}/node_modules/d", "3.0.22"),
             "deeper, copy found in a parent": (deep, "node_modules/v/node_modules/d", "3.0.23"),
+            # inBundle is a field of the lock: set where nothing bundles, it hides nothing.
+            "consumer and copy flagged inBundle": (nested, f"{nested}/node_modules/d", "3.0.23"),
         }
         for label, (consumer, copy, version) in cases.items():
             with self.subTest(label):
+                flag = {"inBundle": True} if "flagged" in label else {}
                 head = self.moved_base()
                 del head["packages"]["node_modules/c"]
-                head["packages"][consumer] = {**npm_pkg(), "dependencies": {"d": "^3"}}
-                head["packages"][copy] = {**npm_pkg(), "version": version}
+                head["packages"][consumer] = {**npm_pkg(), "dependencies": {"d": "^3"}, **flag}
+                head["packages"][copy] = {**npm_pkg(), "version": version, **flag}
                 self.assertEqual(
                     ls.consumer_errors(self.moved_base(), head, "x", {"dependencies": {"v": "^1", "n": "^1", "m": "^1"}}),
                     [f"x: {consumer} now loads d {version}, below 3.0.24 that c loads in the base"],
@@ -581,10 +612,10 @@ class ConsumerTest(unittest.TestCase):
 
     def test_bundled_consumers_and_bundled_targets_of_the_base_do_not_count(self) -> None:
         cases = {
-            # A bundled c inside n loads n's own (not bundled) d 3.0.20.
-            "bundled consumer": ({"node_modules/n/node_modules/c": {"version": "1.0.0", "inBundle": True, "dependencies": {"d": "^3"}}, "node_modules/n/node_modules/d": {**npm_pkg(), "version": "3.0.20"}}, "3.0.20"),
+            # n (nested in q) bundles c; that c loads q's own d 3.0.20, outside the bundle.
+            "bundled consumer": ({"node_modules/q": {**npm_pkg(), "dependencies": {"n": "^1"}}, "node_modules/q/node_modules/n": {**npm_pkg(), "bundleDependencies": ["c"]}, "node_modules/q/node_modules/n/node_modules/c": {"version": "1.0.0", "inBundle": True, "dependencies": {"d": "^3"}}, "node_modules/q/node_modules/d": {**npm_pkg(), "version": "3.0.20"}}, "3.0.20"),
             # A c nested in n (not bundled) loads a d bundled in n.
-            "bundled target": ({"node_modules/n/node_modules/c": {**npm_pkg(), "dependencies": {"d": "^3"}}, "node_modules/n/node_modules/d": {"version": "3.0.20", "inBundle": True}}, "3.0.20"),
+            "bundled target": ({"node_modules/n": {**npm_pkg(), "dependencies": {"c": "^1"}, "bundleDependencies": ["d"]}, "node_modules/n/node_modules/c": {**npm_pkg(), "dependencies": {"d": "^3"}}, "node_modules/n/node_modules/d": {"version": "3.0.20", "inBundle": True}}, "3.0.20"),
         }
         for label, (extra, version) in cases.items():
             with self.subTest(label):
@@ -661,12 +692,17 @@ class VersionTest(unittest.TestCase):
         base = npm_lock(
             **{
                 "node_modules/d": {**npm_pkg(), "version": "3.0.24"},
+                "node_modules/n": {**npm_pkg(), "bundleDependencies": ["d"]},
                 "node_modules/n/node_modules/d": {"version": "3.0.23", "inBundle": True},
             }
         )
         head = json.loads(json.dumps(base))
         head["packages"]["node_modules/c/node_modules/d"] = {**npm_pkg(), "version": "3.0.23"}
         self.assertEqual(ls.version_errors(base, head, "x", npm=True), ["x: d 3.0.23 is new but below 3.0.24, the highest 3.x of the base"])
+        # The flag alone hides nothing: a downgraded copy marked inBundle outside any bundle still counts.
+        flagged = json.loads(json.dumps(base))
+        flagged["packages"]["node_modules/d"] = {**npm_pkg(), "version": "3.0.1", "inBundle": True}
+        self.assertEqual(ls.version_errors(base, flagged, "x", npm=True), ["x: d 3.x goes down below 3.0.24, the highest of the base"])
         # Bundled copies of the head are not compared either: they come with their parent.
         bundled = json.loads(json.dumps(base))
         bundled["packages"]["node_modules/n/node_modules/d"]["version"] = "3.0.21"
