@@ -46,7 +46,11 @@ path that names the package; `<ref>` is the `reference` of the dist. `source`
 is github.com/<owner>/<repo>[.git] with the same owner/repo as the dist and
 the same reference. A `path` package must point inside the repository. Both
 `packages` and `packages-dev` are checked, and together they must not be empty.
-A `path` dist does not end the check: a `source` next to it is checked too.
+A `path` package is accepted only when composer.json (owned, unlike the
+lock) declares a `path` repository with exactly that URL, the directory
+exists in the repository and its composer.json carries the package's name;
+it has no `source`. Any other `path` dist is refused, so a lockfile alone
+cannot turn a published package into an unchecked local one.
 
 A lockfile that does not exist on the branch is skipped; none at all fails, and
 so does a lockfile without packages.
@@ -204,6 +208,36 @@ _CODELOAD = re.compile(r"\A/([^/]+)/([^/]+)/(?:legacy\.zip|zip|legacy\.tar\.gz|t
 _GIT_SOURCE = re.compile(r"\A/([^/]+)/([^/]+?)(?:\.git)?\Z")
 
 
+def declared_path_repositories(manifest: dict[str, Any]) -> set[str]:
+    """URLs of the `path` repositories composer.json declares."""
+    repositories = manifest.get("repositories") or []
+    if isinstance(repositories, dict):
+        repositories = list(repositories.values())
+    return {
+        str(r.get("url"))
+        for r in repositories
+        if isinstance(r, dict) and r.get("type") == "path" and isinstance(r.get("url"), str)
+    }
+
+
+def _path_package_errors(package: dict[str, Any], name: str, root: Path | None, declared: set[str]) -> list[str]:
+    pkg = str(package.get("name"))
+    url = str((package.get("dist") or {}).get("url") or "")
+    if package.get("source") is not None:
+        return [f"{name}: {pkg} is a path package with a source"]
+    if not _inside(url) or url not in declared:
+        return [f"{name}: {pkg} dist path {url!r} is not a path repository declared in composer.json"]
+    if root is None:
+        return [f"{name}: {pkg} dist path {url!r} cannot be checked without the repository"]
+    try:
+        local = json.loads((root / url / "composer.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [f"{name}: {pkg} dist path {url!r} holds no composer.json"]
+    if local.get("name") != pkg:
+        return [f"{name}: {pkg} dist path {url!r} holds the package {local.get('name')!r}"]
+    return []
+
+
 def _composer_package(package: dict[str, Any], name: str) -> list[str]:
     pkg = str(package.get("name"))
     dist = package.get("dist") if isinstance(package.get("dist"), dict) else None
@@ -212,10 +246,8 @@ def _composer_package(package: dict[str, Any], name: str) -> list[str]:
         return [f"{name}: {pkg} has neither dist nor source"]
     repo_of: dict[str, tuple[str, str]] = {}
     if dist is not None and dist.get("type") == "path":
-        url = str(dist.get("url") or "")
-        if not _inside(url):
-            return [f"{name}: {pkg} dist path {url!r} lies outside the repository"]
-    elif dist is not None:
+        return []  # composer_errors checks path packages against composer.json
+    if dist is not None:
         url = str(dist.get("url") or "")
         parts = urlsplit(url)
         if not _https_on(url, COMPOSER_HOSTS) or parts.query or parts.fragment:
@@ -325,8 +357,11 @@ def packagist_errors(lock: dict[str, Any], name: str, fetch: Fetch = fetch_json)
     return errors
 
 
-def composer_errors(lock: dict[str, Any], name: str) -> list[str]:
+def composer_errors(
+    lock: dict[str, Any], name: str, manifest: dict[str, Any] | None = None, root: Path | None = None
+) -> list[str]:
     errors: list[str] = []
+    declared = declared_path_repositories(manifest or {})
     count = 0
     for section in ("packages", "packages-dev"):
         packages = lock.get(section, [])
@@ -338,7 +373,10 @@ def composer_errors(lock: dict[str, Any], name: str) -> list[str]:
                 errors.append(f"{name}: an entry of {section} is not an object")
                 continue
             count += 1
-            errors.extend(_composer_package(package, name))
+            if isinstance(package.get("dist"), dict) and package["dist"].get("type") == "path":
+                errors.extend(_path_package_errors(package, name, root, declared))
+            else:
+                errors.extend(_composer_package(package, name))
     if not count and not errors:
         errors.append(f"{name}: no packages")
     return errors
@@ -363,8 +401,8 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
                 continue
             try:
                 lock = json.loads(path.read_text(encoding="utf-8"))
-                manifest_path = path.parent / "package.json"
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if npm and manifest_path.exists() else {}
+                manifest_path = path.parent / ("package.json" if npm else "composer.json")
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
             except json.JSONDecodeError as exc:
                 errors.append(f"{rel}: not JSON ({exc})")
                 continue
@@ -372,7 +410,7 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
             if npm:
                 errors.extend(npm_errors(lock, rel, manifest))
             else:
-                found = composer_errors(lock, rel)
+                found = composer_errors(lock, rel, manifest, path.parent)
                 errors.extend(found)
                 if not found and not args.offline:
                     errors.extend(packagist_errors(lock, rel, fetch))
