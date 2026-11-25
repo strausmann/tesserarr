@@ -363,6 +363,11 @@ jobs:
       # Trivy docs, "Database Locations"), one repository per call. Trivy itself
       # falls back from one --db-repository to the next only on transient
       # errors (429, 5xx), not when a registry cannot be resolved or reached.
+      # Only a failed database download counts as "database unavailable": Trivy
+      # exits 1 on a fatal error (cmd/trivy/main.go, log.Fatal) and names this
+      # one "failed to download vulnerability DB" (pkg/db/db.go). Anything else
+      # fails the step: the Trivy image is pulled first without a fallback, so
+      # a wrong pin, a pull limit or a Docker error (exit 125 and up) is red.
       # When no round gets a database, the step reports "scan skipped: database
       # unavailable" and succeeds: a missing database is no finding and no
       # defect of the image. A failing scan with a database stays an error.
@@ -379,12 +384,20 @@ jobs:
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$cache":/root/.cache/trivy \
               "$TRIVY_IMAGE" "$@"
           }
+          docker pull --quiet "$TRIVY_IMAGE"
           db=false
           for round in 1 2 3; do
             for repo in $TRIVY_DB_REPOSITORIES; do
-              if trivy image --download-db-only --no-progress --db-repository "$repo"; then
+              rc=0
+              out="$(trivy image --download-db-only --no-progress --db-repository "$repo" 2>&1)" || rc=$?
+              printf '%s\n' "$out"
+              if [ "$rc" = 0 ]; then
                 db=true
                 break 2
+              fi
+              if [ "$rc" != 1 ] || ! grep -q 'failed to download vulnerability DB' <<< "$out"; then
+                echo "::error title=Trivy::Trivy failed with exit code $rc, not on the database download"
+                exit "$rc"
               fi
               echo "Trivy database from $repo, round $round of 3: failed"
             done
