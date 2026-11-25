@@ -5,7 +5,8 @@
 # Tesserarr container
 #
 # Stages:
-#   php-base  FrankenPHP (Caddy + PHP 8.4) with the extensions the app needs
+#   php-base  FrankenPHP (Caddy + PHP 8.5, Debian 13) with the extensions the
+#             app needs
 #   vendor    Composer production install, package discovery, Wayfinder files
 #   assets    Vite build of the web interface (Node only)
 #   test      php-base + pcov + dev dependencies, for the test suite in CI;
@@ -23,7 +24,7 @@
 # https://frankenphp.dev/docs/docker/
 # =============================================================================
 
-ARG FRANKENPHP_IMAGE=dunglas/frankenphp:1.13.4-php8.4-bookworm@sha256:81ba601edfb650d1df63f54dafdedc021d9d1fb37517850a4e93278ab19cced1
+ARG FRANKENPHP_IMAGE=dunglas/frankenphp:1.14.0-php8.5-trixie@sha256:b8e0919047838ea32771ef573d74df9a9128de1e908a999366e26c11bc6e7ba4
 ARG COMPOSER_IMAGE=composer:2.10.3@sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48
 ARG NODE_IMAGE=node:22.23.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9
 
@@ -32,7 +33,9 @@ FROM ${COMPOSER_IMAGE} AS composer
 # -----------------------------------------------------------------------------
 FROM ${FRANKENPHP_IMAGE} AS php-base
 
-RUN install-php-extensions pdo_pgsql intl pcntl opcache
+# OPcache is part of the PHP binary since 8.5 and always loaded, so it is not
+# installed here (php -m lists "Zend OPcache").
+RUN install-php-extensions pdo_pgsql intl pcntl
 
 WORKDIR /app
 
@@ -111,20 +114,18 @@ LABEL org.opencontainers.image.title="Tesserarr" \
       org.opencontainers.image.version="${TESSERARR_VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.base.name="docker.io/dunglas/frankenphp:1.13.4-php8.4-bookworm"
+      org.opencontainers.image.base.name="docker.io/dunglas/frankenphp:1.14.0-php8.5-trixie"
 
 # pg_dump for `artisan tesserarr:migrate` comes from postgresql-client-17, the
-# major version of the database: Debian bookworm only ships 15, so the package
-# comes from the PostgreSQL apt repository (apt.postgresql.org). Its signing
-# key is pinned by checksum (key B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC 4CF8).
-ARG PGDG_ASC_SHA256=0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76
-RUN curl --fail --silent --show-error --location --output /usr/share/keyrings/pgdg.asc \
-        https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    && echo "${PGDG_ASC_SHA256}  /usr/share/keyrings/pgdg.asc" | sha256sum --check --strict \
-    && echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
-        > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update \
+# major version of the database; Debian 13 ships it in its own archive.
+# The base image carries the compiler toolchain for phpize ($PHPIZE_DEPS) and
+# the C and kernel headers; the runtime needs none of it, and it holds most of
+# the image's CVE findings. libc-dev in $PHPIZE_DEPS is a virtual package, so
+# libc6-dev and linux-libc-dev are named explicitly. curl (health check) and
+# libcap2-bin (setcap below) stay.
+RUN apt-get update \
     && apt-get install -y --no-install-recommends tini postgresql-client-17 \
+    && apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Production php.ini plus our overrides. zend.exception_ignore_args keeps
