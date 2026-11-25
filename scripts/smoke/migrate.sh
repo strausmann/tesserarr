@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Smoke test of `artisan tesserarr:migrate` in a built image against
-# PostgreSQL 17, with the image's own pg_dump (postgresql-client-17).
+# PostgreSQL 18, with the image's own pg_dump (postgresql-client-18). pg_dump
+# must not be older than the server, so both majors are checked first.
 #
 #   scripts/smoke/migrate.sh [image]     default image: tesserarr:dev
 #
@@ -13,7 +14,7 @@
 set -euo pipefail
 
 image="${1:-tesserarr:dev}"
-postgres_image='postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994'
+postgres_image='postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b'
 run_id="tesserarr-smoke-migrate-$$"
 network="$run_id"
 backups="$(mktemp -d)"
@@ -55,6 +56,12 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 docker exec "$run_id-db" pg_isready -h 127.0.0.1 -U tesserarr -d tesserarr >/dev/null || fail "PostgreSQL did not start"
+
+server_major="$(docker exec "$run_id-db" psql -U tesserarr -d tesserarr -tAc 'show server_version_num' | cut -c1-2)"
+[ "$server_major" = 18 ] || fail "the database is PostgreSQL $server_major, expected 18"
+dump_major="$(docker run --rm --entrypoint pg_dump "$image" --version | sed -E 's/^pg_dump \(PostgreSQL\) ([0-9]+).*/\1/')"
+[ "$dump_major" = 18 ] || fail "the image's pg_dump is $dump_major, expected 18"
+echo "ok: PostgreSQL 18 server, pg_dump 18 in the image"
 
 app_key="base64:$(head -c 32 /dev/urandom | base64)"
 migrate() { # backup-dir [extra docker args...]

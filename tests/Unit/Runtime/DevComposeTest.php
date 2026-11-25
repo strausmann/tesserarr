@@ -40,3 +40,13 @@ it('declares a pull policy for every service', function () {
         expect($service)->toHaveKey('pull_policy', message: "service {$name} has no pull_policy");
     }
 });
+
+it('runs PostgreSQL 18, pinned by digest, with its data under /var/lib/postgresql', function () {
+    $postgres = devCompose()['services']['postgres'];
+
+    // From 18 on the image keeps PGDATA in /var/lib/postgresql/18/docker; a mount
+    // at /var/lib/postgresql/data would not hold the data.
+    expect($postgres['image'])->toMatch('/^postgres:18\.\d+-trixie@sha256:[0-9a-f]{64}$/')
+        ->and($postgres['pull_policy'])->toBe('missing')
+        ->and($postgres['volumes'])->toContain('./.dev/postgresql:/var/lib/postgresql');
+});
