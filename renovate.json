@@ -21,7 +21,7 @@
     "platformCommit": "enabled",
     "rangeStrategy": "update-lockfile",
     "minimumReleaseAge": "3 days",
-    "minimumReleaseAgeBehaviour": "timestamp-optional",
+    "minimumReleaseAgeBehaviour": "timestamp-required",
     "osvVulnerabilityAlerts": true,
     "vulnerabilityAlerts": {
         "labels": ["dependencies", "type:security"]
@@ -54,22 +54,32 @@
         },
         {
             "customType": "regex",
-            "description": "Tools pinned inside workflow steps: gitleaks (image), commitlint and the npm licence checker, pytest.",
+            "description": "Tools pinned inside workflow files: gitleaks and the Renovate image (by digest), commitlint and the npm licence checker, pytest.",
             "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.yml$/"],
             "matchStrings": [
                 "(?<depName>zricethezav/gitleaks):(?<currentValue>v[0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})",
+                "(?<depName>ghcr\\.io/renovatebot/renovate):(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
                 "(?<depName>@commitlint/(?:cli|config-conventional)|license-checker-rseidelsohn)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
                 "'(?<depName>pytest)==(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)'"
             ],
-            "datasourceTemplate": "{{#if (equals depName 'zricethezav/gitleaks')}}docker{{else if (equals depName 'pytest')}}pypi{{else}}npm{{/if}}"
+            "datasourceTemplate": "{{#if (equals depName 'pytest')}}pypi{{else if (equals depName 'zricethezav/gitleaks')}}docker{{else if (equals depName 'ghcr.io/renovatebot/renovate')}}docker{{else}}npm{{/if}}"
         }
     ],
     "packageRules": [
         {
-            "description": "Docker images: two days for a broken tag or digest to be replaced upstream.",
+            "description": "Docker images: two days. Docker Hub gives every tag a release timestamp (tag_last_pushed), so a re-pushed tag restarts the wait for its digest update (docs: key-concepts/minimum-release-age, 'digest updates').",
             "matchDatasources": ["docker"],
             "minimumReleaseAge": "2 days",
             "addLabels": ["docker"]
+        },
+        {
+            "description": "GHCR and MCR return no release timestamps; with timestamp-required their updates would never be offered. They sit in owned files (scripts, workflows) and never automerge.",
+            "matchDatasources": ["docker"],
+            "matchPackageNames": [
+                "/^ghcr\\.io\\//",
+                "/^mcr\\.microsoft\\.com\\//"
+            ],
+            "minimumReleaseAgeBehaviour": "timestamp-optional"
         },
         {
             "description": "Composer: three days, as npm.",

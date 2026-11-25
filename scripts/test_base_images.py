@@ -102,9 +102,26 @@ class AllowlistTest(unittest.TestCase):
             ],
         )
 
-    def test_another_registry_with_the_same_name_is_refused(self) -> None:
-        pins = bi.parse_pins(PINS.replace("composer:2.10.3", "ghcr.io/x/composer:2.10.3"))
-        self.assertEqual(len(bi.allowlist_errors(pins)), 1)
+    def test_another_registry_with_the_same_repository_path_is_refused(self) -> None:
+        # Same path as the allowed image, only the registry differs.
+        cases = {
+            "FRANKENPHP_IMAGE": ("dunglas/frankenphp:", "ghcr.io/dunglas/frankenphp:"),
+            "COMPOSER_IMAGE": ("composer:2.10.3", "evil.example/library/composer:2.10.3"),
+        }
+        for key, (old, new) in cases.items():
+            with self.subTest(registry=new):
+                pins = bi.parse_pins(PINS.replace(old, new))
+                errors = bi.allowlist_errors(pins)
+                self.assertEqual(len(errors), 1)
+                self.assertIn(f"{key} must be", errors[0])
+        node = bi.parse_pins(f"NODE_IMAGE=quay.io/library/node:22@{DIGEST_A}\n")
+        self.assertEqual(len(bi.allowlist_errors(node)), 1)
+
+    def test_the_short_docker_hub_forms_are_the_same_image(self) -> None:
+        for value in ("docker.io/composer", "index.docker.io/library/composer", "composer"):
+            with self.subTest(value=value):
+                pins = bi.parse_pins(f"COMPOSER_IMAGE={value}:2@{DIGEST_A}\n")
+                self.assertEqual(bi.allowlist_errors(pins), [])
 
     def test_the_explicit_docker_hub_form_is_the_same_image(self) -> None:
         pins = bi.parse_pins(PINS.replace("composer:2.10.3", "docker.io/library/composer:2.10.3"))

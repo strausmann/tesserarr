@@ -15,9 +15,10 @@ name: Renovate
 #   - the repository secret RENOVATE_TOKEN, or
 #   - Infisical: the repository secrets INFISICAL_CLIENT_ID and
 #     INFISICAL_CLIENT_SECRET (a machine identity with read access), and the
-#     repository variables INFISICAL_DOMAIN (the Infisical address) and
-#     RENOVATE_INFISICAL_PROJECT (the project slug); the secret RENOVATE_TOKEN
-#     sits at the root of environment prod of that project.
+#     repository variables INFISICAL_DOMAIN (the Infisical address),
+#     RENOVATE_INFISICAL_PROJECT (the project slug) and optionally
+#     RENOVATE_INFISICAL_PATH (the folder, default /); only the secret
+#     RENOVATE_TOKEN is read from that folder of environment prod.
 # Without either the run ends with a notice, not with an error.
 
 on:
@@ -73,9 +74,10 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Exports every secret at the root of the project as an environment
-      # variable of this job (masked in the log); Renovate's container only
-      # receives RENOVATE_* and LOG_LEVEL (renovatebot/github-action, env-regex).
+      # Reads the one secret RENOVATE_TOKEN (secret-name), without imports, and
+      # exports it as an environment variable of this job (masked in the log);
+      # Renovate's container only receives RENOVATE_* and LOG_LEVEL
+      # (renovatebot/github-action, env-regex).
       - name: Fetch the token from Infisical
         if: steps.source.outputs.source == 'infisical'
         uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
@@ -85,7 +87,9 @@ jobs:
           client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
           project-slug: ${{ vars.RENOVATE_INFISICAL_PROJECT }}
           env-slug: prod
-          secret-path: /
+          secret-path: ${{ vars.RENOVATE_INFISICAL_PATH || '/' }}
+          secret-name: RENOVATE_TOKEN
+          include-imports: false
           domain: ${{ vars.INFISICAL_DOMAIN }}
 
       - name: Check the token
@@ -109,6 +113,10 @@ jobs:
         uses: renovatebot/github-action@ebcbb513d07ead4d9c0c2139064301db05e84a3e # v46.3.15
         with:
           token: ${{ secrets.RENOVATE_TOKEN || env.RENOVATE_TOKEN }}
+          # The image that holds the token, pinned by version and digest
+          # (Renovate updates it, renovate.json); the action's default is the
+          # floating tag 44.
+          renovate-image: ghcr.io/renovatebot/renovate:44.262.1@sha256:9f571539ab94f0798d9439110ecf38c1e540920520794d87e111fbb97c322d50
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           # renovate.json is in the repository; no onboarding pull request.

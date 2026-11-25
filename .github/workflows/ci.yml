@@ -317,6 +317,20 @@ jobs:
       - name: Pins on the allowlist, Dockerfile without a second pin
         run: python3 scripts/base_images.py check
 
+  # The lockfiles have no code owner either: every locked download must come
+  # from the expected hosts (scripts/lockfile_sources.py). A required check.
+  lockfile-sources:
+    name: Lockfile sources
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: npm and Composer downloads on the allowed hosts
+        run: python3 scripts/lockfile_sources.py
+
   docker-build:
     name: Docker — build smoke test
     runs-on: ubuntu-24.04
