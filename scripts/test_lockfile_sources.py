@@ -67,7 +67,39 @@ class NpmTest(unittest.TestCase):
                 "node_modules/vite": {**npm_pkg("https://registry.npmjs.org/@v/core/-/core-1.0.0.tgz"), "name": "@v/core"},
             }
         )
-        self.assertEqual(ls.npm_errors(lock, "x"), [])
+        manifest = {"devDependencies": {"vite": "npm:@v/core@1.0.0"}}
+        self.assertEqual(ls.npm_errors(lock, "x", manifest), [])
+
+    def test_a_name_that_package_json_does_not_declare_as_an_alias_is_refused(self) -> None:
+        # The lockfile alone could rename any entry and point it at another package.
+        forged = {**npm_pkg("https://registry.npmjs.org/evil/-/evil-1.0.0.tgz"), "name": "evil"}
+        cases = {
+            "no manifest": (npm_lock(**{"node_modules/a": forged}), {}),
+            "alias for another package": (npm_lock(**{"node_modules/a": forged}), {"dependencies": {"a": "npm:other@1"}}),
+            "nested key": (npm_lock(**{"node_modules/x/node_modules/a": forged}), {"dependencies": {"a": "npm:evil@1"}}),
+        }
+        for case, (lock, manifest) in cases.items():
+            with self.subTest(case=case):
+                errors = ls.npm_errors(lock, "x", manifest)
+                self.assertEqual(len(errors), 1)
+                self.assertIn("alias package.json does not declare", errors[0])
+
+    def test_escapes_dot_segments_and_bad_versions_or_names_are_refused_first(self) -> None:
+        # Each case must be stopped by its own rule, before the path comparison
+        # (which would catch most of them as well); the message tells which.
+        cases = {
+            "%2e%2e": (npm_pkg("https://registry.npmjs.org/x/%2e%2e/a/-/a-1.0.0.tgz"), "node_modules/a", "dot segments"),
+            "dot-dot segment": (npm_pkg("https://registry.npmjs.org/x/../a/-/a-1.0.0.tgz"), "node_modules/a", "dot segments"),
+            "dot segment": (npm_pkg("https://registry.npmjs.org/./a/-/a-1.0.0.tgz"), "node_modules/a", "dot segments"),
+            "version with a slash": ({**npm_pkg(), "version": "1.0.0/../../evil"}, "node_modules/a", "not a semantic version"),
+            "version with a percent": ({**npm_pkg(), "version": "1.0.0%2f"}, "node_modules/a", "not a semantic version"),
+            "name with a percent": (npm_pkg(), "node_modules/a%2fb", "not an npm name"),
+        }
+        for case, (entry, key, reason) in cases.items():
+            with self.subTest(case=case):
+                errors = ls.npm_errors(npm_lock(**{key: entry}), "x")
+                self.assertEqual(len(errors), 1)
+                self.assertIn(reason, errors[0])
 
     def test_another_package_or_version_on_the_registry_is_refused(self) -> None:
         cases = {
@@ -182,6 +214,12 @@ class ComposerTest(unittest.TestCase):
         for name, pkg in cases.items():
             with self.subTest(case=name):
                 self.assertEqual(len(ls.composer_errors(self.lock(pkg), "composer.lock")), 1)
+
+    def test_a_path_dist_does_not_end_the_check_of_its_source(self) -> None:
+        good = {"name": "x/y", "dist": {"type": "path", "url": "packages/y"}, "source": {"type": "git", "url": "https://github.com/x/y.git", "reference": REF}}
+        foreign = {**good, "source": {"type": "git", "url": "https://evil.example/x/y.git", "reference": REF}}
+        self.assertEqual(ls.composer_errors(self.lock(good), "composer.lock"), [])
+        self.assertEqual(len(ls.composer_errors(self.lock(foreign), "composer.lock")), 1)
 
     def test_a_lock_without_packages_is_refused(self) -> None:
         self.assertEqual(len(ls.composer_errors(self.lock(), "composer.lock")), 1)
