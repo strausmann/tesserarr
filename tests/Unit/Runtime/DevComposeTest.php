@@ -50,3 +50,17 @@ it('runs PostgreSQL 18, pinned by digest, with its data under /var/lib/postgresq
         ->and($postgres['pull_policy'])->toBe('missing')
         ->and($postgres['volumes'])->toContain('./.dev/postgresql:/var/lib/postgresql');
 });
+
+it('passes every base image pin of docker/base-images.env to the build, and only those', function () {
+    $pins = [];
+    foreach (file(dirname(__DIR__, 3).'/docker/base-images.env', FILE_IGNORE_NEW_LINES) as $line) {
+        if (preg_match('/^([A-Z][A-Z0-9_]*_IMAGE)=/', $line, $match) === 1) {
+            $pins[$match[1]] = '${'.$match[1].'}';
+        }
+    }
+
+    // The values come from `--env-file docker/base-images.env`; the Dockerfile
+    // has no default for them (scripts/base_images.py checks that side).
+    expect($pins)->not->toBeEmpty()
+        ->and(devCompose()['services']['web']['build']['args'] ?? null)->toBe($pins);
+});

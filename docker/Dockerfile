@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# check=skip=InvalidDefaultArgInFrom
 # SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # =============================================================================
@@ -18,15 +19,20 @@
 #             The last stage, so a build without --target yields it.
 #
 # Build context is the repository root:
-#   docker build -f docker/Dockerfile -t tesserarr:dev .
+#   docker build $(python3 scripts/base_images.py cli) -f docker/Dockerfile -t tesserarr:dev .
 #
-# Base images are pinned by tag and digest.
+# Base images are pinned by tag and digest in docker/base-images.env, and only
+# there: these ARGs have no default, every build passes the pins as build
+# arguments (scripts/base_images.py), and Renovate updates the file. A build
+# without them stops with "base name should not be blank". That missing
+# default is what the build check InvalidDefaultArgInFrom warns about, so the
+# check directive above (line 2, a parser directive) skips it.
 # https://frankenphp.dev/docs/docker/
 # =============================================================================
 
-ARG FRANKENPHP_IMAGE=dunglas/frankenphp:1.14.0-php8.5-trixie@sha256:b8e0919047838ea32771ef573d74df9a9128de1e908a999366e26c11bc6e7ba4
-ARG COMPOSER_IMAGE=composer:2.10.3@sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48
-ARG NODE_IMAGE=node:22.23.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9
+ARG FRANKENPHP_IMAGE
+ARG COMPOSER_IMAGE
+ARG NODE_IMAGE
 
 FROM ${COMPOSER_IMAGE} AS composer
 
@@ -125,6 +131,12 @@ LABEL org.opencontainers.image.title="Tesserarr" \
 # removed again after the install: the final image lists no third-party
 # repository, and a later apt-get in a derived stage does not use PGDG.
 #
+# apt-get upgrade takes every package of the base image to the current Debian
+# security release: the weekly rebuild (image-rebuild.yml) relies on it to ship
+# fixed packages before the base image itself is rebuilt upstream. A published
+# build (docker-publish.yml) passes a new BUILD_DATE above, so it never takes
+# this layer from the cache; the rebuild builds without a cache at all.
+#
 # The base image carries the compiler toolchain for phpize ($PHPIZE_DEPS) and
 # the C and kernel headers; the runtime needs none of it, and it holds most of
 # the image's CVE findings. libc-dev in $PHPIZE_DEPS is a virtual package, so
@@ -141,6 +153,7 @@ RUN curl --fail --silent --show-error --location --output /usr/share/keyrings/pg
     && echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends tini postgresql-client-18 \
     && apt-mark auto $(dpkg-query --show --showformat '${db:Status-Abbrev} ${Package}\n' \
         | awk '/^ii/ {print $2}' \
