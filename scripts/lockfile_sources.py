@@ -78,11 +78,18 @@ Packagist); a `replace` or `provide` meets a requirement only for a package
 that is reached by its own name. Platform requirements (php, ext-*, lib-*,
 composer-*) are skipped. `notification-url` is absent or Packagist's own.
 
-With --base <ref> (CI on a pull request: the target branch), every version is
-compared with the lockfile of that ref: going down or changing the major
-fails, unless the manifest next to the lockfile changed too (then the code
-owner reviews it). Renovate only raises versions and never merges a major by
-itself.
+A Composer package sits in `packages` exactly when `require` reaches it, and
+in `packages-dev` when only `require-dev` does (`composer install --no-dev`
+and the licence gate read `packages` only).
+
+With --base <ref> (CI on a pull request: the target branch), versions are
+compared with the lockfile of that ref, unless the manifest next to the
+lockfile changed too (then the code owner reviews it): per package name and
+major, the highest version may not go down and no new copy may sit below it,
+and no major appears that the base did not hold; for npm also per consumer,
+the version each dependency resolves to by Node's lookup may not go down. A
+prerelease ranks below its release (13.43.0-RC1 < 13.43.0). Renovate only
+raises versions and never merges a major by itself.
 
 Known false alarms, all failing closed (CONTRIBUTING.md, "Dependency updates"):
 an npm alias that only a dependency (not package.json) declares, a Composer
@@ -614,23 +621,12 @@ def packagist_errors(lock: dict[str, Any], name: str, fetch: Fetch = fetch_json)
     return errors
 
 
-def composer_orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any]) -> list[str]:
-    """Packages that composer.json does not reach through the `require` of reached packages.
-
-    The `require`, `replace` and `provide` of each entry are compared with
-    Packagist (packagist_errors); the roots come from composer.json (owned).
-    A requirement that no package carries by name counts as met by `replace`
-    or `provide` only of a package that is reached on its own, so an added
-    package cannot stand in for a real one.
-    """
-    packages = [p for section in ("packages", "packages-dev") for p in lock.get(section) or [] if isinstance(p, dict)]
-    by_name = {str(p.get("name")).lower(): p for p in packages}
-    roots = list((manifest.get("require") or {})) + list((manifest.get("require-dev") or {}))
+def _composer_reach(by_name: dict[str, dict[str, Any]], roots: list[str]) -> set[str]:
+    """Names reached from `roots` through `require`; replace/provide only of reached packages."""
     reached: set[str] = set()
     pending = [r.lower() for r in roots]
     unmet: set[str] = set()
-    while pending or unmet:
-        progress = False
+    while True:
         while pending:
             wanted = pending.pop()
             if PLATFORM_RE.match(wanted) or wanted in reached:
@@ -638,33 +634,70 @@ def composer_orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, 
             if wanted in by_name:
                 reached.add(wanted)
                 pending.extend(r.lower() for r in (by_name[wanted].get("require") or {}))
-                progress = True
             else:
                 unmet.add(wanted)
-        for wanted in sorted(unmet):
-            for owner in sorted(reached):
-                package = by_name[owner]
-                if wanted in {k.lower() for k in (package.get("replace") or {})} | {
-                    k.lower() for k in (package.get("provide") or {})
-                }:
-                    unmet.discard(wanted)
-                    progress = True
-                    break
-        if not progress:
-            break
-    return [
-        f"{name}: {p.get('name')} is not required by composer.json or by any package it reaches"
-        for p in packages
-        if str(p.get("name")).lower() not in reached
-    ]
+        met = {
+            wanted
+            for wanted in unmet
+            for owner in reached
+            if wanted
+            in {k.lower() for k in (by_name[owner].get("replace") or {})}
+            | {k.lower() for k in (by_name[owner].get("provide") or {})}
+        }
+        if not met:
+            return reached
+        unmet -= met
 
 
-_VERSION_RE = re.compile(r"\Av?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?\Z")
+def composer_orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any]) -> list[str]:
+    """Packages composer.json does not reach, and packages in the wrong section.
+
+    The `require`, `replace` and `provide` of each entry are compared with
+    Packagist (packagist_errors); the roots come from composer.json (owned).
+    A requirement that no package carries by name counts as met by `replace`
+    or `provide` only of a package that is reached on its own, so an added
+    package cannot stand in for a real one. A package belongs in `packages`
+    exactly when `require` reaches it (`composer install --no-dev` installs
+    that section, and the licence gate reads it with --no-dev); one that only
+    `require-dev` reaches belongs in `packages-dev`.
+    """
+    sections = {
+        section: [p for p in lock.get(section) or [] if isinstance(p, dict)] for section in ("packages", "packages-dev")
+    }
+    by_name = {str(p.get("name")).lower(): p for packages in sections.values() for p in packages}
+    runtime = _composer_reach(by_name, list(manifest.get("require") or {}))
+    everything = _composer_reach(by_name, list(manifest.get("require") or {}) + list(manifest.get("require-dev") or {}))
+    errors: list[str] = []
+    for section, packages in sections.items():
+        for package in packages:
+            pkg = str(package.get("name")).lower()
+            if pkg not in everything:
+                errors.append(f"{name}: {package.get('name')} is not required by composer.json or by any package it reaches")
+            elif section == "packages" and pkg not in runtime:
+                errors.append(f"{name}: {package.get('name')} is only required for development but listed in packages")
+            elif section == "packages-dev" and pkg in runtime:
+                errors.append(f"{name}: {package.get('name')} is required at runtime but listed in packages-dev")
+    return errors
 
 
-def _numeric(version: str) -> tuple[int, ...] | None:
+_VERSION_RE = re.compile(r"\Av?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+.*)?\Z")
+
+
+def _numeric(version: str) -> tuple[Any, ...] | None:
+    """A sortable key: the numbers, then a release above every prerelease of the same numbers.
+
+    SemVer precedence: 13.43.0-RC1 < 13.43.0; prerelease identifiers compare
+    numerically where both are numbers, else as text (numbers first).
+    """
     match = _VERSION_RE.match(version)
-    return tuple(int(g or 0) for g in match.groups()) if match else None
+    if not match:
+        return None
+    numbers = tuple(int(g or 0) for g in match.groups()[:4])
+    pre = match.group(5)
+    if pre is None:
+        return (*numbers, 1, ())
+    parts = tuple((0, int(x), "") if x.isdigit() else (1, 0, x.lower()) for x in pre.split("."))
+    return (*numbers, 0, parts)
 
 
 def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, set[str]]:
@@ -723,6 +756,35 @@ def version_errors(base: dict[str, Any], head: dict[str, Any], name: str, npm: b
             for version, numbers in sorted(head_versions.items()):
                 if version not in base_versions and numbers < highest:
                     errors.append(f"{name}: {package} {version} is new but below {shown}, the highest {major}.x of the base")
+    return errors
+
+
+def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manifest: dict[str, Any]) -> list[str]:
+    """npm: per consumer, the version its dependency resolves to may not go down.
+
+    For every package that exists at the same place in base and head (and for
+    package.json itself), each dependency is resolved by Node's lookup in both
+    trees; a lower version in head is refused. This closes what the per-name
+    comparison cannot see: an older copy that exists somewhere in the base
+    (for instance bundled inside another package) placed under a consumer
+    that used to load a newer one.
+    """
+    old = {k: v for k, v in (base.get("packages") or {}).items() if k and isinstance(v, dict)}
+    new = {k: v for k, v in (head.get("packages") or {}).items() if k and isinstance(v, dict)}
+    consumers: list[tuple[str, list[str]]] = [
+        ("", [d for kind in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies") for d in (manifest.get(kind) or {})])
+    ]
+    consumers += [(key, _edges(new[key], False)) for key in sorted(set(old) & set(new)) if not new[key].get("inBundle")]
+    errors: list[str] = []
+    for location, dependencies in consumers:
+        for dependency in sorted(set(dependencies)):
+            before, after = _resolve(old, location, dependency), _resolve(new, location, dependency)
+            if before is None or after is None:
+                continue
+            was, now = str(old[before].get("version")), str(new[after].get("version"))
+            was_key, now_key = _numeric(was), _numeric(now)
+            if was_key is not None and now_key is not None and now_key < was_key:
+                errors.append(f"{name}: {location or 'package.json'} now loads {dependency} {now} instead of {was}")
     return errors
 
 
@@ -794,7 +856,10 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
                 current_manifest = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else None
                 if old_lock is not None and old_manifest == current_manifest:
                     try:
-                        errors.extend(version_errors(json.loads(old_lock), lock, rel, npm))
+                        base_lock = json.loads(old_lock)
+                        errors.extend(version_errors(base_lock, lock, rel, npm))
+                        if npm:
+                            errors.extend(consumer_errors(base_lock, lock, rel, manifest))
                     except json.JSONDecodeError:
                         errors.append(f"{rel}: the lockfile of {args.base} is not JSON")
                 elif old_lock is not None:

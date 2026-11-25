@@ -507,7 +507,62 @@ class ComposerGraphTest(unittest.TestCase):
         )
 
 
+class ComposerSectionTest(unittest.TestCase):
+    def pkg(self, name: str, **fields: Any) -> dict[str, Any]:
+        return {"name": name, "version": "1.0.0", **fields}
+
+    def manifest(self) -> dict[str, Any]:
+        return {"require": {"app/run": "^1"}, "require-dev": {"app/dev": "^1"}}
+
+    def test_runtime_in_packages_and_development_in_packages_dev_pass(self) -> None:
+        lock = {"packages": [self.pkg("app/run", require={"lib/shared": "^1"}), self.pkg("lib/shared")], "packages-dev": [self.pkg("app/dev", require={"lib/shared": "^1"})]}
+        self.assertEqual(ls.composer_orphan_errors(lock, "composer.lock", self.manifest()), [])
+
+    def test_a_development_package_in_packages_is_refused(self) -> None:
+        # composer install --no-dev would put it into the image.
+        lock = {"packages": [self.pkg("app/run"), self.pkg("app/dev")], "packages-dev": []}
+        self.assertEqual(ls.composer_orphan_errors(lock, "composer.lock", self.manifest()), ["composer.lock: app/dev is only required for development but listed in packages"])
+
+    def test_a_runtime_package_in_packages_dev_is_refused(self) -> None:
+        # It would drop out of the image and out of the licence gate (--no-dev).
+        lock = {"packages": [], "packages-dev": [self.pkg("app/run"), self.pkg("app/dev")]}
+        self.assertEqual(ls.composer_orphan_errors(lock, "composer.lock", self.manifest()), ["composer.lock: app/run is required at runtime but listed in packages-dev"])
+
+
+class ConsumerTest(unittest.TestCase):
+    def test_an_older_copy_under_a_consumer_is_refused(self) -> None:
+        # The older version exists in the base only as a bundled copy elsewhere.
+        base = npm_lock(
+            **{
+                "node_modules/c": {**npm_pkg(), "dependencies": {"d": "^3"}},
+                "node_modules/d": {**npm_pkg(), "version": "3.0.24"},
+                "node_modules/n/node_modules/d": {"version": "3.0.23", "inBundle": True},
+            }
+        )
+        head = json.loads(json.dumps(base))
+        head["packages"]["node_modules/c/node_modules/d"] = {**npm_pkg(), "version": "3.0.23"}
+        self.assertEqual(ls.version_errors(base, head, "x", npm=True), [])
+        self.assertEqual(ls.consumer_errors(base, head, "x", {"dependencies": {"c": "^1"}}), ["x: node_modules/c now loads d 3.0.23 instead of 3.0.24"])
+
+    def test_package_json_itself_is_a_consumer_and_raising_passes(self) -> None:
+        base = npm_lock(**{"node_modules/d": {**npm_pkg(), "version": "2.0.0"}})
+        up = npm_lock(**{"node_modules/d": {**npm_pkg(), "version": "2.1.0"}})
+        self.assertEqual(ls.consumer_errors(base, up, "x", {"dependencies": {"d": "^2"}}), [])
+        nested_old = npm_lock(**{"node_modules/d": {**npm_pkg(), "version": "2.0.0"}})
+        self.assertEqual(ls.consumer_errors(up, nested_old, "x", {"dependencies": {"d": "^2"}}), ["x: package.json now loads d 2.0.0 instead of 2.1.0"])
+
+
 class VersionTest(unittest.TestCase):
+    def test_a_prerelease_is_below_its_release(self) -> None:
+        base = {"packages": [{"name": "laravel/framework", "version": "v13.43.0"}]}
+        head = {"packages": [{"name": "laravel/framework", "version": "v13.43.0-RC1"}]}
+        self.assertEqual(ls.version_errors(base, head, "composer.lock", npm=False), ["composer.lock: laravel/framework 13.x goes down below v13.43.0, the highest of the base"])
+        npm_base = npm_lock(**{"node_modules/a": {**npm_pkg(), "version": "2.0.0"}})
+        npm_head = npm_lock(**{"node_modules/a": {**npm_pkg(), "version": "2.0.0-beta.2"}})
+        self.assertEqual(len(ls.version_errors(npm_base, npm_head, "x", npm=True)), 1)
+        self.assertLess(ls._numeric("1.0.0-beta.2"), ls._numeric("1.0.0-beta.11"))
+        self.assertLess(ls._numeric("1.0.0-alpha"), ls._numeric("1.0.0-beta"))
+
     def test_raising_a_version_passes(self) -> None:
         base = {"packages": [{"name": "a/b", "version": "v13.17.0"}]}
         head = {"packages": [{"name": "a/b", "version": "v13.43.0"}]}

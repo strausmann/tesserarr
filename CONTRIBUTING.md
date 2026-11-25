@@ -365,7 +365,8 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
   target branch unless the manifest changes as well. Versions are compared per package name, wherever the package
   sits in `node_modules`, and per major: within each major of the target branch the highest version may not go down
   and no new copy may sit below it, a major may only disappear for a higher one the branch already had, and a major
-  it did not hold fails.
+  it did not hold fails. For npm, the version each package loads for a dependency may not go down either, and a
+  Composer package belongs in `packages` exactly when `require` needs it.
 - **When `Lockfile sources` refuses a legitimate update.** The check fails closed on cases the project does not have
   today: an npm alias that only a dependency declares, a Composer metapackage, a `dev-*` version, a path repository
   declared with a glob. Such a pull request needs the maintainer: confirm the change by hand (the package, its source
@@ -376,7 +377,9 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
 - **Base images.** `docker/base-images.env` is the only place the base images are pinned (`NAME_IMAGE=repository:tag@sha256:<digest>`);
   `docker/Dockerfile` declares them as `ARG` without a default. The check `Base image pins` (`scripts/base_images.py
   check`, a required check) fails when the two differ, and when a pin names an image that is not on the allowlist in
-  `scripts/base_images.py`: without a code owner on the pin file, only a tag or a digest may change unreviewed.
+  `scripts/base_images.py`: without a code owner on the pin file, only a tag or a digest may change unreviewed. On a
+  pull request a pin may also not go down against the target branch or change its flavour (`-php8.5-trixie`), and
+  every pin that changes must carry the digest Docker Hub serves for its tag at that moment.
 
 ## Licence headers
 
