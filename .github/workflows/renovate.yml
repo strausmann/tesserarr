@@ -1,0 +1,114 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Renovate
+
+# Self-hosted Renovate: reads renovate.json from main and opens dependency
+# pull requests against main and every milestone/** branch. It merges an
+# update by itself (automerge) once every check is green, and only where the
+# changed files have no code owner (lockfiles, docker/base-images.env); see
+# CONTRIBUTING.md, "Dependencies and licences".
+#
+# Renovate acts as its own GitHub App (Renovate docs, "Running as a GitHub
+# App"), not as a user: the app is no bypass actor of the rulesets, so its
+# pull requests meet the code owner rule and the required checks like anyone
+# else's. Each run creates an installation token for this repository only
+# (actions/create-github-app-token) from the repository secrets
+# RENOVATE_APP_ID and RENOVATE_APP_PRIVATE_KEY. Pull requests opened with that
+# token start the CI workflows (GITHUB_TOKEN could not). The app
+# (strausmann-renovate, bot user ID 361120260) is meant for several
+# repositories of the account; the token is limited to this one. Without both
+# secrets the run ends with a notice, not with an error.
+
+on:
+  schedule:
+    - cron: '17 2 * * *'   # daily at 02:17 UTC, before the nightly release at 04:00
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: Renovate log level
+        type: choice
+        options: [info, debug]
+        default: info
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The token only ever runs from the default branch.
+    if: github.ref == 'refs/heads/main'
+    # Renovate works with its own token; this job's GITHUB_TOKEN reads nothing.
+    permissions: {}
+    steps:
+      - name: Check the app credentials
+        id: app
+        env:
+          APP_ID: ${{ secrets.RENOVATE_APP_ID }}
+          APP_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+        run: |
+          set -eu
+          if [ -n "$APP_ID" ] && [ -n "$APP_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Renovate::The secrets RENOVATE_APP_ID and RENOVATE_APP_PRIVATE_KEY are not both set. Renovate did not run."
+            {
+              echo "### Renovate did not run"
+              echo
+              echo "The GitHub App is not configured; see the comment at the top of .github/workflows/renovate.yml."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The token is limited to this repository of this owner (owner +
+      # repositories, see the action's README) and to the permissions Renovate
+      # needs (the app may hold more); it expires after an hour and is revoked
+      # when the job ends.
+      - name: Installation token of the Renovate app
+        id: token
+        if: steps.app.outputs.ready == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: read
+          permission-checks: write
+          permission-contents: write
+          permission-issues: write
+          permission-metadata: read
+          permission-pull-requests: write
+          permission-statuses: write
+          permission-vulnerability-alerts: read
+          permission-workflows: write
+
+      - name: Renovate
+        if: steps.app.outputs.ready == 'true'
+        uses: renovatebot/github-action@ebcbb513d07ead4d9c0c2139064301db05e84a3e # v46.3.15
+        with:
+          token: ${{ steps.token.outputs.token }}
+          # The image that holds the token, pinned by version and digest
+          # (Renovate updates it, renovate.json); the action's default is the
+          # floating tag 44.
+          renovate-image: ghcr.io/renovatebot/renovate:44.262.1@sha256:9f571539ab94f0798d9439110ecf38c1e540920520794d87e111fbb97c322d50
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # renovate.json is in the repository; no onboarding pull request.
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_REQUIRE_CONFIG: required
+          # The app's bot account, written out instead of detected: commits and
+          # pull requests carry this identity. The address is GitHub's noreply
+          # form <user ID>+<login>@users.noreply.github.com (GitHub docs,
+          # "Setting your commit email address"; Renovate docs, "Running as a
+          # GitHub App", gitAuthor).
+          RENOVATE_USERNAME: strausmann-renovate[bot]
+          RENOVATE_GIT_AUTHOR: strausmann-renovate[bot] <361120260+strausmann-renovate[bot]@users.noreply.github.com>
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}

@@ -1,0 +1,322 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Image rebuild
+
+# Weekly rebuild of the latest release, to ship fixed base packages without
+# waiting for a code change (CONTRIBUTING.md, "Releases", "Weekly rebuild").
+#
+#   scan     Builds the source of the highest published stable release (its
+#            tag) for linux/amd64 without the build cache, with the base image
+#            pins of main (docker/base-images.env: what a patch release built
+#            now would ship) and fresh Debian packages (apt-get upgrade in the
+#            image). Scans the rebuild and the published image of that release
+#            with Trivy, one database for both (scripts/trivy_report.py, the
+#            same Trivy and database logic as the CI report).
+#            The scan covers the source of the tag; the release that follows
+#            is built from main HEAD, which may also hold commits that are not
+#            released yet (by the branch model only non-releasing ones, or
+#            fixes that would release a patch anyway).
+#   release  Only when the rebuild has no more critical and no more high
+#            findings than the published image and fewer of both together:
+#            pushes the empty commit "fix(image): rebuild with updated base
+#            packages" to main with the deploy key (the only push to main the
+#            rulesets allow besides a pull request) and starts `Release`.
+#            semantic-release computes the next patch, which the release guard
+#            allows; the release builds, signs and publishes the images, the
+#            SBOM and the Docker Hub description as for any release.
+#   issue    Critical findings without a fixed version in the rebuild open one
+#            issue (label type:security), or are added to the open one; a
+#            finding already listed changes nothing.
+#
+# No release yet (only the baseline tag v0.0.0): the run ends with a notice.
+# Database unavailable: no comparison, no release, no issue; a notice.
+
+on:
+  schedule:
+    - cron: '43 2 * * 1'   # Mondays at 02:43 UTC, before the nightly release at 04:00
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-rebuild
+  cancel-in-progress: false
+
+env:
+  # The GHCR address is written out, as in docker-publish.yml.
+  PUBLISHED_IMAGE: ghcr.io/strausmann/tesserarr
+  REBUILT_IMAGE: tesserarr:rebuild
+
+jobs:
+  scan:
+    name: Rebuild and compare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: read   # pull the published image from GHCR
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      result: ${{ steps.compare.outputs.result }}
+      published_critical: ${{ steps.compare.outputs.published_critical }}
+      published_high: ${{ steps.compare.outputs.published_high }}
+      rebuilt_critical: ${{ steps.compare.outputs.rebuilt_critical }}
+      rebuilt_high: ${{ steps.compare.outputs.rebuilt_high }}
+    steps:
+      # Drafts and pre-releases are left out, as in release.yml (publish-release).
+      - name: Latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version=$(gh api --paginate "repos/${GH_REPO}/releases?per_page=100" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' \
+            | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' \
+            | sort -V | tail -n 1)
+          if [ -z "$version" ] || [ "$version" = 0.0.0 ]; then
+            echo "::notice title=Image rebuild::No published release yet; nothing to rebuild."
+            printf '### Image rebuild\n\nNo published release yet; nothing to rebuild.\n' >> "$GITHUB_STEP_SUMMARY"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.release.outputs.version != ''
+        with:
+          persist-credentials: false
+
+      - name: Check out the release
+        if: steps.release.outputs.version != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/v${{ steps.release.outputs.version }}
+          path: release
+          persist-credentials: false
+
+      - name: Base image pins of main
+        id: pins
+        if: steps.release.outputs.version != ''
+        run: |
+          python3 scripts/base_images.py --pins docker/base-images.env --dockerfile release/docker/Dockerfile \
+            github-output --name build-args
+
+      - name: Build metadata
+        id: meta
+        if: steps.release.outputs.version != ''
+        working-directory: release
+        run: |
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.release.outputs.version != ''
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # No cache: every layer, the apt-get upgrade of the runtime stage
+      # included, is built anew.
+      - name: Rebuild the release (linux/amd64, no cache)
+        if: steps.release.outputs.version != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: release
+          file: release/docker/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: false
+          load: true
+          no-cache: true
+          tags: ${{ env.REBUILT_IMAGE }}
+          build-args: |
+            ${{ steps.pins.outputs.build-args }}
+            TESSERARR_VERSION=${{ steps.release.outputs.version }}
+            REVISION=${{ steps.meta.outputs.revision }}
+            BUILD_DATE=${{ steps.meta.outputs.date }}
+
+      - name: Pull the published image (linux/amd64)
+        if: steps.release.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_PASSWORD" | docker login ghcr.io --username "$REGISTRY_USERNAME" --password-stdin
+          docker pull --quiet --platform linux/amd64 "${PUBLISHED_IMAGE}:${VERSION}"
+
+      - name: Compare (Trivy)
+        id: compare
+        if: steps.release.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          python3 scripts/trivy_report.py compare \
+            --published "${PUBLISHED_IMAGE}:${VERSION}" --rebuilt "$REBUILT_IMAGE" --out "$RUNNER_TEMP/trivy"
+
+      - name: Keep the reports
+        if: steps.compare.outputs.result == 'better' || steps.compare.outputs.result == 'not-better'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trivy-reports
+          path: ${{ runner.temp }}/trivy/
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: Patch release with the rebuilt image
+    needs: scan
+    if: needs.scan.outputs.result == 'better'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write   # start release.yml (workflow_dispatch)
+    steps:
+      # The outputs come from this repository's own script; they are checked
+      # anyway before they reach a commit message.
+      - name: Check the scan result
+        env:
+          VERSION: ${{ needs.scan.outputs.version }}
+          COUNTS: >-
+            ${{ needs.scan.outputs.published_critical }} ${{ needs.scan.outputs.published_high }}
+            ${{ needs.scan.outputs.rebuilt_critical }} ${{ needs.scan.outputs.rebuilt_high }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid version"; exit 1; }
+          [[ "$COUNTS" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] || { echo "::error::invalid counts"; exit 1; }
+
+      # Same handling as release.yml: the key goes from the secret into the
+      # agent through stdin, never to disk or a command line, and the host key
+      # of github.com is pinned. Nothing but git runs while the key is loaded.
+      - name: Load deploy key into ssh-agent
+        env:
+          SSH_KEY: ${{ secrets.SEMANTIC_RELEASE_SSH_KEY }}
+        run: |
+          set -eu
+          if [ -z "$SSH_KEY" ]; then
+            echo "::error::The repository secret SEMANTIC_RELEASE_SSH_KEY is missing; the rebuild cannot start a release"
+            exit 1
+          fi
+          eval "$(ssh-agent -s)" > /dev/null
+          printf '%s\n' "$SSH_KEY" | ssh-add - 2> /dev/null
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$RUNNER_TEMP/known_hosts"
+          {
+            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
+            echo "SSH_AGENT_PID=$SSH_AGENT_PID"
+            echo "GIT_SSH_COMMAND=ssh -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -o StrictHostKeyChecking=yes"
+          } >> "$GITHUB_ENV"
+
+      # The commit goes on top of main as it is now, not as it was when the
+      # scan started. A rebuild commit that is already on main since the
+      # release (an earlier run whose release did not happen yet) is not
+      # repeated; the release is only started again.
+      - name: Commit the rebuild to main
+        env:
+          VERSION: ${{ needs.scan.outputs.version }}
+          PUBLISHED_CRITICAL: ${{ needs.scan.outputs.published_critical }}
+          PUBLISHED_HIGH: ${{ needs.scan.outputs.published_high }}
+          REBUILT_CRITICAL: ${{ needs.scan.outputs.rebuilt_critical }}
+          REBUILT_HIGH: ${{ needs.scan.outputs.rebuilt_high }}
+        run: |
+          set -euo pipefail
+          subject='fix(image): rebuild with updated base packages'
+          remote="git@github.com:${GITHUB_REPOSITORY}.git"
+          git init --quiet repo
+          cd repo
+          git fetch --quiet --no-tags "$remote" "refs/heads/main:refs/remotes/origin/main" \
+            "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          if git log --format=%s "v${VERSION}..origin/main" | grep -qxF "$subject"; then
+            echo "::notice title=Image rebuild::A rebuild commit since v${VERSION} is already on main; starting the release only."
+            exit 0
+          fi
+          git checkout --quiet --detach origin/main
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit --quiet --allow-empty -F - <<EOF
+          ${subject}
+
+          The weekly rebuild of v${VERSION} has fewer critical and high findings
+          than the published image (Trivy, unique IDs): critical
+          ${PUBLISHED_CRITICAL} -> ${REBUILT_CRITICAL}, high ${PUBLISHED_HIGH} -> ${REBUILT_HIGH}.
+          EOF
+          git push --quiet "$remote" HEAD:refs/heads/main
+          echo "Pushed $(git rev-parse --short HEAD) to main" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop ssh-agent
+        if: always()
+        run: |
+          if [ -n "${SSH_AGENT_PID:-}" ]; then ssh-agent -k > /dev/null || true; fi
+
+      - name: Start the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run release.yml --ref main
+
+  issue:
+    name: Critical findings without a fix
+    needs: scan
+    if: needs.scan.outputs.result == 'better' || needs.scan.outputs.result == 'not-better'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Download the reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: trivy-reports
+          path: ${{ runner.temp }}/trivy
+
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.scan.outputs.version }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/issue"
+          mkdir -p "$work"
+          # Only the issues this workflow opens: label and exact title. The
+          # script still checks the marker in the body.
+          gh issue list --label type:security --state all --limit 100 \
+            --search 'in:title "Image: critical vulnerabilities without a fix"' \
+            --json number,state,body,createdAt > "$work/issues.json"
+          python3 scripts/trivy_report.py issue-plan --report "$RUNNER_TEMP/trivy/rebuilt.json" \
+            --issues "$work/issues.json" --version "$VERSION" > "$work/plan.json"
+          action=$(jq -r .action "$work/plan.json")
+          jq -r '.new | join(", ")' "$work/plan.json" > "$work/new.txt"
+          case "$action" in
+            none)
+              echo "No new critical finding without a fix." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            create)
+              jq -r .body "$work/plan.json" > "$work/body.md"
+              gh issue create --title "$(jq -r .title "$work/plan.json")" --label type:security --body-file "$work/body.md"
+              ;;
+            update)
+              number=$(jq -r .number "$work/plan.json")
+              [[ "$number" =~ ^[0-9]+$ ]] || { echo "::error::invalid issue number"; exit 1; }
+              jq -r .body "$work/plan.json" > "$work/body.md"
+              jq -r .comment "$work/plan.json" > "$work/comment.md"
+              gh issue edit "$number" --body-file "$work/body.md"
+              gh issue comment "$number" --body-file "$work/comment.md"
+              ;;
+            *)
+              echo "::error::unknown plan: ${action}"
+              exit 1
+              ;;
+          esac
+          if [ "$action" != none ]; then
+            printf 'Critical findings without a fix, new: %s\n' "$(cat "$work/new.txt")" >> "$GITHUB_STEP_SUMMARY"
+          fi

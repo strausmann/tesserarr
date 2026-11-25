@@ -4,9 +4,13 @@
 # Local development stack: PostgreSQL plus the central instance as web,
 # worker and scheduler, all from the same image.
 #
-#   cp .env.example .env && docker compose -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show
+#   cp .env.example .env
+#   docker compose --env-file docker/base-images.env -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show
 #   (put the key into .env as APP_KEY)
-#   docker compose -f compose.dev.yaml up --build
+#   docker compose --env-file docker/base-images.env -f compose.dev.yaml up --build
+#
+# --env-file docker/base-images.env supplies the base image pins the build
+# needs (docker/Dockerfile has no default for them, see CONTRIBUTING.md).
 #
 # The one-off "migrate" service backs up the database and creates the schema
 # first; web, worker and scheduler start only after it exited successfully.
@@ -78,6 +82,10 @@ services:
             context: .
             dockerfile: docker/Dockerfile
             target: runtime
+            args:
+                FRANKENPHP_IMAGE: ${FRANKENPHP_IMAGE}
+                COMPOSER_IMAGE: ${COMPOSER_IMAGE}
+                NODE_IMAGE: ${NODE_IMAGE}
         pull_policy: build
         command: ['web']
         ports:

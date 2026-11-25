@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Browser tests against the built image, as in CI and as in production.
 #
-#   docker build -f docker/Dockerfile --target e2e -t tesserarr:e2e .
+#   docker build $(python3 scripts/base_images.py cli) -f docker/Dockerfile --target e2e -t tesserarr:e2e .
 #   npm ci
 #   scripts/e2e/run.sh [image] [playwright arguments …]
 #
