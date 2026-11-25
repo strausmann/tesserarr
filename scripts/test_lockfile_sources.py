@@ -29,6 +29,9 @@ def npm_lock(**packages: dict[str, Any]) -> dict[str, Any]:
     return {"lockfileVersion": 3, "packages": {"": {"name": "root"}, **packages}}
 
 
+REF = "4da2233e72eeecd9be3b62e0dc2cc9ed8e2e31c2"
+
+
 def npm_pkg(url: str = "https://registry.npmjs.org/a/-/a-1.0.0.tgz", integrity: str = SHA) -> dict[str, Any]:
     entry: dict[str, Any] = {"version": "1.0.0", "resolved": url}
     if integrity:
@@ -36,11 +39,16 @@ def npm_pkg(url: str = "https://registry.npmjs.org/a/-/a-1.0.0.tgz", integrity: 
     return entry
 
 
-def composer_pkg(dist: str = "https://api.github.com/repos/a/b/zipball/abc", source: str = "https://github.com/a/b.git") -> dict[str, Any]:
+def composer_pkg(
+    dist: str = f"https://api.github.com/repos/A/B/zipball/{REF}",
+    source: str = "https://github.com/A/B.git",
+    dist_ref: str = REF,
+    source_ref: str = REF,
+) -> dict[str, Any]:
     return {
         "name": "a/b",
-        "dist": {"type": "zip", "url": dist},
-        "source": {"type": "git", "url": source},
+        "dist": {"type": "zip", "url": dist, "reference": dist_ref},
+        "source": {"type": "git", "url": source, "reference": source_ref},
     }
 
 
@@ -51,6 +59,48 @@ class NpmTest(unittest.TestCase):
     def test_bundled_and_linked_entries_need_no_resolved(self) -> None:
         lock = npm_lock(**{"node_modules/a/node_modules/b": {"version": "1", "inBundle": True}, "node_modules/c": {"link": True, "resolved": "packages/c"}})
         self.assertEqual(ls.npm_errors(lock, "package-lock.json"), [])
+
+    def test_a_scoped_package_and_an_alias_resolve_to_their_own_tarballs(self) -> None:
+        lock = npm_lock(
+            **{
+                "node_modules/@s/p": npm_pkg("https://registry.npmjs.org/@s/p/-/p-1.0.0.tgz"),
+                "node_modules/vite": {**npm_pkg("https://registry.npmjs.org/@v/core/-/core-1.0.0.tgz"), "name": "@v/core"},
+            }
+        )
+        self.assertEqual(ls.npm_errors(lock, "x"), [])
+
+    def test_another_package_or_version_on_the_registry_is_refused(self) -> None:
+        cases = {
+            "other package": "https://registry.npmjs.org/evil/-/evil-1.0.0.tgz",
+            "other version": "https://registry.npmjs.org/a/-/a-0.9.0.tgz",
+            "other scope": "https://registry.npmjs.org/@evil/a/-/a-1.0.0.tgz",
+            "query": "https://registry.npmjs.org/a/-/a-1.0.0.tgz?x=1",
+            "encoded slash": "https://registry.npmjs.org/evil%2F..%2Fa/-/a-1.0.0.tgz",
+        }
+        for name, url in cases.items():
+            with self.subTest(case=name):
+                errors = ls.npm_errors(npm_lock(**{"node_modules/a": npm_pkg(url)}), "x")
+                self.assertEqual(len(errors), 1)
+
+    def test_only_lockfile_versions_2_and_3_with_packages_are_read(self) -> None:
+        valid_but_v1 = {**npm_lock(**{"node_modules/a": npm_pkg()}), "lockfileVersion": 1}
+        for lock in (valid_but_v1, {"lockfileVersion": 3}, npm_lock()):
+            with self.subTest(lock=lock):
+                self.assertEqual(len(ls.npm_errors(lock, "x")), 1)
+
+    def test_the_legacy_tree_of_version_2_is_checked_too(self) -> None:
+        lock = {**npm_lock(**{"node_modules/a": npm_pkg()}), "lockfileVersion": 2}
+        lock["dependencies"] = {"a": {"version": "1.0.0", "resolved": "https://registry.npmjs.org/a/-/a-1.0.0.tgz", "integrity": SHA}}
+        self.assertEqual(ls.npm_errors(lock, "x"), [])
+        lock["dependencies"]["a"]["dependencies"] = {"b": {"version": "2.0.0", "resolved": "https://evil.example/b.tgz", "integrity": SHA}}
+        errors = ls.npm_errors(lock, "x")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("dependencies a > b", errors[0])
+
+    def test_a_legacy_tree_in_version_3_is_refused(self) -> None:
+        lock = npm_lock(**{"node_modules/a": npm_pkg()})
+        lock["dependencies"] = {}
+        self.assertEqual(len(ls.npm_errors(lock, "x")), 1)
 
     def test_a_foreign_resolved_url_is_refused(self) -> None:
         cases = {
@@ -88,10 +138,12 @@ class ComposerTest(unittest.TestCase):
         return {"packages": list(packages), "packages-dev": list(dev)}
 
     def test_github_and_packagist_pass(self) -> None:
+        packagist = composer_pkg(dist="https://repo.packagist.org/p2/a/b/b-1.0.zip")
+        del packagist["source"]
         lock = self.lock(
             composer_pkg(),
-            composer_pkg(dist="https://codeload.github.com/a/b/legacy.zip/abc"),
-            composer_pkg(dist="https://repo.packagist.org/files/a/b.zip"),
+            composer_pkg(dist=f"https://codeload.github.com/a/b/legacy.zip/{REF}"),
+            packagist,
         )
         self.assertEqual(ls.composer_errors(lock, "composer.lock"), [])
 
@@ -118,6 +170,22 @@ class ComposerTest(unittest.TestCase):
         outside = {"name": "x/z", "dist": {"type": "path", "url": "../../etc"}}
         self.assertEqual(ls.composer_errors(self.lock(inside), "composer.lock"), [])
         self.assertEqual(len(ls.composer_errors(self.lock(outside), "composer.lock")), 1)
+
+    def test_dist_and_source_must_be_the_same_repository_and_reference(self) -> None:
+        cases = {
+            "other repository": composer_pkg(dist=f"https://api.github.com/repos/evil/B/zipball/{REF}"),
+            "other source": composer_pkg(source="https://github.com/evil/B.git"),
+            "zipball of another ref": composer_pkg(dist="https://api.github.com/repos/A/B/zipball/" + "f" * 40),
+            "source at another ref": composer_pkg(source_ref="f" * 40),
+            "packagist path of another package": composer_pkg(dist="https://repo.packagist.org/p2/evil/x.zip"),
+        }
+        for name, pkg in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(len(ls.composer_errors(self.lock(pkg), "composer.lock")), 1)
+
+    def test_a_lock_without_packages_is_refused(self) -> None:
+        self.assertEqual(len(ls.composer_errors(self.lock(), "composer.lock")), 1)
+        self.assertEqual(len(ls.composer_errors({"packages": {}}, "composer.lock")), 1)
 
     def test_a_package_without_dist_and_source_is_refused(self) -> None:
         self.assertEqual(len(ls.composer_errors(self.lock({"name": "a/b"}), "composer.lock")), 1)
