@@ -11,16 +11,28 @@ the place a package comes from. CI job "Lockfile sources", a required check.
 
     python3 scripts/lockfile_sources.py [--root DIR]
 
-npm (package-lock.json, .github/release-tools/package-lock.json): every
-package resolves to https://registry.npmjs.org/ with a sha512 integrity; an
-entry without `resolved` must be bundled inside another package (`inBundle`)
-or a link to a path inside the repository.
+A host check alone is not enough: a changed lockfile could point an entry at
+ANOTHER package on the same host, with the matching integrity. So the URL must
+also name the package and version of its entry.
 
-Composer (composer.lock): every `dist` and `source` URL is https on
-github.com, api.github.com, codeload.github.com or repo.packagist.org; a
-`path` package must point inside the repository.
+npm (package-lock.json, .github/release-tools/package-lock.json, lockfile
+version 2 or 3): every package resolves to exactly
+https://registry.npmjs.org/<name>/-/<basename>-<version>.tgz (the name from
+the key after the last node_modules/, or `name` for an alias; for a scoped
+package /@scope/name/-/name-<version>.tgz) with a sha512 integrity. An entry
+without `resolved` must be bundled inside another package (`inBundle`) or a
+link to a path inside the repository. The legacy `dependencies` tree of
+version 2 is checked with the same rules.
 
-A lockfile that does not exist on the branch is skipped; none at all fails.
+Composer (composer.lock): `dist` is api.github.com/repos/<owner>/<repo>/zipball/<ref>,
+codeload.github.com/<owner>/<repo>/<format>/<ref> or a repo.packagist.org
+path that names the package; `<ref>` is the `reference` of the dist. `source`
+is github.com/<owner>/<repo>[.git] with the same owner/repo as the dist and
+the same reference. A `path` package must point inside the repository. Both
+`packages` and `packages-dev` are checked, and together they must not be empty.
+
+A lockfile that does not exist on the branch is skipped; none at all fails, and
+so does a lockfile without packages.
 Standard library only. Values from the lockfiles are data: printed, never run.
 """
 
@@ -29,9 +41,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 NPM_LOCKFILES = ("package-lock.json", ".github/release-tools/package-lock.json")
@@ -60,9 +73,58 @@ def _inside(path: str) -> bool:
     return bool(path) and not pure.is_absolute() and ".." not in pure.parts and ":" not in path
 
 
+def _npm_tarball_path(package: str, version: str) -> str:
+    return f"/{package}/-/{package.rsplit('/', 1)[-1]}-{version}.tgz"
+
+
+def _npm_entry(entry: dict[str, Any], package: str, key: str, name: str) -> list[str]:
+    resolved = entry.get("resolved")
+    version = str(entry.get("version") or "")
+    if not isinstance(resolved, str) or not _https_on(resolved, NPM_HOSTS):
+        return [f"{name}: {key} resolves to {resolved!r}, not https://registry.npmjs.org/"]
+    expected = _npm_tarball_path(package, version)
+    if unquote(urlsplit(resolved).path) != expected or urlsplit(resolved).query or urlsplit(resolved).fragment:
+        return [f"{name}: {key} resolves to {resolved!r}, not the tarball {expected} of its own package"]
+    if not str(entry.get("integrity") or "").startswith("sha512-"):
+        return [f"{name}: {key} has no sha512 integrity"]
+    return []
+
+
+_ALIAS_RE = re.compile(r"\Anpm:((?:@[^/@]+/)?[^/@]+)@(.+)\Z")
+
+
+def _legacy_errors(tree: dict[str, Any], name: str, trail: str) -> list[str]:
+    """The `dependencies` tree of lockfile version 2, with the rules of `packages`."""
+    errors: list[str] = []
+    for package, entry in tree.items():
+        if not isinstance(entry, dict):
+            continue
+        key = f"{trail}{package}"
+        if not entry.get("bundled") and entry.get("resolved") is not None:
+            version = str(entry.get("version") or "")
+            alias = _ALIAS_RE.match(version)
+            real, real_version = (alias.group(1), alias.group(2)) if alias else (package, version)
+            errors.extend(_npm_entry({**entry, "version": real_version}, real, f"dependencies {key}", name))
+        elif not entry.get("bundled"):
+            errors.append(f"{name}: dependencies {key} has no resolved URL and is not bundled")
+        errors.extend(_legacy_errors(entry.get("dependencies") or {}, name, f"{key} > "))
+    return errors
+
+
 def npm_errors(lock: dict[str, Any], name: str) -> list[str]:
     errors: list[str] = []
-    for key, entry in (lock.get("packages") or {}).items():
+    if lock.get("lockfileVersion") not in (2, 3):
+        return [f"{name}: lockfileVersion {lock.get('lockfileVersion')!r} is not 2 or 3"]
+    packages = lock.get("packages")
+    if not isinstance(packages, dict) or not [k for k in packages if k]:
+        return [f"{name}: no packages"]
+    legacy = lock.get("dependencies")
+    if legacy is not None:
+        if lock.get("lockfileVersion") != 2 or not isinstance(legacy, dict):
+            errors.append(f"{name}: a legacy dependencies tree belongs to lockfile version 2 only")
+        else:
+            errors.extend(_legacy_errors(legacy, name, ""))
+    for key, entry in packages.items():
         if key == "" or not isinstance(entry, dict):
             continue
         resolved = entry.get("resolved")
@@ -74,31 +136,75 @@ def npm_errors(lock: dict[str, Any], name: str) -> list[str]:
             if not entry.get("inBundle"):
                 errors.append(f"{name}: {key} has no resolved URL and is not bundled")
             continue
-        if not isinstance(resolved, str) or not _https_on(resolved, NPM_HOSTS):
-            errors.append(f"{name}: {key} resolves to {resolved!r}, not https://registry.npmjs.org/")
-            continue
-        if not str(entry.get("integrity") or "").startswith("sha512-"):
-            errors.append(f"{name}: {key} has no sha512 integrity")
+        package = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
+        errors.extend(_npm_entry(entry, package, key, name))
     return errors
+
+
+_API_ZIPBALL = re.compile(r"\A/repos/([^/]+)/([^/]+)/zipball/([^/]+)\Z")
+_CODELOAD = re.compile(r"\A/([^/]+)/([^/]+)/(?:legacy\.zip|zip|legacy\.tar\.gz|tar\.gz)/([^/]+)\Z")
+_GIT_SOURCE = re.compile(r"\A/([^/]+)/([^/]+?)(?:\.git)?\Z")
+
+
+def _composer_package(package: dict[str, Any], name: str) -> list[str]:
+    pkg = str(package.get("name"))
+    dist = package.get("dist") if isinstance(package.get("dist"), dict) else None
+    source = package.get("source") if isinstance(package.get("source"), dict) else None
+    if dist is None and source is None:
+        return [f"{name}: {pkg} has neither dist nor source"]
+    if dist is not None and dist.get("type") == "path":
+        url = str(dist.get("url") or "")
+        return [] if _inside(url) else [f"{name}: {pkg} dist path {url!r} lies outside the repository"]
+    repo_of: dict[str, tuple[str, str]] = {}
+    if dist is not None:
+        url = str(dist.get("url") or "")
+        parts = urlsplit(url)
+        if not _https_on(url, COMPOSER_HOSTS) or parts.query or parts.fragment:
+            return [f"{name}: {pkg} dist URL {url!r} is not on an allowed https host"]
+        path = unquote(parts.path)
+        github = _API_ZIPBALL.match(path) if parts.hostname == "api.github.com" else None
+        github = github or (_CODELOAD.match(path) if parts.hostname == "codeload.github.com" else None)
+        if github:
+            if github.group(3) != str(dist.get("reference") or ""):
+                return [f"{name}: {pkg} dist URL {url!r} does not name its reference"]
+            repo_of["dist"] = (github.group(1).lower(), github.group(2).lower())
+        elif parts.hostname == "repo.packagist.org":
+            segments = [s.lower() for s in path.split("/") if s]
+            vendor, _, short = pkg.lower().partition("/")
+            if not any(segments[i : i + 2] == [vendor, short] for i in range(len(segments) - 1)):
+                return [f"{name}: {pkg} dist URL {url!r} does not name the package"]
+        else:
+            return [f"{name}: {pkg} dist URL {url!r} is not a GitHub archive or a Packagist file"]
+    if source is not None:
+        url = str(source.get("url") or "")
+        parts = urlsplit(url)
+        match = _GIT_SOURCE.match(unquote(parts.path)) if parts.hostname == "github.com" else None
+        if not _https_on(url, frozenset({"github.com"})) or parts.query or parts.fragment or not match:
+            return [f"{name}: {pkg} source URL {url!r} is not a https://github.com/<owner>/<repo> repository"]
+        repo_of["source"] = (match.group(1).lower(), match.group(2).lower())
+        if dist is not None and str(source.get("reference") or "") != str(dist.get("reference") or ""):
+            return [f"{name}: {pkg} source and dist have different references"]
+    if len(repo_of) == 2 and repo_of["dist"] != repo_of["source"]:
+        return [f"{name}: {pkg} dist and source are different repositories"]
+    return []
 
 
 def composer_errors(lock: dict[str, Any], name: str) -> list[str]:
     errors: list[str] = []
+    count = 0
     for section in ("packages", "packages-dev"):
-        for package in lock.get(section) or []:
+        packages = lock.get(section, [])
+        if not isinstance(packages, list):
+            errors.append(f"{name}: {section} is not a list")
+            continue
+        for package in packages:
             if not isinstance(package, dict):
+                errors.append(f"{name}: an entry of {section} is not an object")
                 continue
-            pkg = str(package.get("name"))
-            places = [(k, package[k]) for k in ("dist", "source") if isinstance(package.get(k), dict)]
-            if not places:
-                errors.append(f"{name}: {pkg} has neither dist nor source")
-            for kind, place in places:
-                url = str(place.get("url") or "")
-                if place.get("type") == "path":
-                    if not _inside(url):
-                        errors.append(f"{name}: {pkg} {kind} path {url!r} lies outside the repository")
-                elif not _https_on(url, COMPOSER_HOSTS):
-                    errors.append(f"{name}: {pkg} {kind} URL {url!r} is not on an allowed https host")
+            count += 1
+            errors.extend(_composer_package(package, name))
+    if not count and not errors:
+        errors.append(f"{name}: no packages")
     return errors
 
 
