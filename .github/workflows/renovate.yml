@@ -14,10 +14,10 @@ name: Renovate
 # would never run on them and nothing could be merged. It comes from either
 #   - the repository secret RENOVATE_TOKEN, or
 #   - Infisical: the repository secrets INFISICAL_CLIENT_ID and
-#     INFISICAL_CLIENT_SECRET (a machine identity with read access) and the
-#     secret RENOVATE_TOKEN at the root of the Infisical project named by the
-#     repository variable RENOVATE_INFISICAL_PROJECT (default fileee-server-ci,
-#     environment prod), as in the other repositories of the maintainer.
+#     INFISICAL_CLIENT_SECRET (a machine identity with read access), and the
+#     repository variables INFISICAL_DOMAIN (the Infisical address) and
+#     RENOVATE_INFISICAL_PROJECT (the project slug); the secret RENOVATE_TOKEN
+#     sits at the root of environment prod of that project.
 # Without either the run ends with a notice, not with an error.
 
 on:
@@ -54,15 +54,18 @@ jobs:
           RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
           INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
           INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          INFISICAL_DOMAIN: ${{ vars.INFISICAL_DOMAIN }}
+          INFISICAL_PROJECT: ${{ vars.RENOVATE_INFISICAL_PROJECT }}
         run: |
           set -eu
           if [ -n "$RENOVATE_TOKEN" ]; then
             echo "source=secret" >> "$GITHUB_OUTPUT"
-          elif [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ]; then
+          elif [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ] \
+            && [ -n "$INFISICAL_DOMAIN" ] && [ -n "$INFISICAL_PROJECT" ]; then
             echo "source=infisical" >> "$GITHUB_OUTPUT"
           else
             echo "source=none" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Renovate::No token: set the secret RENOVATE_TOKEN, or INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET. Renovate did not run."
+            echo "::notice title=Renovate::No token: set the secret RENOVATE_TOKEN, or the Infisical secrets and variables listed in renovate.yml. Renovate did not run."
             {
               echo "### Renovate did not run"
               echo
@@ -80,10 +83,10 @@ jobs:
           method: universal
           client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
           client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          project-slug: ${{ vars.RENOVATE_INFISICAL_PROJECT || 'fileee-server-ci' }}
+          project-slug: ${{ vars.RENOVATE_INFISICAL_PROJECT }}
           env-slug: prod
           secret-path: /
-          domain: https://secretsmanager.strausmann.cloud
+          domain: ${{ vars.INFISICAL_DOMAIN }}
 
       - name: Check the token
         id: token
