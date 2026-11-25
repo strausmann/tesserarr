@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Worker-safe code (CONTRIBUTING.md, "Worker-safe code"): what keeps state
+# between requests of a worker (FrankenPHP worker mode, Laravel Octane) or
+# changes the process for every later request. Included by phpstan.neon; the
+# rule tests in tests/PHPStan/ run the same file against their fixtures by
+# overriding workerSafety.paths.
+#
+# An allowed exception is a "worker-safe: <reason>" comment for the own rules
+# and a @phpstan-ignore with the identifier and a reason for the
+# disallowed-calls entries.
+
+includes:
+    - ../../vendor/spaze/phpstan-disallowed-calls/extension.neon
+
+parametersSchema:
+    workerSafety: structure([
+        paths: listOf(string()),
+        namespaces: listOf(string()),
+        exempt: listOf(string()),
+        localeMiddleware: listOf(string()),
+    ])
+
+parameters:
+    filesRootDir: %rootDir%/../../..
+
+    # A @phpstan-ignore needs the reason in parentheses.
+    reportIgnoresWithoutComments: true
+
+    workerSafety:
+        # Code that runs inside a request.
+        paths:
+            - app/*
+            - routes/*
+        namespaces:
+            - App\
+        # One object per row, job or message by design; NoMutablePublicPropertyRule skips them.
+        exempt:
+            - Illuminate\Database\Eloquent\Model
+            - Illuminate\Contracts\Queue\ShouldQueue
+            - Illuminate\Mail\Mailable
+            - Illuminate\Notifications\Notification
+        # Where a middleware may set the locale per request.
+        localeMiddleware:
+            - app/Http/Middleware/*
+
+    disallowedFunctionCalls:
+        -
+            function:
+                - 'exit()'
+                - 'die()'
+            message: 'it ends the worker script and runs the shutdown functions of every request so far; throw an exception or return a response'
+            allowExceptIn: %workerSafety.paths%
+        -
+            function: 'register_shutdown_function()'
+            message: 'in worker mode it runs only when the worker stops, inside another request'
+            allowExceptIn: %workerSafety.paths%
+        -
+            function:
+                - 'setlocale()'
+                - 'umask()'
+                - 'chdir()'
+            message: 'it changes the whole process, also for requests running at the same time'
+            allowExceptIn: %workerSafety.paths%
+        -
+            function:
+                - 'putenv()'
+                - 'ini_set()'
+                - 'date_default_timezone_set()'
+                - 'set_error_handler()'
+                - 'set_exception_handler()'
+                - 'stream_context_set_default()'
+            message: 'it stays set for every later request of the worker'
+            allowExceptIn: %workerSafety.paths%
+        -
+            function: 'session_start()'
+            message: 'use the Laravel session'
+            allowExceptIn: %workerSafety.paths%
+        -
+            function: 'config()'
+            message: 'only reading by key is allowed: config([...]) writes the configuration at runtime and keeps the value for every later request; pass the value per call'
+            allowExceptIn: %workerSafety.paths%
+            allowParamsInAllowed:
+                -
+                    position: 1
+                    name: 'key'
+                    typeString: string
+
+    disallowedStaticCalls:
+        -
+            method:
+                - 'Illuminate\Support\Facades\Config::set()'
+                - 'Illuminate\Support\Facades\Config::prepend()'
+                - 'Illuminate\Support\Facades\Config::push()'
+                # With Larastan the facade call resolves to the repository behind it.
+                - 'Illuminate\Config\Repository::set()'
+                - 'Illuminate\Config\Repository::prepend()'
+                - 'Illuminate\Config\Repository::push()'
+            message: 'writing the configuration at runtime keeps the value for every later request; pass the value per call'
+            allowExceptIn: %workerSafety.paths%
+        -
+            method:
+                - 'Illuminate\Support\Facades\View::share()'
+                # With Larastan the facade call resolves to the factory behind it.
+                - 'Illuminate\View\Factory::share()'
+            message: 'the view factory lives as long as the worker, so the next request without this code sees the shared value; pass the data to the view or share it from Inertia per request'
+            allowExceptIn: %workerSafety.paths%
+        -
+            method: 'Illuminate\Support\Facades\App::setLocale()'
+            message: 'set the locale per request in a middleware, which Octane resets'
+            allowExceptIn: %workerSafety.paths%
+            allowIn: %workerSafety.localeMiddleware%
+
+    disallowedMethodCalls:
+        -
+            method:
+                - 'Illuminate\Contracts\Config\Repository::set()'
+                - 'Illuminate\Contracts\Config\Repository::prepend()'
+                - 'Illuminate\Contracts\Config\Repository::push()'
+            message: 'writing the configuration at runtime keeps the value for every later request; pass the value per call'
+            allowExceptIn: %workerSafety.paths%
+        -
+            method: 'Illuminate\Contracts\View\Factory::share()'
+            message: 'the view factory lives as long as the worker, so the next request without this code sees the shared value; pass the data to the view or share it from Inertia per request'
+            allowExceptIn: %workerSafety.paths%
+        -
+            method: 'Illuminate\Contracts\Foundation\Application::setLocale()'
+            message: 'set the locale per request in a middleware, which Octane resets'
+            allowExceptIn: %workerSafety.paths%
+            allowIn: %workerSafety.localeMiddleware%
+
+    disallowedSuperglobals:
+        -
+            superglobal:
+                - '$_ENV'
+                - '$GLOBALS'
+            message: 'FrankenPHP does not reset $_ENV between requests; read configuration through config(), request data through the Request'
+            allowExceptIn: %workerSafety.paths%
+
+services:
+    -
+        class: Tests\PHPStan\Rules\Worker\NoStaticPropertyRule
+        arguments:
+            namespaces: %workerSafety.namespaces%
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Tests\PHPStan\Rules\Worker\NoStaticVariableRule
+        arguments:
+            namespaces: %workerSafety.namespaces%
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Tests\PHPStan\Rules\Worker\NoMutablePublicPropertyRule
+        arguments:
+            namespaces: %workerSafety.namespaces%
+            exempt: %workerSafety.exempt%
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Tests\PHPStan\Rules\Worker\SingletonRequestStateRule
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Tests\PHPStan\Rules\Worker\SingletonAttributeRequestStateRule
+        tags:
+            - phpstan.rules.rule

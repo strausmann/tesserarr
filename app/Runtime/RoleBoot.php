@@ -65,6 +65,7 @@ final class RoleBoot
     {
         $config = $app->make('config');
 
+        // @phpstan-ignore disallowed.method (the role is fixed for the process: this runs once while the providers register, before the first request)
         $config->set([
             'cache.default' => 'array',
             'session.driver' => 'array',

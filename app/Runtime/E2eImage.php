@@ -24,7 +24,12 @@ final class E2eImage
 
     public const ROUTES = 'routes/testing.php';
 
-    /** Where marker and route file are looked up; null is the application root. */
+    /**
+     * Where marker and route file are looked up; null is the application root.
+     *
+     * worker-safe: a test seam set only by tests (useRoot()); every running
+     * instance keeps null and only reads it.
+     */
     private static ?string $root = null;
 
     /**

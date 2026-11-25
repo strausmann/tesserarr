@@ -71,6 +71,7 @@ final class PreMigrateBackups
 
         $path = $this->directory.'/'.$this->name($version);
         $partial = $path.'.partial';
+        // @phpstan-ignore disallowed.function (only tesserarr:migrate writes backups, a one-off command and never a request; the old mask is restored below)
         $previous = umask(0077);
         try {
             if (@touch($partial) === false) {
@@ -101,6 +102,7 @@ final class PreMigrateBackups
                 ? $failure
                 : new BackupFailed('the dump was aborted ('.$failure::class.')', previous: $failure);
         } finally {
+            // @phpstan-ignore disallowed.function (restores the mask of the one-off tesserarr:migrate run)
             umask($previous);
         }
 
