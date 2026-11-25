@@ -194,7 +194,8 @@ npm run test:coverage                          # Vitest; resources/js/lib at lea
 npm run build
 scripts/e2e/run.sh                             # Playwright against the built image (see "Browser tests")
 python -m pytest scripts/                      # release guard and registry rules (standard library only)
-python3 scripts/base_images.py check           # base image pins match docker/Dockerfile
+python3 scripts/base_images.py check           # base image pins on the allowlist, matching docker/Dockerfile
+python3 scripts/lockfile_sources.py            # locked downloads only from the expected hosts
 ```
 
 | Check                               | Job in CI                                  |
@@ -205,6 +206,7 @@ python3 scripts/base_images.py check           # base image pins match docker/Do
 | Licences of every dependency        | `Licence gate (composer, npm)`             |
 | Self-tests of the scripts           | `Scripts — self-tests`                     |
 | Base image pins and their allowlist | `Base image pins`                          |
+| Download hosts of the lockfiles     | `Lockfile sources`                         |
 | Version impact of a pull request    | `release-impact`                           |
 | Migrations from the last release    | `Upgrade — migrations from the last release` |
 | Static analysis for security bugs   | `Semgrep`                                  |
@@ -348,11 +350,16 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
   dependencies, lockfile updates, base images), `fix(deps):` for a security fix of a dependency in the image, which
   releases a patch, and `ci(deps):` for GitHub Actions and the release toolchain.
 - **Waiting time.** An update is offered once the release is three days old (npm, Composer, GitHub Actions) or two days
-  (Docker images); a security fix comes at once.
+  (Docker images); a security fix comes at once. A release without a timestamp is never treated as old enough. Docker Hub
+  dates every tag by its last push, so a re-pushed tag starts the wait again for its digest update. GHCR and MCR give no
+  timestamps; their updates are offered without a wait, but they only sit in owned files and never merge by themselves.
 - **Automerge.** Renovate merges an update by itself once every check of the pull request is green, but only when it
   changes nothing but files without a code owner (`.github/CODEOWNERS`): `composer.lock`, the `package-lock.json` files
-  and `docker/base-images.env`. `renovate.json` stays owned, because it decides what merges without review. That covers updates inside the declared range, lockfile maintenance
-  (Mondays) and patch, minor and digest updates of the base images. An update that changes `composer.json`,
+  and `docker/base-images.env`. `renovate.json` stays owned, because it decides what merges without review. That covers
+  updates inside the declared range, lockfile maintenance (Mondays) and patch, minor and digest updates of the base
+  images. The required check `Lockfile sources` (`scripts/lockfile_sources.py`) keeps every locked download on its
+  expected host: `https://registry.npmjs.org/` with a sha512 integrity for npm, GitHub or Packagist over https for
+  Composer. An update that changes `composer.json`,
   `package.json`, a workflow, a GitHub Action or `docker/Dockerfile` waits for the maintainer's review, as does every
   major update.
 - **Base images.** `docker/base-images.env` is the only place the base images are pinned (`NAME_IMAGE=repository:tag@sha256:<digest>`);
@@ -545,7 +552,8 @@ rule as the rest of the repository: no details of a real installation.
 | `RENOVATE_TOKEN`             | secret   | `Renovate`: the token Renovate acts with (see `.github/workflows/renovate.yml`); optional when it comes from Infisical |
 | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` | secret | `Renovate`: machine identity that reads `RENOVATE_TOKEN` from Infisical |
 | `INFISICAL_DOMAIN`           | variable | `Renovate`: address of the Infisical instance |
-| `RENOVATE_INFISICAL_PROJECT` | variable | `Renovate`: slug of the Infisical project that holds `RENOVATE_TOKEN` (environment `prod`, root folder) |
+| `RENOVATE_INFISICAL_PROJECT` | variable | `Renovate`: slug of the Infisical project that holds `RENOVATE_TOKEN` (environment `prod`) |
+| `RENOVATE_INFISICAL_PATH`    | variable | `Renovate`: folder of `RENOVATE_TOKEN` in that project (default `/`); only this one secret is read |
 
 ## Trademarks
 

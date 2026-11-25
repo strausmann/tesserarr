@@ -13,6 +13,10 @@ name: Image rebuild
 #            image). Scans the rebuild and the published image of that release
 #            with Trivy, one database for both (scripts/trivy_report.py, the
 #            same Trivy and database logic as the CI report).
+#            The scan covers the source of the tag; the release that follows
+#            is built from main HEAD, which may also hold commits that are not
+#            released yet (by the branch model only non-releasing ones, or
+#            fixes that would release a patch anyway).
 #   release  Only when the rebuild has no more critical and no more high
 #            findings than the published image and fewer of both together:
 #            pushes the empty commit "fix(image): rebuild with updated base
@@ -283,7 +287,10 @@ jobs:
           set -euo pipefail
           work="$RUNNER_TEMP/issue"
           mkdir -p "$work"
-          gh issue list --label type:security --state all --limit 200 \
+          # Only the issues this workflow opens: label and exact title. The
+          # script still checks the marker in the body.
+          gh issue list --label type:security --state all --limit 100 \
+            --search 'in:title "Image: critical vulnerabilities without a fix"' \
             --json number,state,body,createdAt > "$work/issues.json"
           python3 scripts/trivy_report.py issue-plan --report "$RUNNER_TEMP/trivy/rebuilt.json" \
             --issues "$work/issues.json" --version "$VERSION" > "$work/plan.json"
