@@ -35,9 +35,12 @@ Composer (composer.lock): GitHub URLs alone prove nothing about which package
 they hold, so every package that is not a `path` package is compared with
 its published metadata on Packagist (https://repo.packagist.org/p2/<name>.json,
 `~dev.json` for dev versions, the minified composer/2.0 format expanded):
-the locked version must exist there with the same dist URL and reference and
-the same source URL and reference. A Packagist that cannot be reached fails
-the check; it never passes unverified. Besides that, `dist` is api.github.com/repos/<owner>/<repo>/zipball/<ref>,
+the locked version must exist there, and every field of the locked entry
+except the descriptive ones (DESCRIPTIVE_FIELDS: description, keywords,
+authors, ...) must equal the published one exactly: the whole `dist` and
+`source` objects (so no `mirrors`), `bin`, `autoload`, `extra`, `type`,
+`require` and any key Packagist does not have (so no `transport-options`). A
+Packagist that cannot be reached fails the check; it never passes unverified. Besides that, `dist` is api.github.com/repos/<owner>/<repo>/zipball/<ref>,
 codeload.github.com/<owner>/<repo>/<format>/<ref> or a repo.packagist.org
 path that names the package; `<ref>` is the `reference` of the dist. `source`
 is github.com/<owner>/<repo>[.git] with the same owner/repo as the dist and
@@ -284,8 +287,17 @@ def _published(pkg: str, version: str, fetch: Fetch, cache: dict[str, list[dict[
     return next((v for v in cache[url] if v.get("version") == version), None)
 
 
+# Text that does not change what Composer downloads or installs. Packagist
+# writes some of them differently (keyword order, empty lists left out), so
+# they are not compared. Everything else is.
+DESCRIPTIVE_FIELDS = frozenset(
+    {"authors", "description", "funding", "homepage", "keywords", "license", "notification-url", "support", "time"}
+)
+PACKAGIST_ONLY_FIELDS = frozenset({"published-time", "version_normalized"})
+
+
 def packagist_errors(lock: dict[str, Any], name: str, fetch: Fetch = fetch_json) -> list[str]:
-    """Every non-path package as Packagist publishes it: same version, dist and source."""
+    """Every non-path package exactly as Packagist publishes it, but for descriptive text."""
     errors: list[str] = []
     cache: dict[str, list[dict[str, Any]]] = {}
     for section in ("packages", "packages-dev"):
@@ -307,12 +319,9 @@ def packagist_errors(lock: dict[str, Any], name: str, fetch: Fetch = fetch_json)
             if published is None:
                 errors.append(f"{name}: {pkg} {version} is not published on Packagist")
                 continue
-            for kind in ("dist", "source"):
-                mine = package.get(kind) if isinstance(package.get(kind), dict) else {}
-                theirs = published.get(kind) if isinstance(published.get(kind), dict) else {}
-                for field in ("url", "reference"):
-                    if str(mine.get(field) or "") != str(theirs.get(field) or ""):
-                        errors.append(f"{name}: {pkg} {version} {kind} {field} differs from Packagist")
+            for field in sorted((set(package) | set(published)) - DESCRIPTIVE_FIELDS - PACKAGIST_ONLY_FIELDS):
+                if package.get(field) != published.get(field):
+                    errors.append(f"{name}: {pkg} {version} {field} differs from Packagist")
     return errors
 
 

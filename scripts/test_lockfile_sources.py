@@ -269,13 +269,30 @@ class PackagistTest(unittest.TestCase):
         forged = {**self.PKG, "dist": {**self.PKG["dist"], "url": f"https://api.github.com/repos/evil/B/zipball/{REF}"}, "source": {**self.PKG["source"], "url": "https://github.com/evil/B.git"}}
         self.assertEqual(ls.composer_errors({"packages": [forged]}, "composer.lock"), [])
         errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
-        self.assertEqual(len(errors), 2)
-        self.assertTrue(all("differs from Packagist" in e for e in errors))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 dist differs from Packagist", "composer.lock: a/b v1.2.0 source differs from Packagist"])
 
     def test_a_reference_that_packagist_does_not_publish_is_refused(self) -> None:
         forged = {**self.PKG, "dist": {**self.PKG["dist"], "reference": "e" * 40}}
         errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
-        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 dist reference differs from Packagist"])
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 dist differs from Packagist"])
+
+    def test_a_mirror_in_dist_is_refused(self) -> None:
+        forged = {**self.PKG, "dist": {**self.PKG["dist"], "mirrors": [{"url": "https://evil.invalid/%package%.zip", "preferred": True}]}}
+        errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 dist differs from Packagist"])
+
+    def test_transport_options_on_a_published_package_are_refused(self) -> None:
+        forged = {**self.PKG, "transport-options": {"http": {"proxy": "tcp://evil.invalid:8080"}}}
+        errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 transport-options differs from Packagist"])
+
+    def test_install_fields_must_match_but_descriptive_text_may_differ(self) -> None:
+        published = self.metadata(bin=["bin/b"], keywords=["x", "y"])
+        same = {**self.PKG, "bin": ["bin/b"], "keywords": ["y"], "description": "other words"}
+        self.assertEqual(ls.packagist_errors({"packages": [same]}, "composer.lock", self.fetch_from(published)), [])
+        forged = {**same, "autoload": {"files": ["vendor/evil/x.php"]}}
+        errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(published))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 autoload differs from Packagist"])
 
     def test_an_unpublished_version_is_refused(self) -> None:
         errors = ls.packagist_errors({"packages": [{**self.PKG, "version": "v9.9.9"}]}, "composer.lock", self.fetch_from(self.metadata()))
