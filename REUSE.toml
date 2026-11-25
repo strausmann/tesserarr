@@ -13,10 +13,10 @@
 version = 1
 
 # Data formats without comment syntax: Composer and npm manifests and lockfiles,
-# licence-policy.yml, which the licence gate parses as JSON, and
+# licence-policy.yml, which the licence gate parses as JSON, renovate.json and
 # tsconfig.node.json (REUSE reads no comments in a .json file).
 [[annotations]]
-path = ["composer.json", "composer.lock", "package.json", "package-lock.json", "licence-policy.yml", "tsconfig.node.json"]
+path = ["composer.json", "composer.lock", "package.json", "package-lock.json", "licence-policy.yml", "renovate.json", "tsconfig.node.json"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
