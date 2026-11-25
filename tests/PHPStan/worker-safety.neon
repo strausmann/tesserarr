@@ -143,12 +143,14 @@ services:
         class: Tests\PHPStan\Rules\Worker\NoStaticPropertyRule
         arguments:
             namespaces: %workerSafety.namespaces%
+            paths: %workerSafety.paths%
         tags:
             - phpstan.rules.rule
     -
         class: Tests\PHPStan\Rules\Worker\NoStaticVariableRule
         arguments:
             namespaces: %workerSafety.namespaces%
+            paths: %workerSafety.paths%
         tags:
             - phpstan.rules.rule
     -
@@ -156,6 +158,7 @@ services:
         arguments:
             namespaces: %workerSafety.namespaces%
             exempt: %workerSafety.exempt%
+            paths: %workerSafety.paths%
         tags:
             - phpstan.rules.rule
     -

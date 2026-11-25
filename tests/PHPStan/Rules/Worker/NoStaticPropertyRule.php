@@ -25,8 +25,12 @@ final class NoStaticPropertyRule implements Rule
 {
     /**
      * @param  list<string>  $namespaces  namespace prefixes to check, e.g. "App\\"
+     * @param  list<string>  $paths  files to check that have no namespace, as fnmatch patterns, e.g. "routes/*"
      */
-    public function __construct(private readonly array $namespaces) {}
+    public function __construct(
+        private readonly array $namespaces,
+        private readonly array $paths = [],
+    ) {}
 
     public function getNodeType(): string
     {
@@ -39,7 +43,7 @@ final class NoStaticPropertyRule implements Rule
     public function processNode(Node $node, Scope $scope): array
     {
         if (! $node->isStatic() || ! $scope->isInClass()
-            || ! WorkerSafeComment::inChecked($scope->getNamespace(), $this->namespaces)
+            || ! WorkerSafeComment::inChecked($scope, $this->namespaces, $this->paths)
             || WorkerSafeComment::justifies($node)) {
             return [];
         }

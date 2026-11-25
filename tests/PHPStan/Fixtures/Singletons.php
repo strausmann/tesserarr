@@ -89,5 +89,15 @@ final class Bindings extends ServiceProvider
         // worker-safe: built once at boot from the image's fixed APP_NAME, never written at runtime
         $this->app->singleton(TakesAString::class, fn () => new TakesAString((string) config('app.name')));
         $this->app->singleton(KeepsTheContainer::class);
+        $this->app->singleton(TakesACallback::class, fn () => new TakesACallback(fn () => request()->user()));
+        $this->app->singleton(TakesAString::class, fn () => new TakesAString((fn () => (string) request()->ip())()));
     }
+}
+
+final class TakesACallback
+{
+    /**
+     * @param  \Closure(): mixed  $resolve  called per use, never at construction
+     */
+    public function __construct(private readonly \Closure $resolve) {}
 }

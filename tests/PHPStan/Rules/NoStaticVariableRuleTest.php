@@ -17,13 +17,20 @@ final class NoStaticVariableRuleTest extends WorkerRuleTestCase
 {
     protected function getRule(): Rule
     {
-        return new NoStaticVariableRule(['App\\']);
+        return new NoStaticVariableRule(['App\\'], ['tests/PHPStan/Fixtures/Routes/*']);
     }
 
     public function test_it_reports_static_variables_without_a_justification(): void
     {
         $this->analyse([__DIR__.'/../Fixtures/StaticState.php'], [
             ['Static variable $seen outlives the request in worker mode. Use a scoped binding or a per-request value, or justify it with a "worker-safe: <reason>" comment.', 21],
+        ]);
+    }
+
+    public function test_it_reports_static_variables_in_route_files_without_a_namespace(): void
+    {
+        $this->analyse([__DIR__.'/../Fixtures/Routes/web.php'], [
+            ['Static variable $user outlives the request in worker mode. Use a scoped binding or a per-request value, or justify it with a "worker-safe: <reason>" comment.', 13],
         ]);
     }
 

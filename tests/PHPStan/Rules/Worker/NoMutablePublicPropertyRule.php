@@ -32,10 +32,12 @@ final class NoMutablePublicPropertyRule implements Rule
     /**
      * @param  list<string>  $namespaces  namespace prefixes to check, e.g. "App\\"
      * @param  list<class-string>  $exempt  classes and interfaces whose subtypes are not checked
+     * @param  list<string>  $paths  files to check that have no namespace, as fnmatch patterns, e.g. "routes/*"
      */
     public function __construct(
         private readonly array $namespaces,
         private readonly array $exempt,
+        private readonly array $paths = [],
     ) {}
 
     public function getNodeType(): string
@@ -50,7 +52,7 @@ final class NoMutablePublicPropertyRule implements Rule
     {
         $class = $node->getClassReflection();
         if ($class->isReadOnly() || $class->isEnum()
-            || ! WorkerSafeComment::inChecked($scope->getNamespace(), $this->namespaces)) {
+            || ! WorkerSafeComment::inChecked($scope, $this->namespaces, $this->paths)) {
             return [];
         }
         foreach ($this->exempt as $exempt) {

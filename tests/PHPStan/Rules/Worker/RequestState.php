@@ -8,7 +8,6 @@ declare(strict_types=1);
 namespace Tests\PHPStan\Rules\Worker;
 
 use PhpParser\Node;
-use PhpParser\NodeFinder;
 use PHPStan\Analyser\Scope;
 use PHPStan\Reflection\ClassReflection;
 use PHPStan\Reflection\ReflectionProvider;
@@ -126,15 +125,57 @@ final class RequestState
             }
         }
 
-        $body = $closure instanceof Node\Expr\ArrowFunction ? [$closure->expr] : $closure->stmts;
-        foreach ((new NodeFinder)->find($body, static fn (Node $node): bool => true) as $node) {
+        $this->collectReads(self::bodyOf($closure), $scope, $findings);
+
+        return $findings;
+    }
+
+    /**
+     * Walks what runs while the binding is built. A closure inside the body is
+     * deferred (the service may call it per use) and is skipped, unless it is
+     * invoked right there: `(fn () => request()->ip())()` runs at construction.
+     *
+     * @param  array<mixed>  $nodes
+     * @param  list<string>  $findings
+     */
+    private function collectReads(array $nodes, Scope $scope, array &$findings): void
+    {
+        foreach ($nodes as $node) {
+            if (is_array($node)) {
+                $this->collectReads($node, $scope, $findings);
+
+                continue;
+            }
+            if (! $node instanceof Node) {
+                continue;
+            }
+            if ($node instanceof Node\Expr\Closure || $node instanceof Node\Expr\ArrowFunction) {
+                continue;
+            }
+            if ($node instanceof Node\Expr\FuncCall
+                && ($node->name instanceof Node\Expr\Closure || $node->name instanceof Node\Expr\ArrowFunction)) {
+                $this->collectReads(self::bodyOf($node->name), $scope, $findings);
+                $this->collectReads($node->args, $scope, $findings);
+
+                continue;
+            }
+
             $finding = $this->readOf($node, $scope);
             if ($finding !== null) {
                 $findings[] = $finding;
             }
+            foreach ($node->getSubNodeNames() as $name) {
+                $this->collectReads([$node->{$name}], $scope, $findings);
+            }
         }
+    }
 
-        return $findings;
+    /**
+     * @return array<Node>
+     */
+    private static function bodyOf(Node\Expr\Closure|Node\Expr\ArrowFunction $closure): array
+    {
+        return $closure instanceof Node\Expr\ArrowFunction ? [$closure->expr] : $closure->stmts;
     }
 
     private function readOf(Node $node, Scope $scope): ?string
