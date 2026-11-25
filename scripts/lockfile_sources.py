@@ -18,18 +18,26 @@ also name the package and version of its entry.
 npm (package-lock.json, .github/release-tools/package-lock.json, lockfile
 version 2 or 3): every package resolves to exactly
 https://registry.npmjs.org/<name>/-/<basename>-<version>.tgz (for a scoped
-package /@scope/name/-/name-<version>.tgz) with a sha512 integrity. The name
+package /@scope/name/-/name-<version>.tgz) with a sha512 integrity. A
+`link` entry is refused (the project has no workspaces; a link could put
+another installed package under a trusted name). The name
 comes from the key (after the last node_modules/). An entry's `name` may
 differ only for an alias that the package.json next to the lockfile (owned,
 unlike the lockfile) declares as "<key name>": "npm:<name>@…"; any other
 `name` is an error. Names follow the npm name grammar and versions are strict
 semver; a `resolved` path with `%` or a `.` or `..` segment is refused before
 anything is compared. An entry
-without `resolved` must be bundled inside another package (`inBundle`) or a
-link to a path inside the repository. The legacy `dependencies` tree of
+without `resolved` must be bundled inside another package (`inBundle`), whose
+tarball and integrity are checked. The legacy `dependencies` tree of
 version 2 is checked with the same rules.
 
-Composer (composer.lock): `dist` is api.github.com/repos/<owner>/<repo>/zipball/<ref>,
+Composer (composer.lock): GitHub URLs alone prove nothing about which package
+they hold, so every package that is not a `path` package is compared with
+its published metadata on Packagist (https://repo.packagist.org/p2/<name>.json,
+`~dev.json` for dev versions, the minified composer/2.0 format expanded):
+the locked version must exist there with the same dist URL and reference and
+the same source URL and reference. A Packagist that cannot be reached fails
+the check; it never passes unverified. Besides that, `dist` is api.github.com/repos/<owner>/<repo>/zipball/<ref>,
 codeload.github.com/<owner>/<repo>/<format>/<ref> or a repo.packagist.org
 path that names the package; `<ref>` is the `reference` of the dist. `source`
 is github.com/<owner>/<repo>[.git] with the same owner/repo as the dist and
@@ -49,8 +57,11 @@ import json
 import sys
 import re
 from pathlib import Path, PurePosixPath
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 NPM_LOCKFILES = ("package-lock.json", ".github/release-tools/package-lock.json")
@@ -167,8 +178,7 @@ def npm_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any] | None 
             continue
         resolved = entry.get("resolved")
         if entry.get("link"):
-            if not isinstance(resolved, str) or not _inside(resolved):
-                errors.append(f"{name}: {key} links outside the repository")
+            errors.append(f"{name}: {key} is a link; this project has no workspaces")
             continue
         if resolved is None:
             if not entry.get("inBundle"):
@@ -239,6 +249,73 @@ def _composer_package(package: dict[str, Any], name: str) -> list[str]:
     return []
 
 
+PACKAGIST = "https://repo.packagist.org/p2/"
+COMPOSER_NAME_RE = re.compile(r"\A[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*\Z")
+Fetch = Callable[[str], Any]
+
+
+def fetch_json(url: str) -> Any:
+    request = urllib.request.Request(url, headers={"User-Agent": "tesserarr-lockfile-sources"})
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 (fixed https host)
+        return json.load(response)
+
+
+def expand_minified(versions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """composer/2.0 minified metadata: each version repeats only what changed."""
+    expanded: list[dict[str, Any]] = []
+    current: dict[str, Any] = {}
+    for entry in versions:
+        current = dict(current)
+        for key, value in entry.items():
+            if value == "__unset":
+                current.pop(key, None)
+            else:
+                current[key] = value
+        expanded.append(current)
+    return expanded
+
+
+def _published(pkg: str, version: str, fetch: Fetch, cache: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
+    url = f"{PACKAGIST}{quote(pkg)}{'~dev' if version.startswith('dev-') or version.endswith('-dev') else ''}.json"
+    if url not in cache:
+        data = fetch(url)
+        versions = ((data or {}).get("packages") or {}).get(pkg) or []
+        cache[url] = expand_minified(versions) if (data or {}).get("minified") == "composer/2.0" else list(versions)
+    return next((v for v in cache[url] if v.get("version") == version), None)
+
+
+def packagist_errors(lock: dict[str, Any], name: str, fetch: Fetch = fetch_json) -> list[str]:
+    """Every non-path package as Packagist publishes it: same version, dist and source."""
+    errors: list[str] = []
+    cache: dict[str, list[dict[str, Any]]] = {}
+    for section in ("packages", "packages-dev"):
+        for package in lock.get(section) or []:
+            if not isinstance(package, dict):
+                continue
+            dist = package.get("dist") if isinstance(package.get("dist"), dict) else {}
+            if dist.get("type") == "path":
+                continue
+            pkg, version = str(package.get("name")), str(package.get("version") or "")
+            if not COMPOSER_NAME_RE.match(pkg):
+                errors.append(f"{name}: {pkg!r} is not a Composer package name")
+                continue
+            try:
+                published = _published(pkg, version, fetch, cache)
+            except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+                errors.append(f"{name}: {pkg} could not be compared with Packagist ({exc})")
+                continue
+            if published is None:
+                errors.append(f"{name}: {pkg} {version} is not published on Packagist")
+                continue
+            for kind in ("dist", "source"):
+                mine = package.get(kind) if isinstance(package.get(kind), dict) else {}
+                theirs = published.get(kind) if isinstance(published.get(kind), dict) else {}
+                for field in ("url", "reference"):
+                    if str(mine.get(field) or "") != str(theirs.get(field) or ""):
+                        errors.append(f"{name}: {pkg} {version} {kind} {field} differs from Packagist")
+    return errors
+
+
 def composer_errors(lock: dict[str, Any], name: str) -> list[str]:
     errors: list[str] = []
     count = 0
@@ -258,9 +335,14 @@ def composer_errors(lock: dict[str, Any], name: str) -> list[str]:
     return errors
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="skip the comparison with Packagist (the self-tests only; CI runs without it)",
+    )
     args = parser.parse_args(argv)
 
     errors: list[str] = []
@@ -278,7 +360,13 @@ def main(argv: list[str] | None = None) -> int:
                 errors.append(f"{rel}: not JSON ({exc})")
                 continue
             checked.append(rel)
-            errors.extend(npm_errors(lock, rel, manifest) if npm else composer_errors(lock, rel))
+            if npm:
+                errors.extend(npm_errors(lock, rel, manifest))
+            else:
+                found = composer_errors(lock, rel)
+                errors.extend(found)
+                if not found and not args.offline:
+                    errors.extend(packagist_errors(lock, rel, fetch))
     if not checked and not errors:
         print("::error::no lockfile found", file=sys.stderr)
         return 1
