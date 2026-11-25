@@ -56,8 +56,8 @@ class NpmTest(unittest.TestCase):
     def test_registry_packages_with_sha512_pass(self) -> None:
         self.assertEqual(ls.npm_errors(npm_lock(**{"node_modules/a": npm_pkg()}), "package-lock.json"), [])
 
-    def test_bundled_and_linked_entries_need_no_resolved(self) -> None:
-        lock = npm_lock(**{"node_modules/a/node_modules/b": {"version": "1", "inBundle": True}, "node_modules/c": {"link": True, "resolved": "packages/c"}})
+    def test_a_bundled_entry_needs_no_resolved(self) -> None:
+        lock = npm_lock(**{"node_modules/a/node_modules/b": {"version": "1", "inBundle": True}})
         self.assertEqual(ls.npm_errors(lock, "package-lock.json"), [])
 
     def test_a_scoped_package_and_an_alias_resolve_to_their_own_tarballs(self) -> None:
@@ -139,7 +139,7 @@ class NpmTest(unittest.TestCase):
             "other host": "https://evil.example/a/-/a-1.0.0.tgz",
             "http": "http://registry.npmjs.org/a/-/a-1.0.0.tgz",
             "lookalike host": "https://registry.npmjs.org.evil.example/a.tgz",
-            "user info": "https://registry.npmjs.org@evil.example/a.tgz",
+            "user info": "https://registry.npmjs.org@evil.invalid/a.tgz",
             "git": "git+ssh://git@github.com/a/b.git",
             "file": "file:../a.tgz",
         }
@@ -160,9 +160,15 @@ class NpmTest(unittest.TestCase):
         errors = ls.npm_errors(npm_lock(**{"node_modules/a": {"version": "1"}}), "x")
         self.assertEqual(len(errors), 1)
 
-    def test_a_link_outside_the_repository_is_refused(self) -> None:
-        errors = ls.npm_errors(npm_lock(**{"node_modules/c": {"link": True, "resolved": "../elsewhere"}}), "x")
-        self.assertEqual(len(errors), 1)
+    def test_every_link_is_refused(self) -> None:
+        # A link could put another installed package under a trusted name:
+        # node_modules/semantic-release -> node_modules/attacker.
+        for target in ("node_modules/attacker", "packages/c", "../elsewhere"):
+            with self.subTest(target=target):
+                lock = npm_lock(**{"node_modules/semantic-release": {"link": True, "resolved": target}})
+                errors = ls.npm_errors(lock, "x")
+                self.assertEqual(len(errors), 1)
+                self.assertIn("is a link", errors[0])
 
 
 class ComposerTest(unittest.TestCase):
@@ -229,11 +235,82 @@ class ComposerTest(unittest.TestCase):
         self.assertEqual(len(ls.composer_errors(self.lock({"name": "a/b"}), "composer.lock")), 1)
 
 
+class PackagistTest(unittest.TestCase):
+    PKG = {
+        "name": "a/b",
+        "version": "v1.2.0",
+        "dist": {"type": "zip", "url": f"https://api.github.com/repos/A/B/zipball/{REF}", "reference": REF},
+        "source": {"type": "git", "url": "https://github.com/A/B.git", "reference": REF},
+    }
+
+    def metadata(self, **override: Any) -> dict[str, Any]:
+        # Minified: the second version inherits everything but `version` and the references.
+        newer = {"name": "a/b", "version": "v1.3.0", "dist": {**self.PKG["dist"], "reference": "f" * 40}, "source": {**self.PKG["source"], "reference": "f" * 40}}
+        return {"minified": "composer/2.0", "packages": {"a/b": [newer, {"version": "v1.2.0", **{k: v for k, v in self.PKG.items() if k in ("dist", "source")}, **override}]}}
+
+    def fetch_from(self, data: dict[str, Any]) -> Any:
+        urls: list[str] = []
+
+        def fetch(url: str) -> Any:
+            urls.append(url)
+            return data
+
+        fetch.urls = urls  # type: ignore[attr-defined]
+        return fetch
+
+    def test_the_published_version_passes_and_metadata_is_fetched_once(self) -> None:
+        fetch = self.fetch_from(self.metadata())
+        lock = {"packages": [self.PKG], "packages-dev": [self.PKG]}
+        self.assertEqual(ls.packagist_errors(lock, "composer.lock", fetch), [])
+        self.assertEqual(fetch.urls, ["https://repo.packagist.org/p2/a/b.json"])
+
+    def test_another_repository_with_matching_references_is_refused(self) -> None:
+        # Both fields changed together, as Codex showed for laravel/framework.
+        forged = {**self.PKG, "dist": {**self.PKG["dist"], "url": f"https://api.github.com/repos/evil/B/zipball/{REF}"}, "source": {**self.PKG["source"], "url": "https://github.com/evil/B.git"}}
+        self.assertEqual(ls.composer_errors({"packages": [forged]}, "composer.lock"), [])
+        errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all("differs from Packagist" in e for e in errors))
+
+    def test_a_reference_that_packagist_does_not_publish_is_refused(self) -> None:
+        forged = {**self.PKG, "dist": {**self.PKG["dist"], "reference": "e" * 40}}
+        errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 dist reference differs from Packagist"])
+
+    def test_an_unpublished_version_is_refused(self) -> None:
+        errors = ls.packagist_errors({"packages": [{**self.PKG, "version": "v9.9.9"}]}, "composer.lock", self.fetch_from(self.metadata()))
+        self.assertEqual(errors, ["composer.lock: a/b v9.9.9 is not published on Packagist"])
+
+    def test_dev_versions_come_from_the_dev_file(self) -> None:
+        fetch = self.fetch_from({"packages": {"a/b": [{**self.PKG, "version": "dev-main"}]}})
+        ls.packagist_errors({"packages": [{**self.PKG, "version": "dev-main"}]}, "composer.lock", fetch)
+        self.assertEqual(fetch.urls, ["https://repo.packagist.org/p2/a/b~dev.json"])
+
+    def test_an_unreachable_packagist_fails_closed(self) -> None:
+        def down(url: str) -> Any:
+            raise ls.urllib.error.URLError("unreachable")
+
+        errors = ls.packagist_errors({"packages": [self.PKG]}, "composer.lock", down)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("could not be compared with Packagist", errors[0])
+
+    def test_path_packages_are_not_looked_up(self) -> None:
+        def never(url: str) -> Any:
+            raise AssertionError(url)
+
+        local = {"name": "x/y", "version": "1.0", "dist": {"type": "path", "url": "packages/y"}}
+        self.assertEqual(ls.packagist_errors({"packages": [local]}, "composer.lock", never), [])
+
+    def test_unset_markers_remove_inherited_keys(self) -> None:
+        expanded = ls.expand_minified([{"version": "2", "a": 1, "b": 2}, {"version": "1", "b": "__unset"}])
+        self.assertEqual(expanded, [{"version": "2", "a": 1, "b": 2}, {"version": "1", "a": 1}])
+
+
 class CliTest(unittest.TestCase):
     def run_main(self, root: Path) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = ls.main(["--root", str(root)])
+            code = ls.main(["--root", str(root), "--offline"])
         return code, out.getvalue(), err.getvalue()
 
     def test_a_foreign_resolved_url_fails_the_run(self) -> None:
@@ -243,6 +320,16 @@ class CliTest(unittest.TestCase):
             code, _, err = self.run_main(root)
         self.assertEqual(code, 1)
         self.assertIn("::error::package-lock.json: node_modules/a", err)
+
+    def test_without_offline_the_composer_lock_is_compared_with_packagist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "composer.lock").write_text(json.dumps({"packages": [PackagistTest.PKG]}))
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = ls.main(["--root", str(root)], fetch=lambda url: {"packages": {"a/b": []}})
+        self.assertEqual(code, 1)
+        self.assertIn("is not published on Packagist", err.getvalue())
 
     def test_no_lockfile_at_all_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
