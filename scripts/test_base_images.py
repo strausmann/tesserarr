@@ -230,6 +230,30 @@ class BaseCliTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("goes down from 1.14.0-php8.5-trixie to 1.13.0-php8.5-trixie", err.getvalue())
 
+    def test_a_base_ref_that_does_not_resolve_fails_closed(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            (root / "docker").mkdir()
+            pins = root / "docker" / "base-images.env"
+            pins.write_text(f"FRANKENPHP_IMAGE=dunglas/frankenphp:1.14.0-php8.5-trixie@{DIGEST_A}\n")
+            (root / "README").write_text("x\n")
+            subprocess.run([*git, "add", "README"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base without pins"], check=True)
+            served = lambda url, headers, method: {"token": "t"} if method == "GET" else DIGEST_A  # noqa: E731
+            argv = ["--pins", str(pins), "--dockerfile", str(root / "none"), "check", "--base"]
+            for ref, expected in (("origin/does-not-exist", 1), ("HEAD", 0)):
+                with self.subTest(ref=ref):
+                    out, err = io.StringIO(), io.StringIO()
+                    with redirect_stdout(out), redirect_stderr(err):
+                        code = bi.main([*argv, ref], fetch=served)
+                    self.assertEqual(code, expected, err.getvalue())
+                    if expected:
+                        self.assertIn("--base origin/does-not-exist is not a commit", err.getvalue())
+
 
 class DockerfileCheckTest(unittest.TestCase):
     def test_pins_that_match_the_dockerfile_pass(self) -> None:

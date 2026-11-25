@@ -26,7 +26,9 @@ from the base must carry exactly the digest Docker Hub serves for its tag now
 (anonymous token, three attempts; an unreachable registry fails): a changed
 digest under an unchanged tag is no longer a way to bring in another image.
 Pins that did not change are not asked about, so a tag that moved on upstream
-does not turn unrelated pull requests red.
+does not turn unrelated pull requests red. A REF that is not a commit fails
+the check (the comparison is never switched off silently); a REF without the
+pin file is fine, the branch adds it.
 
 Every command checks first and fails on a malformed pin, on a pin whose image
 is not on ALLOWED_REPOSITORIES (the file has no code owner, so only a tag or
@@ -254,6 +256,18 @@ def digest_errors(base: dict[str, str], pins: dict[str, str], fetch: Fetch = _ht
     return errors
 
 
+def _is_commit(pins_path: Path, ref: str) -> bool:
+    """`ref` names a commit of the git repository the pin file lives in."""
+    directory = pins_path.resolve().parent
+    done = subprocess.run(
+        ["git", "-C", str(directory), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode == 0
+
+
 def _git_show(pins_path: Path, ref: str) -> str | None:
     """The pin file at `ref`, from the git repository the pin file lives in."""
     directory = pins_path.resolve().parent
@@ -301,6 +315,9 @@ def main(argv: list[str] | None = None, fetch: Fetch = _http) -> int:
 
     lines = [f"{key}={value}" for key, value in pins.items()]
     if args.command == "check" and args.base:
+        if not _is_commit(args.pins, args.base):
+            print(f"::error::--base {args.base} is not a commit; the pins cannot be compared with it", file=sys.stderr)
+            return 1
         text = _git_show(args.pins, args.base)
         try:
             base = parse_pins(text) if text else {}

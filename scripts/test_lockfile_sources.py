@@ -541,8 +541,101 @@ class ConsumerTest(unittest.TestCase):
         )
         head = json.loads(json.dumps(base))
         head["packages"]["node_modules/c/node_modules/d"] = {**npm_pkg(), "version": "3.0.23"}
-        self.assertEqual(ls.version_errors(base, head, "x", npm=True), [])
         self.assertEqual(ls.consumer_errors(base, head, "x", {"dependencies": {"c": "^1"}}), ["x: node_modules/c now loads d 3.0.23 instead of 3.0.24"])
+
+    @staticmethod
+    def moved_base() -> dict[str, Any]:
+        # c loads d 3.0.24; inside the tarball of n, a bundled c loads a bundled d 3.0.23.
+        return npm_lock(
+            **{
+                "node_modules/c": {**npm_pkg(), "dependencies": {"d": "^3"}},
+                "node_modules/d": {**npm_pkg(), "version": "3.0.24"},
+                "node_modules/v": {**npm_pkg(), "dependencies": {"c": "^1"}},
+                "node_modules/n": {**npm_pkg(), "bundleDependencies": ["c", "d"]},
+                "node_modules/n/node_modules/c": {"version": "1.0.0", "inBundle": True, "dependencies": {"d": "^3"}},
+                "node_modules/n/node_modules/d": {"version": "3.0.23", "inBundle": True},
+                "node_modules/m": {**npm_pkg(), "bundleDependencies": ["d"]},
+                "node_modules/m/node_modules/d": {"version": "3.0.22", "inBundle": True},
+            }
+        )
+
+    def test_a_moved_consumer_may_not_load_an_older_copy(self) -> None:
+        # The consumer leaves its place, so the same-place comparison never sees it.
+        nested = "node_modules/v/node_modules/c"
+        deep = "node_modules/v/node_modules/w/node_modules/c"
+        cases = {
+            "moved, copy below it": (nested, f"{nested}/node_modules/d", "3.0.23"),
+            "another bundled version": (nested, f"{nested}/node_modules/d", "3.0.22"),
+            "deeper, copy found in a parent": (deep, "node_modules/v/node_modules/d", "3.0.23"),
+        }
+        for label, (consumer, copy, version) in cases.items():
+            with self.subTest(label):
+                head = self.moved_base()
+                del head["packages"]["node_modules/c"]
+                head["packages"][consumer] = {**npm_pkg(), "dependencies": {"d": "^3"}}
+                head["packages"][copy] = {**npm_pkg(), "version": version}
+                self.assertEqual(
+                    ls.consumer_errors(self.moved_base(), head, "x", {"dependencies": {"v": "^1", "n": "^1", "m": "^1"}}),
+                    [f"x: {consumer} now loads d {version}, below 3.0.24 that c loads in the base"],
+                )
+
+    def test_bundled_consumers_and_bundled_targets_of_the_base_do_not_count(self) -> None:
+        cases = {
+            # A bundled c inside n loads n's own (not bundled) d 3.0.20.
+            "bundled consumer": ({"node_modules/n/node_modules/c": {"version": "1.0.0", "inBundle": True, "dependencies": {"d": "^3"}}, "node_modules/n/node_modules/d": {**npm_pkg(), "version": "3.0.20"}}, "3.0.20"),
+            # A c nested in n (not bundled) loads a d bundled in n.
+            "bundled target": ({"node_modules/n/node_modules/c": {**npm_pkg(), "dependencies": {"d": "^3"}}, "node_modules/n/node_modules/d": {"version": "3.0.20", "inBundle": True}}, "3.0.20"),
+        }
+        for label, (extra, version) in cases.items():
+            with self.subTest(label):
+                base = npm_lock(
+                    **{
+                        "node_modules/c": {**npm_pkg(), "dependencies": {"d": "^3"}},
+                        "node_modules/d": {**npm_pkg(), "version": "3.0.24"},
+                        "node_modules/v": {**npm_pkg(), "dependencies": {"c": "^1"}},
+                        "node_modules/n": {**npm_pkg(), "dependencies": {"c": "^1"}},
+                        **extra,
+                    }
+                )
+                head = json.loads(json.dumps(base))
+                del head["packages"]["node_modules/c"]
+                head["packages"]["node_modules/v/node_modules/c"] = {**npm_pkg(), "dependencies": {"d": "^3"}}
+                head["packages"]["node_modules/v/node_modules/d"] = {**npm_pkg(), "version": version}
+                self.assertIn(
+                    f"x: node_modules/v/node_modules/c now loads d {version}, below 3.0.24 that c loads in the base",
+                    ls.consumer_errors(base, head, "x", {"dependencies": {"v": "^1", "n": "^1"}}),
+                )
+
+    def test_a_moved_consumer_that_loads_what_it_loaded_passes(self) -> None:
+        head = self.moved_base()
+        del head["packages"]["node_modules/c"]
+        head["packages"]["node_modules/v/node_modules/c"] = {**npm_pkg(), "dependencies": {"d": "^3"}}
+        self.assertEqual(ls.consumer_errors(self.moved_base(), head, "x", {"dependencies": {"v": "^1"}}), [])
+
+    def test_a_moved_consumer_is_compared_with_its_own_version_first(self) -> None:
+        # c 2.0.0 loads d 3.0.24, c 1.0.0 elsewhere loads d 2.0.0: both are base
+        # versions of d, so only the base resolution of c 2.0.0 shows the downgrade.
+        base = npm_lock(
+            **{
+                "node_modules/c": {**npm_pkg(), "version": "2.0.0", "dependencies": {"d": "*"}},
+                "node_modules/d": {**npm_pkg(), "version": "3.0.24"},
+                "node_modules/p": {**npm_pkg(), "dependencies": {"c": "^1"}},
+                "node_modules/p/node_modules/c": {**npm_pkg(), "dependencies": {"d": "*"}},
+                "node_modules/p/node_modules/d": {**npm_pkg(), "version": "2.0.0"},
+                "node_modules/v": {**npm_pkg(), "dependencies": {"c": "^2"}},
+            }
+        )
+        head = json.loads(json.dumps(base))
+        del head["packages"]["node_modules/c"]
+        head["packages"]["node_modules/v/node_modules/c"] = {**npm_pkg(), "version": "2.0.0", "dependencies": {"d": "*"}}
+        head["packages"]["node_modules/v/node_modules/d"] = {**npm_pkg(), "version": "2.0.0"}
+        self.assertEqual(
+            ls.consumer_errors(base, head, "x", {"dependencies": {"v": "^1", "p": "^1"}}),
+            ["x: node_modules/v/node_modules/c now loads d 2.0.0, below 3.0.24 that c loads in the base"],
+        )
+        # A version of c the base does not hold falls back to every c of the base (lowest: 2.0.0).
+        head["packages"]["node_modules/v/node_modules/c"]["version"] = "2.1.0"
+        self.assertEqual(ls.consumer_errors(base, head, "x", {"dependencies": {"v": "^1", "p": "^1"}}), [])
 
     def test_package_json_itself_is_a_consumer_and_raising_passes(self) -> None:
         base = npm_lock(**{"node_modules/d": {**npm_pkg(), "version": "2.0.0"}})
@@ -562,6 +655,37 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(len(ls.version_errors(npm_base, npm_head, "x", npm=True)), 1)
         self.assertLess(ls._numeric("1.0.0-beta.2"), ls._numeric("1.0.0-beta.11"))
         self.assertLess(ls._numeric("1.0.0-alpha"), ls._numeric("1.0.0-beta"))
+
+    def test_a_bundled_copy_of_the_base_is_no_allowed_version(self) -> None:
+        # 3.0.23 exists in the base only inside the tarball of n.
+        base = npm_lock(
+            **{
+                "node_modules/d": {**npm_pkg(), "version": "3.0.24"},
+                "node_modules/n/node_modules/d": {"version": "3.0.23", "inBundle": True},
+            }
+        )
+        head = json.loads(json.dumps(base))
+        head["packages"]["node_modules/c/node_modules/d"] = {**npm_pkg(), "version": "3.0.23"}
+        self.assertEqual(ls.version_errors(base, head, "x", npm=True), ["x: d 3.0.23 is new but below 3.0.24, the highest 3.x of the base"])
+        # Bundled copies of the head are not compared either: they come with their parent.
+        bundled = json.loads(json.dumps(base))
+        bundled["packages"]["node_modules/n/node_modules/d"]["version"] = "3.0.21"
+        self.assertEqual(ls.version_errors(base, bundled, "x", npm=True), [])
+
+    def test_composer_prereleases_without_a_dot_compare_like_composer(self) -> None:
+        # composer/semver VersionParser::normalize + version_compare: dev < alpha < beta < RC < stable < patch.
+        key = lambda v: ls._numeric(v, composer=True)  # noqa: E731
+        order = ["3.0.0-dev", "3.0.0-alpha2", "3.0.0-a10", "3.0.0-beta9", "3.0.0-beta10-dev", "3.0.0-beta10", "3.0.0-b11", "3.0.0RC9", "3.0.0-RC10", "v3.0.0", "3.0.0-patch1"]
+        self.assertEqual(sorted(order, key=key), order)
+        self.assertEqual(key("3.0.0-b2"), key("3.0.0-beta2"))
+        self.assertEqual(key("3.0.0-stable"), key("3.0.0"))
+        self.assertIsNone(key("3.0.0-foo"))  # Composer itself refuses that version
+        base = {"packages": [{"name": "a/b", "version": "v3.0.0-beta10"}]}
+        head = {"packages": [{"name": "a/b", "version": "v3.0.0-beta9"}]}
+        self.assertEqual(ls.version_errors(base, head, "composer.lock", npm=False), ["composer.lock: a/b 3.x goes down below v3.0.0-beta10, the highest of the base"])
+        self.assertEqual(ls.version_errors(head, base, "composer.lock", npm=False), [])
+        # npm keeps SemVer: identifiers with letters compare as text.
+        self.assertLess(ls._numeric("1.0.0-beta10"), ls._numeric("1.0.0-beta9"))
 
     def test_raising_a_version_passes(self) -> None:
         base = {"packages": [{"name": "a/b", "version": "v13.17.0"}]}
@@ -642,6 +766,31 @@ class VersionTest(unittest.TestCase):
                 code = ls.main(["--root", tmp, "--offline", "--base", "HEAD"])
             self.assertEqual(code, 0)
             self.assertIn("versions are left to the review", out.getvalue())
+
+    def test_a_base_ref_that_does_not_resolve_fails_closed(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            (root / "composer.json").write_text(json.dumps({"require": {"a/b": "^1"}}))
+            (root / "composer.lock").write_text(json.dumps({"packages": [PackagistTest.PKG]}))
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            for ref, expected in (("origin/does-not-exist", 1), ("HEAD", 0)):
+                with self.subTest(ref=ref):
+                    out, err = io.StringIO(), io.StringIO()
+                    with redirect_stdout(out), redirect_stderr(err):
+                        code = ls.main(["--root", tmp, "--offline", "--base", ref])
+                    self.assertEqual(code, expected, err.getvalue())
+                    if expected:
+                        self.assertIn("--base origin/does-not-exist is not a commit", err.getvalue())
+            # A ref that exists but lacks the lockfile is fine: the branch adds it.
+            subprocess.run([*git, "rm", "-q", "--cached", "composer.lock"], check=True)
+            subprocess.run([*git, "commit", "-qm", "without lock"], check=True)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(ls.main(["--root", tmp, "--offline", "--base", "HEAD"]), 0)
 
 
 class CliTest(unittest.TestCase):
