@@ -5,11 +5,13 @@
 
 use App\Database\Backup\BackupFailed;
 use App\Database\Backup\DatabaseDumper;
+use App\Database\Backup\PreMigrateBackups;
 use App\Database\MigrationLock;
 use App\Database\PostgresMigrationLock;
 use App\Models\User;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
@@ -121,7 +123,7 @@ it('writes a non-empty 0600 dump before migrating', function () {
     expect($tableAtDumpTime)->toBeFalse()
         ->and(Schema::hasTable('t4_probe'))->toBeTrue()
         ->and($names)->toHaveCount(1)
-        ->and($names[0])->toMatch('/^pre-migrate-\d{8}T\d{6}Z-0\.1\.0-rc\.1\.dump$/');
+        ->and($names[0])->toMatch('/^pre-migrate-\d{8}T\d{6}\.\d{6}Z-[0-9a-f]{8}-0\.1\.0-rc\.1\.dump$/');
 
     $file = $this->backupDir.'/'.$names[0];
     clearstatcache();
@@ -155,7 +157,7 @@ it('keeps the five newest dumps', function () {
     File::ensureDirectoryExists($this->backupDir);
     $old = [];
     foreach (range(1, 6) as $day) {
-        $name = sprintf('pre-migrate-202601%02dT000000Z-0.0.%d.dump', $day, $day);
+        $name = sprintf('pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day);
         file_put_contents($this->backupDir.'/'.$name, 'old');
         $old[] = $name;
     }
@@ -263,7 +265,7 @@ it('keeps the older good backups after aborted runs', function () {
     File::ensureDirectoryExists($this->backupDir);
     $good = [];
     foreach (range(1, 5) as $day) {
-        $name = sprintf('pre-migrate-202601%02dT000000Z-0.0.%d.dump', $day, $day);
+        $name = sprintf('pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day);
         file_put_contents($this->backupDir.'/'.$name, 'good');
         $good[] = $name;
     }
@@ -322,7 +324,7 @@ it('keeps the configured number of backups, from 1 to 50', function (int $keep) 
     config(['tesserarr.backups.keep' => $keep]);
     File::ensureDirectoryExists($this->backupDir);
     foreach (range(1, 9) as $day) {
-        file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000Z-0.0.%d.dump', $day, $day), 'old');
+        file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day), 'old');
     }
     pendingProbeMigration($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, 'new'));
@@ -347,7 +349,7 @@ it('refuses an invalid number of backups to keep before doing anything', functio
 
 it('removes partial backups left by a killed run and logs their names', function () {
     File::ensureDirectoryExists($this->backupDir);
-    $stale = 'pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial';
+    $stale = 'pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.dump.partial';
     file_put_contents($this->backupDir.'/'.$stale, 'half a dump from a killed run');
     pendingProbeMigration($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, 'complete'));
@@ -372,17 +374,17 @@ it('leaves files alone that only look like a partial backup', function (string $
 
     expect(file_get_contents($this->backupDir.'/'.$name))->toBe('not ours');
 })->with([
-    'pre-migrate-20261101T000000Z-0.0.0-dev.partial',
+    'pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.partial',
     'pre-migrate-20261101-0.0.0-dev.dump.partial',
-    'x-pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial',
-    'pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial.bak',
+    'x-pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.dump.partial',
+    'pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.dump.partial.bak',
 ]);
 
 it('does not follow a symlink named like a partial backup', function () {
     File::ensureDirectoryExists($this->backupDir);
     $target = $this->migrationDir.'/precious.dump';
     file_put_contents($target, 'precious');
-    $link = $this->backupDir.'/pre-migrate-20261101T000000Z-0.0.0-dev.dump.partial';
+    $link = $this->backupDir.'/pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.dump.partial';
     symlink($target, $link);
     pendingProbeMigration($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, 'complete'));
@@ -417,3 +419,35 @@ it('keeps the original exception when releasing the lock fails as well', functio
     expect(implode("\n", $this->logged))->toContain('migrate.unlock_failed')
         ->and(implode("\n", $this->logged))->toContain('"error":"LogicException"');
 });
+
+it('never overwrites a backup written in the same second', function () {
+    Carbon::setTestNow(Carbon::parse('2026-11-24 12:00:00.123456', 'UTC'));
+    $backups = new PreMigrateBackups($this->backupDir);
+    $first = $backups->write(new FakeDumper(fn (string $path) => file_put_contents($path, 'first')), '0.1.0');
+    $second = $backups->write(new FakeDumper(fn (string $path) => file_put_contents($path, 'second')), '0.1.0');
+    Carbon::setTestNow();
+
+    expect(dumpNames($this->backupDir))->toHaveCount(2)
+        ->and($first->name())->not->toBe($second->name())
+        ->and(file_get_contents($first->path))->toBe('first')
+        ->and(file_get_contents($second->path))->toBe('second');
+});
+
+it('deletes only its own files inside the backup directory', function (string $name) {
+    File::ensureDirectoryExists($this->backupDir.'/sub');
+    $inside = $this->backupDir.'/sub/pre-migrate-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump';
+    $outside = dirname($this->backupDir).'/pre-migrate-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump';
+    file_put_contents($inside, 'keep');
+    file_put_contents($outside, 'keep');
+
+    try {
+        expect((new PreMigrateBackups($this->backupDir))->deleteOwnFile($name))->toBeFalse()
+            ->and(file_exists($inside))->toBeTrue()
+            ->and(file_exists($outside))->toBeTrue();
+    } finally {
+        @unlink($outside);
+    }
+})->with([
+    '../pre-migrate-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump',
+    'sub/pre-migrate-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump',
+]);

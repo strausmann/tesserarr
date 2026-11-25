@@ -9,6 +9,17 @@ use App\Database\Backup\PgDump;
 // The real pg_dump run is the Docker smoke test (scripts/smoke/migrate.sh);
 // here: what reaches the process, and how a failure is reported.
 
+/**
+ * A password made up per test run, so no credential-looking literal lives in
+ * the repository and every assertion compares against the value really used.
+ */
+function testPassword(): string
+{
+    static $password = null;
+
+    return $password ??= 'pw-'.bin2hex(random_bytes(6));
+}
+
 /** @param  array<string, mixed>  $extra */
 function pgDump(string $binary = 'pg_dump', array $extra = []): PgDump
 {
@@ -17,15 +28,15 @@ function pgDump(string $binary = 'pg_dump', array $extra = []): PgDump
         'port' => 5433,
         'database' => 'tesserarr',
         'username' => 'tesserarr',
-        'password' => 'p4ss-w0rd-in-env-only',
+        'password' => testPassword(),
     ] + $extra, $binary);
 }
 
 it('passes the password through the environment, never as an argument', function () {
     $command = pgDump()->command('/backups/x.dump');
 
-    expect(implode(' ', $command))->not->toContain('p4ss-w0rd-in-env-only')
-        ->and(pgDump()->environment())->toBe(['PGPASSWORD' => 'p4ss-w0rd-in-env-only'])
+    expect(implode(' ', $command))->not->toContain(testPassword())
+        ->and(pgDump()->environment())->toBe(['PGPASSWORD' => testPassword()])
         ->and($command)->toContain('--format=custom', '--no-password', '--file=/backups/x.dump',
             '--host=db.example.invalid', '--port=5433', '--username=tesserarr', '--dbname=tesserarr');
 });
@@ -73,7 +84,7 @@ function failureMessage(string $stderr): string
 }
 
 it('reports a failing pg_dump with its exit code and the first error line, without the password', function () {
-    $message = failureMessage("pg_dump: error: auth failed for p4ss-w0rd-in-env-only\nsecond line");
+    $message = failureMessage('pg_dump: error: auth failed for '.testPassword()."\nsecond line");
 
     expect($message)->toBe('pg_dump exited with code 3: pg_dump: error: auth failed for ***');
 });

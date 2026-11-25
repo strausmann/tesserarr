@@ -61,6 +61,32 @@ class SignedPreviewTest(unittest.TestCase):
         self.assertEqual(text.count(SIGNED_REFS), 2, "guard and signing step must list the same refs")
 
 
+class FloatingTagsTest(unittest.TestCase):
+    """x.y, x and latest move only through scripts/floating_tags.py."""
+
+    def test_the_merge_job_asks_floating_tags_and_fetches_every_tag(self) -> None:
+        text = (WORKFLOWS / "docker-publish.yml").read_text()
+        blocks = run_blocks(text)
+        self.assertTrue(
+            any('python3 scripts/floating_tags.py --version "$TAG"' in b for b in blocks),
+            "docker-publish.yml: floating_tags.py is not called",
+        )
+        merge = text[text.index("  merge:\n") :]
+        self.assertIn("fetch-depth: 0", merge[: merge.index("- name: Resolve built revision")])
+
+    def test_each_floating_tag_is_gated_by_its_answer(self) -> None:
+        text = (WORKFLOWS / "docker-publish.yml").read_text()
+        for pattern, key in (
+            ("type=semver,pattern={{major}}.{{minor}},", "minor"),
+            ("type=semver,pattern={{major}},", "major"),
+            ("type=raw,value=latest,", "latest"),
+        ):
+            lines = [line for line in text.splitlines() if pattern in line]
+            with self.subTest(tag=key):
+                self.assertEqual(len(lines), 1)
+                self.assertIn(f"steps.floating.outputs.{key} == 'true'", lines[0])
+
+
 class ScriptTestLayoutTest(unittest.TestCase):
     """`python scripts/test_x.py` and pytest must run the same tests."""
 

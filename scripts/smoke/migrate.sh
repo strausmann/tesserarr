@@ -23,12 +23,24 @@ fail() {
     exit 1
 }
 
+# The exit code is the result of the checks above; cleaning up never changes it.
+# The backups belong to UID 10001 of the image, and the runner may not delete
+# them (on GitHub's runners it may not), so a container running as root empties
+# the directories first; only the empty directories are removed on the host.
 cleanup() {
-    docker rm -f "$run_id-db" >/dev/null 2>&1 || true
-    docker network rm "$network" >/dev/null 2>&1 || true
-    # Files written by UID 10001; removed from inside a container.
-    docker run --rm -v "$backups":/b --entrypoint sh "$image" -c 'rm -rf /b/* /b/.[!.]*' >/dev/null 2>&1 || true
-    rm -rf "$backups" "${blocked:-}"
+    local rc=$?
+    set +e
+    docker rm -f "$run_id-db" >/dev/null 2>&1
+    docker network rm "$network" >/dev/null 2>&1
+    for dir in "$backups" "${blocked:-}"; do
+        if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+            continue
+        fi
+        docker run --rm --user 0 -v "$dir":/d --entrypoint sh "$image" -c 'rm -rf /d/* /d/.[!.]*' >/dev/null 2>&1
+        chmod 0700 "$dir" 2>/dev/null
+        rmdir "$dir" 2>/dev/null || echo "warning: could not remove $dir" >&2
+    done
+    exit "$rc"
 }
 trap cleanup EXIT
 

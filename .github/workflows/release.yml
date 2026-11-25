@@ -235,10 +235,10 @@ jobs:
             echo "If the run can no longer be rerun, build the tag's commit from main (main is a"
             echo "signing ref; a dispatch on the tag ref would publish unsigned images) and attach"
             echo "the SBOM from the new run's \`release-sbom\` artifact to the draft by hand, then publish"
-            echo "the draft (publishing locks it: attach the SBOM first). Caution: this dispatch"
-            echo "moves \`latest\`, \`X.Y\` and \`X\` to ${VERSION}; use it only if ${VERSION} is the newest"
-            echo "stable release, otherwise re-point those tags afterwards. Pass \`--latest\` only if"
-            echo "${VERSION} is the highest published version, otherwise \`--latest=false\`:"
+            echo "the draft (publishing locks it: attach the SBOM first). The dispatch moves"
+            echo "\`latest\`, \`X.Y\` and \`X\` only where ${VERSION} is the highest stable version of"
+            echo "their scope (scripts/floating_tags.py). Pass \`--latest\` only if ${VERSION} is the"
+            echo "highest published version, otherwise \`--latest=false\`:"
             echo
             echo '```sh'
             echo "gh workflow run docker-publish.yml --ref main -f tag=${VERSION}"

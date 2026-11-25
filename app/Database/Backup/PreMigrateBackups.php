@@ -13,9 +13,11 @@ use Throwable;
 /**
  * The directory of the backups written before a migration.
  *
- * File names are `pre-migrate-<UTC timestamp>-<app version>.dump`, so sorting
- * by name sorts by age. Every file is created with the mode 0600; only files
- * matching that pattern are ever pruned.
+ * File names are `pre-migrate-<UTC timestamp with microseconds>-<8 random hex>-
+ * <app version>.dump`, so sorting by name sorts by age and two runs in the same
+ * moment still get two names. Every file is created with the mode 0600; only
+ * files matching that pattern (or its `.partial`) are ever deleted, and only
+ * through deleteOwnFile().
  */
 final class PreMigrateBackups
 {
@@ -25,18 +27,21 @@ final class PreMigrateBackups
 
     public const KEEP_MAX = 50;
 
-    private const PATTERN = '/^pre-migrate-\d{8}T\d{6}Z-[A-Za-z0-9._-]+\.dump$/';
+    private const PATTERN = '/^pre-migrate-\d{8}T\d{6}\.\d{6}Z-[0-9a-f]{8}-[A-Za-z0-9._-]+\.dump$/';
 
     /** The unfinished file of a backup: the backup name plus `.partial`. */
-    private const PARTIAL_PATTERN = '/^pre-migrate-\d{8}T\d{6}Z-[A-Za-z0-9._-]+\.dump\.partial$/';
+    private const PARTIAL_PATTERN = '/^pre-migrate-\d{8}T\d{6}\.\d{6}Z-[0-9a-f]{8}-[A-Za-z0-9._-]+\.dump\.partial$/';
 
     public function __construct(private readonly string $directory) {}
 
     /**
      * pg_dump writes to `<name>.partial`, outside the rotation pattern; only a
-     * complete, non-empty dump is renamed to its final name (atomic within the
-     * directory). Whatever goes wrong, the partial file is removed, so an
-     * aborted run never counts as a backup.
+     * complete, non-empty dump gets its final name, through link() plus unlink():
+     * link() is atomic and fails when the name exists, so a finished backup is
+     * never overwritten. Where the file system has no hard links, the existence
+     * check plus rename() runs under the migration lock instead. Whatever goes
+     * wrong, the partial file is removed, so an aborted run never counts as a
+     * backup.
      *
      * @throws BackupFailed when the dump fails, is aborted or leaves an empty file
      */
@@ -64,11 +69,18 @@ final class PreMigrateBackups
                 throw new BackupFailed('the backup is empty');
             }
             @chmod($partial, 0600);
-            if (! @rename($partial, $path)) {
-                throw new BackupFailed('the backup could not be renamed to its final name');
+            if (file_exists($path) || is_link($path)) {
+                throw new BackupFailed('a backup with this name exists already');
+            }
+            if (@link($partial, $path)) {
+                $this->deleteOwnFile(basename($partial));
+            } elseif (! @rename($partial, $path)) {
+                // No hard links on this file system: rename() after the check
+                // above, under the migration lock, so no other run creates the name.
+                throw new BackupFailed('the backup could not get its final name');
             }
         } catch (Throwable $failure) {
-            @unlink($partial);
+            $this->deleteOwnFile(basename($partial));
             throw $failure instanceof BackupFailed
                 ? $failure
                 : new BackupFailed('the dump was aborted ('.$failure::class.')', previous: $failure);
@@ -92,11 +104,7 @@ final class PreMigrateBackups
     {
         $removed = [];
         foreach (scandir($this->directory) ?: [] as $name) {
-            $path = $this->directory.'/'.$name;
-            if (preg_match(self::PARTIAL_PATTERN, $name) !== 1 || is_link($path) || ! is_file($path)) {
-                continue;
-            }
-            if (@unlink($path)) {
+            if (preg_match(self::PARTIAL_PATTERN, $name) === 1 && $this->deleteOwnFile($name)) {
                 $removed[] = $name;
             }
         }
@@ -151,7 +159,7 @@ final class PreMigrateBackups
 
         $removed = [];
         foreach (array_slice($names, 0, max(0, count($names) - $keep)) as $name) {
-            if (@unlink($this->directory.'/'.$name)) {
+            if ($this->deleteOwnFile($name)) {
                 $removed[] = $name;
             }
         }
@@ -159,10 +167,38 @@ final class PreMigrateBackups
         return $removed;
     }
 
+    /**
+     * The one place that deletes a file. It deletes only a regular file directly
+     * in the backup directory whose name is an own backup or its `.partial`: no
+     * directory separator, no symlink, nothing else.
+     */
+    public function deleteOwnFile(string $name): bool
+    {
+        if ($name === '' || strpbrk($name, "/\\\0") !== false || $name !== basename($name)) {
+            return false;
+        }
+        if (preg_match(self::PATTERN, $name) !== 1 && preg_match(self::PARTIAL_PATTERN, $name) !== 1) {
+            return false;
+        }
+        $path = $this->directory.'/'.$name;
+        if (is_link($path) || ! is_file($path) || dirname($path) !== $this->directory) {
+            return false;
+        }
+
+        // The name is checked above against the own fixed patterns, without any
+        // separator, so it cannot point outside the backup directory.
+        return @unlink($path); // nosemgrep: php.lang.security.unlink-use.unlink-use
+    }
+
     private function name(string $version): string
     {
         $safe = (string) preg_replace('/[^A-Za-z0-9._-]/', '_', $version);
 
-        return sprintf('pre-migrate-%s-%s.dump', Carbon::now('UTC')->format('Ymd\THis\Z'), $safe === '' ? 'unknown' : $safe);
+        return sprintf(
+            'pre-migrate-%s-%s-%s.dump',
+            Carbon::now('UTC')->format('Ymd\THis.u\Z'),
+            bin2hex(random_bytes(4)),
+            $safe === '' ? 'unknown' : $safe,
+        );
     }
 }
