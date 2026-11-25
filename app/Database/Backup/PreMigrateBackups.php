@@ -32,7 +32,21 @@ final class PreMigrateBackups
     /** The unfinished file of a backup: the backup name plus `.partial`. */
     private const PARTIAL_PATTERN = '/^pre-migrate-\d{8}T\d{6}\.\d{6}Z-[0-9a-f]{8}-[A-Za-z0-9._-]+\.dump\.partial$/';
 
-    public function __construct(private readonly string $directory) {}
+    private readonly string $directory;
+
+    /**
+     * The directory is normalised once (trailing slashes removed, `/` stays
+     * `/`, resolved with realpath() when it exists), so deleteOwnFile() can
+     * compare it with dirname() of a file inside it.
+     */
+    public function __construct(string $directory)
+    {
+        $trimmed = rtrim($directory, '/');
+        $normalised = $trimmed === '' && $directory !== '' ? '/' : $trimmed;
+        $resolved = $normalised !== '' ? realpath($normalised) : false;
+
+        $this->directory = $resolved !== false ? $resolved : $normalised;
+    }
 
     /**
      * pg_dump writes to `<name>.partial`, outside the rotation pattern; only a

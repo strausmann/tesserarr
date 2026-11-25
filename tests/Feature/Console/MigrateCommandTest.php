@@ -451,3 +451,49 @@ it('deletes only its own files inside the backup directory', function (string $n
     '../pre-migrate-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump',
     'sub/pre-migrate-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump',
 ]);
+
+it('rotates and cleans up when the backup directory is given with a trailing slash', function () {
+    File::ensureDirectoryExists($this->backupDir);
+    foreach (range(1, 3) as $day) {
+        file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day), 'old');
+    }
+    $stale = $this->backupDir.'/pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.dump.partial';
+    file_put_contents($stale, 'half');
+    config(['tesserarr.backup.dir' => $this->backupDir.'/', 'tesserarr.backups.keep' => 1]);
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'new'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    $names = dumpNames($this->backupDir);
+    expect($names)->toHaveCount(1)
+        ->and(file_get_contents($this->backupDir.'/'.$names[0]))->toBe('new')
+        ->and(file_exists($stale))->toBeFalse();
+});
+
+it('leaves foreign files alone on rotation and clean-up', function () {
+    File::ensureDirectoryExists($this->backupDir);
+    $foreign = [
+        'notes.txt',
+        'pre-migrate-20260101T000000Z-0.0.1.dump',
+        'nightly-20260101T000000.000000Z-0a1b2c3d-0.0.1.dump',
+        'pre-migrate-20260101T000000Z-0.0.1.dump.partial',
+    ];
+    foreach ($foreign as $name) {
+        file_put_contents($this->backupDir.'/'.$name, 'foreign');
+    }
+    config(['tesserarr.backups.keep' => 1]);
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'new'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    foreach ($foreign as $name) {
+        expect(file_get_contents($this->backupDir.'/'.$name))->toBe('foreign');
+    }
+    $backups = new PreMigrateBackups($this->backupDir);
+    foreach ($foreign as $name) {
+        expect($backups->deleteOwnFile($name))->toBeFalse();
+    }
+    expect(dumpNames($this->backupDir))->toHaveCount(2); // the old-format name matches the glob, it is foreign
+});
