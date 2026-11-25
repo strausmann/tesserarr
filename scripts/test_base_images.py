@@ -16,6 +16,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -137,6 +138,97 @@ class AllowlistTest(unittest.TestCase):
     def test_check_includes_the_allowlist(self) -> None:
         pins = bi.parse_pins(PINS.replace("dunglas/frankenphp:", "evil/frankenphp:"))
         self.assertEqual(len(bi.check(pins, DOCKERFILE)), 1)
+
+
+class BaseComparisonTest(unittest.TestCase):
+    BASE = {"FRANKENPHP_IMAGE": f"dunglas/frankenphp:1.14.0-php8.5-trixie@{DIGEST_A}"}
+
+    def test_a_raise_within_the_flavour_passes(self) -> None:
+        pins = {"FRANKENPHP_IMAGE": f"dunglas/frankenphp:1.14.1-php8.5-trixie@{DIGEST_B}"}
+        self.assertEqual(bi.base_errors(self.BASE, pins), [])
+
+    def test_a_downgrade_is_refused(self) -> None:
+        pins = {"FRANKENPHP_IMAGE": f"dunglas/frankenphp:1.13.9-php8.5-trixie@{DIGEST_B}"}
+        self.assertEqual(
+            bi.base_errors(self.BASE, pins),
+            ["docker/base-images.env: FRANKENPHP_IMAGE goes down from 1.14.0-php8.5-trixie to 1.13.9-php8.5-trixie"],
+        )
+
+    def test_a_flavour_change_is_refused(self) -> None:
+        for tag in ("1.14.1-php8.2-trixie", "1.14.1-php8.5-bookworm", "1.0.0-php8.2-bookworm"):
+            with self.subTest(tag=tag):
+                errors = bi.base_errors(self.BASE, {"FRANKENPHP_IMAGE": f"dunglas/frankenphp:{tag}@{DIGEST_B}"})
+                self.assertEqual(len(errors), 1)
+                self.assertIn("changes its flavour", errors[0])
+
+
+class DigestTest(unittest.TestCase):
+    def hub(self, digest: str, calls: list[str] | None = None, failures: int = 0) -> Any:
+        state = {"failures": failures}
+
+        def fetch(url: str, headers: dict[str, str], method: str) -> Any:
+            if calls is not None:
+                calls.append(url)
+            if state["failures"]:
+                state["failures"] -= 1
+                raise bi.urllib.error.URLError("blip")
+            return {"token": "t"} if method == "GET" else digest
+
+        return fetch
+
+    def setUp(self) -> None:
+        self.sleep = bi.time.sleep
+        bi.time.sleep = lambda _: None
+
+    def tearDown(self) -> None:
+        bi.time.sleep = self.sleep
+
+    def test_a_changed_pin_with_the_served_digest_passes(self) -> None:
+        calls: list[str] = []
+        pins = {"COMPOSER_IMAGE": f"composer:2.11.1@{DIGEST_B}"}
+        self.assertEqual(bi.digest_errors({}, pins, self.hub(DIGEST_B, calls)), [])
+        self.assertEqual(calls[-1], "https://registry-1.docker.io/v2/library/composer/manifests/2.11.1")
+
+    def test_a_foreign_digest_under_the_same_tag_is_refused(self) -> None:
+        base = {"COMPOSER_IMAGE": f"composer:2.10.3@{DIGEST_A}"}
+        pins = {"COMPOSER_IMAGE": f"composer:2.10.3@{DIGEST_B}"}
+        errors = bi.digest_errors(base, pins, self.hub(DIGEST_A))
+        self.assertEqual(errors, [f"docker/base-images.env: COMPOSER_IMAGE pins {DIGEST_B}, but Docker Hub serves {DIGEST_A} for 2.10.3"])
+
+    def test_an_unchanged_pin_is_not_asked_about(self) -> None:
+        calls: list[str] = []
+        pins = {"COMPOSER_IMAGE": f"composer:2.10.3@{DIGEST_A}"}
+        self.assertEqual(bi.digest_errors(dict(pins), pins, self.hub(DIGEST_B, calls)), [])
+        self.assertEqual(calls, [])
+
+    def test_the_registry_is_retried_and_a_lasting_failure_fails(self) -> None:
+        pins = {"COMPOSER_IMAGE": f"composer:2.10.3@{DIGEST_A}"}
+        self.assertEqual(bi.digest_errors({}, pins, self.hub(DIGEST_A, failures=2)), [])
+        errors = bi.digest_errors({}, pins, self.hub(DIGEST_A, failures=3))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("could not be checked against Docker Hub", errors[0])
+
+
+class BaseCliTest(unittest.TestCase):
+    def test_check_compares_with_the_pins_of_the_base_ref(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            (root / "docker").mkdir()
+            pins = root / "docker" / "base-images.env"
+            pins.write_text(f"FRANKENPHP_IMAGE=dunglas/frankenphp:1.14.0-php8.5-trixie@{DIGEST_A}\n")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            pins.write_text(f"FRANKENPHP_IMAGE=dunglas/frankenphp:1.13.0-php8.5-trixie@{DIGEST_B}\n")
+            served = lambda url, headers, method: {"token": "t"} if method == "GET" else DIGEST_B  # noqa: E731
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = bi.main(["--pins", str(pins), "--dockerfile", str(root / "none"), "check", "--base", "HEAD"], fetch=served)
+            self.assertEqual(code, 1)
+            self.assertIn("goes down from 1.14.0-php8.5-trixie to 1.13.0-php8.5-trixie", err.getvalue())
 
 
 class DockerfileCheckTest(unittest.TestCase):

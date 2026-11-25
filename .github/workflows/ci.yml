@@ -312,10 +312,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0   # the pins of the target branch
           persist-credentials: false
 
+      # On a pull request also against the target branch: no downgrade, the
+      # same flavour, and every changed pin with the digest Docker Hub serves.
       - name: Pins on the allowlist, Dockerfile without a second pin
-        run: python3 scripts/base_images.py check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$BASE_REF" ]; then args+=(--base "origin/$BASE_REF"); fi
+          python3 scripts/base_images.py check "${args[@]}"
 
   # The lockfiles have no code owner either: every locked package must be the
   # published one, required from the manifests, and on a pull request no

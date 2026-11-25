@@ -18,6 +18,16 @@ Every build passes the pins as build arguments:
     python3 scripts/base_images.py cli            # --build-arg KEY=VALUE … for docker build
     python3 scripts/base_images.py github-output --name build-args   # multiline step output
 
+`check --base REF` (CI on a pull request: the target branch) also compares
+with the pins of that ref, because the file merges without review: a pin may
+not go down in version and must keep its flavour (the tag suffix after the
+version, such as -php8.5-trixie or -bookworm-slim). And every pin that differs
+from the base must carry exactly the digest Docker Hub serves for its tag now
+(anonymous token, three attempts; an unreachable registry fails): a changed
+digest under an unchanged tag is no longer a way to bring in another image.
+Pins that did not change are not asked about, so a tag that moved on upstream
+does not turn unrelated pull requests red.
+
 Every command checks first and fails on a malformed pin, on a pin whose image
 is not on ALLOWED_REPOSITORIES (the file has no code owner, so only a tag or
 digest may change without review), or on a Dockerfile that does not match: an image ARG with a default (a second pin Renovate does
@@ -28,11 +38,18 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import secrets
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 PINS_FILE = ROOT / "docker" / "base-images.env"
@@ -136,6 +153,118 @@ def check(pins: dict[str, str], dockerfile: str) -> list[str]:
     return errors
 
 
+_TAG_RE = re.compile(r"\Av?(\d+(?:\.\d+)*)(.*)\Z")
+
+
+def split_pin(value: str) -> tuple[str, str, str]:
+    """(repository, tag, digest) of a pin."""
+    image, _, digest = value.partition("@")
+    repository, _, tag = image.rpartition(":")
+    return repository, tag, digest
+
+
+def tag_version(tag: str) -> tuple[tuple[int, ...], str] | None:
+    """(version numbers, flavour suffix) of a tag such as 1.14.0-php8.5-trixie."""
+    match = _TAG_RE.match(tag)
+    if not match:
+        return None
+    return tuple(int(n) for n in match.group(1).split(".")), match.group(2)
+
+
+def base_errors(base: dict[str, str], pins: dict[str, str]) -> list[str]:
+    """Downgrades and flavour changes against the pins of the merge base."""
+    errors: list[str] = []
+    for key in sorted(set(base) & set(pins)):
+        _, old_tag, _ = split_pin(base[key])
+        _, new_tag, _ = split_pin(pins[key])
+        if old_tag == new_tag:
+            continue
+        old, new = tag_version(old_tag), tag_version(new_tag)
+        if old is None or new is None:
+            errors.append(f"docker/base-images.env: {key} tag {new_tag} cannot be compared with {old_tag}")
+            continue
+        if new[1] != old[1]:
+            errors.append(f"docker/base-images.env: {key} changes its flavour from {old_tag} to {new_tag}")
+        elif new[0] < old[0]:
+            errors.append(f"docker/base-images.env: {key} goes down from {old_tag} to {new_tag}")
+    return errors
+
+
+Fetch = Callable[[str, dict[str, str], str], Any]
+_MANIFEST_TYPES = ", ".join(
+    (
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    )
+)
+
+
+def _http(url: str, headers: dict[str, str], method: str) -> Any:
+    request = urllib.request.Request(url, method=method, headers={"User-Agent": "tesserarr-base-images", **headers})
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 (fixed Docker Hub hosts)
+        return json.load(response) if method == "GET" else response.headers.get("Docker-Content-Digest")
+
+
+def _retry(fetch: Fetch, url: str, headers: dict[str, str], method: str) -> Any:
+    for attempt in range(3):
+        try:
+            return fetch(url, headers, method)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt == 2:
+                raise
+            time.sleep(2**attempt)
+    return None
+
+
+def hub_digest(repository: str, tag: str, fetch: Fetch = _http) -> str:
+    """The digest Docker Hub serves for repository:tag (an index for multi-arch tags)."""
+    path = repository.removeprefix("docker.io/")
+    token = _retry(
+        fetch, f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{path}:pull", {}, "GET"
+    )["token"]
+    digest = _retry(
+        fetch,
+        f"https://registry-1.docker.io/v2/{path}/manifests/{tag}",
+        {"Authorization": f"Bearer {token}", "Accept": _MANIFEST_TYPES},
+        "HEAD",
+    )
+    return str(digest or "")
+
+
+def digest_errors(base: dict[str, str], pins: dict[str, str], fetch: Fetch = _http) -> list[str]:
+    """Every pin that differs from the base must carry the digest Docker Hub serves for its tag."""
+    errors: list[str] = []
+    for key, value in pins.items():
+        if base.get(key) == value:
+            continue
+        _, tag, digest = split_pin(value)
+        full = repository(value)
+        if not full.startswith("docker.io/"):
+            errors.append(f"docker/base-images.env: {key} is not on Docker Hub; its digest cannot be checked")
+            continue
+        try:
+            served = hub_digest(full, tag, fetch)
+        except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as exc:
+            errors.append(f"docker/base-images.env: {key} could not be checked against Docker Hub ({exc})")
+            continue
+        if served != digest:
+            errors.append(f"docker/base-images.env: {key} pins {digest}, but Docker Hub serves {served or 'nothing'} for {tag}")
+    return errors
+
+
+def _git_show(pins_path: Path, ref: str) -> str | None:
+    """The pin file at `ref`, from the git repository the pin file lives in."""
+    directory = pins_path.resolve().parent
+    top = subprocess.run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
+    if top.returncode != 0:
+        return None
+    rel = pins_path.resolve().relative_to(Path(top.stdout.strip())).as_posix()
+    done = subprocess.run(["git", "-C", str(directory), "show", f"{ref}:{rel}"], capture_output=True, text=True, check=False)
+    return done.stdout if done.returncode == 0 else None
+
+
 def _load(pins_path: Path, dockerfile_path: Path) -> dict[str, str]:
     try:
         pins = parse_pins(pins_path.read_text(encoding="utf-8"))
@@ -151,12 +280,13 @@ def _load(pins_path: Path, dockerfile_path: Path) -> dict[str, str]:
     return pins
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, fetch: Fetch = _http) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--pins", type=Path, default=PINS_FILE)
     parser.add_argument("--dockerfile", type=Path, default=DOCKERFILE)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("check", help="validate the pins (and the Dockerfile, if present)")
+    check_cmd = sub.add_parser("check", help="validate the pins (and the Dockerfile, if present)")
+    check_cmd.add_argument("--base", help="git ref of the merge base: no downgrade, same flavour, digests as served")
     sub.add_parser("build-args", help="print KEY=VALUE lines")
     sub.add_parser("cli", help="print --build-arg options for docker build")
     output = sub.add_parser("github-output", help="write KEY=VALUE lines to $GITHUB_OUTPUT")
@@ -170,6 +300,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     lines = [f"{key}={value}" for key, value in pins.items()]
+    if args.command == "check" and args.base:
+        text = _git_show(args.pins, args.base)
+        try:
+            base = parse_pins(text) if text else {}
+        except PinError:
+            base = {}
+        errors = base_errors(base, pins) + digest_errors(base, pins, fetch)
+        if errors:
+            print("\n".join(f"::error::{e}" for e in errors), file=sys.stderr)
+            return 1
     if args.command == "check":
         print(f"{len(pins)} base image pins in {args.pins.name}: ok")
     elif args.command == "build-args":
