@@ -665,34 +665,47 @@ def _numeric(version: str) -> tuple[int, ...] | None:
     return tuple(int(g or 0) for g in match.groups()) if match else None
 
 
-def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, str]:
+def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, set[str]]:
+    """Package name -> every version the lockfile holds of it (npm may hold several)."""
+    found: dict[str, set[str]] = {}
     if npm:
-        return {k: str(e.get("version")) for k, e in (lock.get("packages") or {}).items() if k and isinstance(e, dict)}
-    return {
-        str(p.get("name")).lower(): str(p.get("version"))
-        for section in ("packages", "packages-dev")
-        for p in lock.get(section) or []
-        if isinstance(p, dict)
-    }
+        for key, entry in (lock.get("packages") or {}).items():
+            if key and isinstance(entry, dict):
+                package = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
+                found.setdefault(package, set()).add(str(entry.get("version")))
+        return found
+    for section in ("packages", "packages-dev"):
+        for package in lock.get(section) or []:
+            if isinstance(package, dict):
+                found.setdefault(str(package.get("name")).lower(), set()).add(str(package.get("version")))
+    return found
 
 
 def version_errors(base: dict[str, Any], head: dict[str, Any], name: str, npm: bool) -> list[str]:
-    """Downgrades and major changes against the lockfile of the merge base.
+    """Downgrades and new majors against the lockfile of the merge base, per package name.
 
-    Renovate only raises versions and never merges a major by itself; a
-    lockfile that lowers one or changes its major without a manifest change
-    is refused. dev and other non-numeric versions are left to the other checks.
+    Compared by name, not by location: a package moved to another place in the
+    node_modules tree is still the same package. A head version below every
+    base version of that package, or a major that the base did not hold, is
+    refused (Renovate only raises versions and never merges a major by itself).
+    dev and other non-numeric versions are left to the other checks.
     """
     errors: list[str] = []
     old, new = _locked_versions(base, npm), _locked_versions(head, npm)
-    for key in sorted(set(old) & set(new)):
-        before, after = _numeric(old[key]), _numeric(new[key])
-        if before is None or after is None or before == after:
+    for package in sorted(set(old) & set(new)):
+        before = {v: n for v in old[package] if (n := _numeric(v)) is not None}
+        if not before:
             continue
-        if after < before:
-            errors.append(f"{name}: {key} goes down from {old[key]} to {new[key]}")
-        elif after[0] != before[0]:
-            errors.append(f"{name}: {key} changes its major version from {old[key]} to {new[key]}")
+        lowest = min(before.values())
+        majors = {n[0] for n in before.values()}
+        for version in sorted(new[package] - old[package]):
+            after = _numeric(version)
+            if after is None:
+                continue
+            if after < lowest:
+                errors.append(f"{name}: {package} goes down to {version}, below every version of the base")
+            elif after[0] not in majors:
+                errors.append(f"{name}: {package} {version} is a major version the base did not hold")
     return errors
 
 
