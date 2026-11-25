@@ -365,11 +365,15 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
   target branch unless the manifest changes as well. Versions are compared per package name, wherever the package
   sits in `node_modules`, and per major: within each major of the target branch the highest version may not go down
   and no new copy may sit below it, a major may only disappear for a higher one the branch already had, and a major
-  it did not hold fails. For npm, the version each package loads for a dependency may not go down either, and a
-  Composer package belongs in `packages` exactly when `require` needs it.
+  it did not hold fails. For npm, the version each package loads for a dependency may not go down either, also for a
+  package that moved to another place in `node_modules` (compared with the copies of the same package on the target
+  branch); bundled copies inside another package's tarball are never an allowed version. A Composer package belongs in
+  `packages` exactly when `require` needs it, and Composer prereleases are ordered like Composer orders them
+  (`beta9` < `beta10` < `RC1`). A `--base` that is not a commit fails the check.
 - **When `Lockfile sources` refuses a legitimate update.** The check fails closed on cases the project does not have
   today: an npm alias that only a dependency declares, a Composer metapackage, a `dev-*` version, a path repository
-  declared with a glob. Such a pull request needs the maintainer: confirm the change by hand (the package, its source
+  declared with a glob, and an npm dedupe that lets a package load an older copy that already sat in the tree (still
+  within its range, but lower than what it loaded on the target branch). Such a pull request needs the maintainer: confirm the change by hand (the package, its source
   and why it is needed), then extend `scripts/lockfile_sources.py` with a test for that case in the same pull request,
   instead of merging past a red check. An update that changes `composer.json`,
   `package.json`, a workflow, a GitHub Action or `docker/Dockerfile` waits for the maintainer's review, as does every

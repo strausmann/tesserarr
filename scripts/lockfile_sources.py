@@ -89,12 +89,19 @@ major, the highest version may not go down and no new copy may sit below it,
 and no major appears that the base did not hold; for npm also per consumer,
 the version each dependency resolves to by Node's lookup may not go down. A
 prerelease ranks below its release (13.43.0-RC1 < 13.43.0). Renovate only
-raises versions and never merges a major by itself.
+raises versions and never merges a major by itself. Bundled copies (inBundle)
+are no allowed versions: they ship inside their parent's tarball. A consumer
+moved to a new place in the tree may not load less than the copies of the
+same package loaded in the base (consumer_errors). A --base that is not a
+commit fails the check instead of switching the comparison off. Composer
+prereleases are ordered like composer/semver (beta9 < beta10).
 
 Known false alarms, all failing closed (CONTRIBUTING.md, "Dependency updates"):
 an npm alias that only a dependency (not package.json) declares, a Composer
 metapackage without dist or source, a dev-* version whose reference moved on
-Packagist, and a path repository declared with a glob.
+Packagist, a path repository declared with a glob, and an npm dedupe that
+lets a package load an older copy already in the tree (within its range, but
+below what it loaded on the base).
 
 A lockfile that does not exist on the branch is skipped; none at all fails, and
 so does a lockfile without packages.
@@ -681,14 +688,44 @@ def composer_orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, 
 
 
 _VERSION_RE = re.compile(r"\Av?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+.*)?\Z")
+# composer/semver VersionParser::$modifierRegex (src/VersionParser.php, 3.x):
+# [._-]?(?:(stable|beta|b|RC|alpha|a|patch|pl|p)((?:[.-]?\d+)*+)?)?([.-]?dev)?
+_COMPOSER_VERSION_RE = re.compile(
+    r"\Av?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?"
+    r"(?:[._-]?(?:(stable|beta|b|rc|alpha|a|patch|pl|p)((?:[.-]?\d+)*))?([.-]?dev)?)?(?:\+.*)?\Z",
+    re.IGNORECASE,
+)
+# VersionParser::expandStability maps a/b/p/pl/rc to alpha/beta/patch/RC; the
+# normalised versions are then ordered by PHP's version_compare(), which ranks
+# dev < alpha < beta < RC < (a release) < patch and compares the numbers that
+# follow numerically (php.net/version_compare): so beta9 < beta10.
+_COMPOSER_STAGE = {"alpha": 1, "a": 1, "beta": 2, "b": 2, "rc": 3, "stable": 4, "patch": 5, "pl": 5, "p": 5}
 
 
-def _numeric(version: str) -> tuple[Any, ...] | None:
+def _composer_numeric(version: str) -> tuple[Any, ...] | None:
+    match = _COMPOSER_VERSION_RE.match(version)
+    if not match:
+        return None  # Composer's normalize() refuses such a version too
+    numbers = tuple(int(g or 0) for g in match.groups()[:4])
+    stage, digits, dev = match.group(5), match.group(6), match.group(7)
+    if stage is None:
+        # "1.0.0-dev" alone is below every alpha; a plain release is stable.
+        return (*numbers, 0 if dev else 4, (), 1)
+    counters = tuple(int(n) for n in re.findall(r"\d+", digits or ""))
+    # A trailing -dev (beta10-dev) sits below the version it leads to.
+    return (*numbers, _COMPOSER_STAGE[stage.lower()], counters, 0 if dev else 1)
+
+
+def _numeric(version: str, composer: bool = False) -> tuple[Any, ...] | None:
     """A sortable key: the numbers, then a release above every prerelease of the same numbers.
 
-    SemVer precedence: 13.43.0-RC1 < 13.43.0; prerelease identifiers compare
-    numerically where both are numbers, else as text (numbers first).
+    npm, SemVer precedence: 13.43.0-RC1 < 13.43.0; prerelease identifiers
+    compare numerically where both are numbers, else as text (numbers first),
+    so beta10 < beta9 exactly as npm sorts them. Composer instead splits a
+    suffix into stage and number like composer/semver (_composer_numeric).
     """
+    if composer:
+        return _composer_numeric(version)
     match = _VERSION_RE.match(version)
     if not match:
         return None
@@ -705,7 +742,9 @@ def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     if npm:
         for key, entry in (lock.get("packages") or {}).items():
-            if key and isinstance(entry, dict):
+            # A bundled copy ships inside its parent's tarball (checked there);
+            # it is no version anybody may pick, and moves with its parent.
+            if key and isinstance(entry, dict) and not entry.get("inBundle"):
                 package = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
                 found.setdefault(package, set()).add(str(entry.get("version")))
         return found
@@ -735,7 +774,7 @@ def version_errors(base: dict[str, Any], head: dict[str, Any], name: str, npm: b
         after: dict[int, dict[str, tuple[int, ...]]] = {}
         for versions, groups in ((old[package], before), (new[package], after)):
             for version in versions:
-                numbers = _numeric(version)
+                numbers = _numeric(version, composer=not npm)
                 if numbers is not None:
                     groups.setdefault(numbers[0], {})[version] = numbers
         if not before:
@@ -768,9 +807,25 @@ def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manif
     comparison cannot see: an older copy that exists somewhere in the base
     (for instance bundled inside another package) placed under a consumer
     that used to load a newer one.
+
+    A consumer at a place the base does not have (moved in the tree) is
+    compared with the base resolutions of the consumers of the same package
+    name: what it loads may not be below the LOWEST of them. Lowest, not
+    highest, because copies of one package may legitimately load different
+    versions of a dependency (each within its own range), and a moved copy
+    that keeps loading what one of them loaded is no downgrade. The base
+    copies of the same version are taken first, as they declare the same
+    ranges (compared with the registry); only for a version the base does
+    not hold are all copies of that name taken. Bundled consumers and
+    bundled targets of the base do not count: they ship inside another
+    package's tarball, and their versions are nobody's to pick.
     """
     old = {k: v for k, v in (base.get("packages") or {}).items() if k and isinstance(v, dict)}
     new = {k: v for k, v in (head.get("packages") or {}).items() if k and isinstance(v, dict)}
+
+    def package_of(key: str, entry: dict[str, Any]) -> str:
+        return str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
+
     consumers: list[tuple[str, list[str]]] = [
         ("", [d for kind in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies") for d in (manifest.get(kind) or {})])
     ]
@@ -785,6 +840,36 @@ def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manif
             was_key, now_key = _numeric(was), _numeric(now)
             if was_key is not None and now_key is not None and now_key < was_key:
                 errors.append(f"{name}: {location or 'package.json'} now loads {dependency} {now} instead of {was}")
+
+    base_copies: dict[str, list[tuple[str, str]]] = {}
+    for key, entry in old.items():
+        if not entry.get("inBundle"):
+            base_copies.setdefault(package_of(key, entry), []).append((key, str(entry.get("version"))))
+    for key in sorted(set(new) - set(old)):
+        entry = new[key]
+        consumer = package_of(key, entry)
+        if entry.get("inBundle") or consumer not in base_copies:
+            continue
+        version = str(entry.get("version"))
+        copies = [k for k, v in base_copies[consumer] if v == version] or [k for k, _ in base_copies[consumer]]
+        for dependency in sorted(set(_edges(entry, False))):
+            target = _resolve(new, key, dependency)
+            now_key = _numeric(str(new[target].get("version"))) if target else None
+            loaded: list[tuple[tuple[Any, ...], str]] = []
+            for copy in copies:
+                before = _resolve(old, copy, dependency)
+                if before is not None and not old[before].get("inBundle"):
+                    was = str(old[before].get("version"))
+                    was_key = _numeric(was)
+                    if was_key is not None:
+                        loaded.append((was_key, was))
+            if target is None or now_key is None or not loaded:
+                continue
+            lowest_key, lowest = min(loaded)
+            if now_key < lowest_key:
+                errors.append(
+                    f"{name}: {key} now loads {dependency} {new[target].get('version')}, below {lowest} that {consumer} loads in the base"
+                )
     return errors
 
 
@@ -793,6 +878,19 @@ def _git_show(root: Path, ref: str, rel: str) -> str | None:
 
     done = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{rel}"], capture_output=True, text=True, check=False)
     return done.stdout if done.returncode == 0 else None
+
+
+def _is_commit(root: Path, ref: str) -> bool:
+    """`ref` names a commit of the repository at `root` (a missing file at that ref is fine)."""
+    import subprocess
+
+    done = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode == 0
 
 
 def composer_errors(
@@ -834,6 +932,10 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.base and not _is_commit(args.root, args.base):
+        # A base that does not resolve would switch the comparison off silently.
+        print(f"::error::--base {args.base} is not a commit in {args.root}; the versions cannot be compared", file=sys.stderr)
+        return 1
     errors: list[str] = []
     checked: list[str] = []
     for files, npm in ((NPM_LOCKFILES, True), (COMPOSER_LOCKFILES, False)):
