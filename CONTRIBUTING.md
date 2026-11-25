@@ -342,8 +342,8 @@ AGPL-3.0), as is anything non-free.
 [Renovate](https://docs.renovatebot.com/) keeps the dependencies current: Composer, npm (also the release toolchain in
 `.github/release-tools/`), GitHub Actions (pinned by SHA), the base images in `docker/base-images.env` and the images
 pinned by digest in the workflows and scripts (PostgreSQL, Playwright, Trivy). It runs self-hosted every night
-(`.github/workflows/renovate.yml`), reads `renovate.json` from `main` and opens pull requests against `main` and every
-`milestone/**` branch. Files shared with `main` (workflows, scripts, `docker/base-images.env`) are updated on `main` only
+(`.github/workflows/renovate.yml`) as its own GitHub App, which is no bypass actor of the rulesets, reads `renovate.json`
+from `main` and opens pull requests against `main` and every `milestone/**` branch. Files shared with `main` (workflows, scripts, `docker/base-images.env`) are updated on `main` only
 and reach a milestone with its sync pull request. Dependabot opens no version updates; Dependabot alerts stay on.
 
 - **Commit messages** follow Conventional Commits: `chore(deps):` for updates that do not ship (development
@@ -549,11 +549,8 @@ rule as the rest of the repository: no details of a real installation.
 | `DOCKERHUB_TOKEN_ADMIN`      | secret   | the same jobs: personal access token of that account, permission Read, Write, Delete. Organization access tokens cannot edit repository metadata (peter-evans/dockerhub-description#294) |
 | `ARM64_NATIVE_RUNNER`        | variable | `true` builds arm64 on the native runner (public repositories only); otherwise QEMU |
 | `GHCR_CLEANUP_ENABLED`       | variable | `true` lets the weekly `Registry cleanup` delete     |
-| `RENOVATE_TOKEN`             | secret   | `Renovate`: the token Renovate acts with (see `.github/workflows/renovate.yml`); optional when it comes from Infisical |
-| `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` | secret | `Renovate`: machine identity that reads `RENOVATE_TOKEN` from Infisical |
-| `INFISICAL_DOMAIN`           | variable | `Renovate`: address of the Infisical instance |
-| `RENOVATE_INFISICAL_PROJECT` | variable | `Renovate`: slug of the Infisical project that holds `RENOVATE_TOKEN` (environment `prod`) |
-| `RENOVATE_INFISICAL_PATH`    | variable | `Renovate`: folder of `RENOVATE_TOKEN` in that project (default `/`); only this one secret is read |
+| `RENOVATE_APP_ID`            | secret   | `Renovate`: ID of the Renovate GitHub App, installed on this repository only |
+| `RENOVATE_APP_PRIVATE_KEY`   | secret   | `Renovate`: a private key of that app; each run makes an installation token for this repository from it |
 
 ## Trademarks
 

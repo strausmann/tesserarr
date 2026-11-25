@@ -17,9 +17,14 @@ also name the package and version of its entry.
 
 npm (package-lock.json, .github/release-tools/package-lock.json, lockfile
 version 2 or 3): every package resolves to exactly
-https://registry.npmjs.org/<name>/-/<basename>-<version>.tgz (the name from
-the key after the last node_modules/, or `name` for an alias; for a scoped
-package /@scope/name/-/name-<version>.tgz) with a sha512 integrity. An entry
+https://registry.npmjs.org/<name>/-/<basename>-<version>.tgz (for a scoped
+package /@scope/name/-/name-<version>.tgz) with a sha512 integrity. The name
+comes from the key (after the last node_modules/). An entry's `name` may
+differ only for an alias that the package.json next to the lockfile (owned,
+unlike the lockfile) declares as "<key name>": "npm:<name>@…"; any other
+`name` is an error. Names follow the npm name grammar and versions are strict
+semver; a `resolved` path with `%` or a `.` or `..` segment is refused before
+anything is compared. An entry
 without `resolved` must be bundled inside another package (`inBundle`) or a
 link to a path inside the repository. The legacy `dependencies` tree of
 version 2 is checked with the same rules.
@@ -30,6 +35,7 @@ path that names the package; `<ref>` is the `reference` of the dist. `source`
 is github.com/<owner>/<repo>[.git] with the same owner/repo as the dist and
 the same reference. A `path` package must point inside the repository. Both
 `packages` and `packages-dev` are checked, and together they must not be empty.
+A `path` dist does not end the check: a `source` next to it is checked too.
 
 A lockfile that does not exist on the branch is skipped; none at all fails, and
 so does a lockfile without packages.
@@ -73,6 +79,27 @@ def _inside(path: str) -> bool:
     return bool(path) and not pure.is_absolute() and ".." not in pure.parts and ":" not in path
 
 
+NPM_NAME_RE = re.compile(r"\A(?:@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*\Z")
+SEMVER_RE = re.compile(
+    r"\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
+)
+_ALIAS_SPEC_RE = re.compile(r"\Anpm:((?:@[^/@]+/)?[^/@]+)@")
+_DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "overrides")
+
+
+def declared_aliases(manifest: dict[str, Any]) -> dict[str, str]:
+    """`{"<key name>": "<real name>"}` for every `npm:` alias a package.json declares."""
+    aliases: dict[str, str] = {}
+    for field in _DEPENDENCY_FIELDS:
+        for key, spec in (manifest.get(field) or {}).items():
+            if isinstance(spec, str):
+                match = _ALIAS_SPEC_RE.match(spec)
+                if match:
+                    aliases[key] = match.group(1)
+    return aliases
+
+
 def _npm_tarball_path(package: str, version: str) -> str:
     return f"/{package}/-/{package.rsplit('/', 1)[-1]}-{version}.tgz"
 
@@ -80,10 +107,17 @@ def _npm_tarball_path(package: str, version: str) -> str:
 def _npm_entry(entry: dict[str, Any], package: str, key: str, name: str) -> list[str]:
     resolved = entry.get("resolved")
     version = str(entry.get("version") or "")
+    if not NPM_NAME_RE.match(package):
+        return [f"{name}: {key} has the package name {package!r}, which is not an npm name"]
+    if not SEMVER_RE.match(version):
+        return [f"{name}: {key} has the version {version!r}, which is not a semantic version"]
     if not isinstance(resolved, str) or not _https_on(resolved, NPM_HOSTS):
         return [f"{name}: {key} resolves to {resolved!r}, not https://registry.npmjs.org/"]
+    parts = urlsplit(resolved)
+    if "%" in parts.path or any(s in (".", "..") for s in parts.path.split("/")):
+        return [f"{name}: {key} resolves to {resolved!r}, a path with escapes or dot segments"]
     expected = _npm_tarball_path(package, version)
-    if unquote(urlsplit(resolved).path) != expected or urlsplit(resolved).query or urlsplit(resolved).fragment:
+    if parts.path != expected or parts.query or parts.fragment:
         return [f"{name}: {key} resolves to {resolved!r}, not the tarball {expected} of its own package"]
     if not str(entry.get("integrity") or "").startswith("sha512-"):
         return [f"{name}: {key} has no sha512 integrity"]
@@ -93,7 +127,7 @@ def _npm_entry(entry: dict[str, Any], package: str, key: str, name: str) -> list
 _ALIAS_RE = re.compile(r"\Anpm:((?:@[^/@]+/)?[^/@]+)@(.+)\Z")
 
 
-def _legacy_errors(tree: dict[str, Any], name: str, trail: str) -> list[str]:
+def _legacy_errors(tree: dict[str, Any], name: str, trail: str, aliases: dict[str, str]) -> list[str]:
     """The `dependencies` tree of lockfile version 2, with the rules of `packages`."""
     errors: list[str] = []
     for package, entry in tree.items():
@@ -103,15 +137,19 @@ def _legacy_errors(tree: dict[str, Any], name: str, trail: str) -> list[str]:
         if not entry.get("bundled") and entry.get("resolved") is not None:
             version = str(entry.get("version") or "")
             alias = _ALIAS_RE.match(version)
-            real, real_version = (alias.group(1), alias.group(2)) if alias else (package, version)
-            errors.extend(_npm_entry({**entry, "version": real_version}, real, f"dependencies {key}", name))
+            if alias and not (trail == "" and aliases.get(package) == alias.group(1)):
+                errors.append(f"{name}: dependencies {key} is an alias that package.json does not declare")
+            else:
+                real, real_version = (alias.group(1), alias.group(2)) if alias else (package, version)
+                errors.extend(_npm_entry({**entry, "version": real_version}, real, f"dependencies {key}", name))
         elif not entry.get("bundled"):
             errors.append(f"{name}: dependencies {key} has no resolved URL and is not bundled")
-        errors.extend(_legacy_errors(entry.get("dependencies") or {}, name, f"{key} > "))
+        errors.extend(_legacy_errors(entry.get("dependencies") or {}, name, f"{key} > ", aliases))
     return errors
 
 
-def npm_errors(lock: dict[str, Any], name: str) -> list[str]:
+def npm_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any] | None = None) -> list[str]:
+    aliases = declared_aliases(manifest or {})
     errors: list[str] = []
     if lock.get("lockfileVersion") not in (2, 3):
         return [f"{name}: lockfileVersion {lock.get('lockfileVersion')!r} is not 2 or 3"]
@@ -123,7 +161,7 @@ def npm_errors(lock: dict[str, Any], name: str) -> list[str]:
         if lock.get("lockfileVersion") != 2 or not isinstance(legacy, dict):
             errors.append(f"{name}: a legacy dependencies tree belongs to lockfile version 2 only")
         else:
-            errors.extend(_legacy_errors(legacy, name, ""))
+            errors.extend(_legacy_errors(legacy, name, "", aliases))
     for key, entry in packages.items():
         if key == "" or not isinstance(entry, dict):
             continue
@@ -136,7 +174,14 @@ def npm_errors(lock: dict[str, Any], name: str) -> list[str]:
             if not entry.get("inBundle"):
                 errors.append(f"{name}: {key} has no resolved URL and is not bundled")
             continue
-        package = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
+        package = key.rsplit("node_modules/", 1)[-1]
+        declared = entry.get("name")
+        if declared is not None and declared != package:
+            # Only a top-level alias the package.json declares may rename.
+            if key != f"node_modules/{package}" or aliases.get(package) != declared:
+                errors.append(f"{name}: {key} names the package {declared!r}, an alias package.json does not declare")
+                continue
+            package = str(declared)
         errors.extend(_npm_entry(entry, package, key, name))
     return errors
 
@@ -152,11 +197,12 @@ def _composer_package(package: dict[str, Any], name: str) -> list[str]:
     source = package.get("source") if isinstance(package.get("source"), dict) else None
     if dist is None and source is None:
         return [f"{name}: {pkg} has neither dist nor source"]
+    repo_of: dict[str, tuple[str, str]] = {}
     if dist is not None and dist.get("type") == "path":
         url = str(dist.get("url") or "")
-        return [] if _inside(url) else [f"{name}: {pkg} dist path {url!r} lies outside the repository"]
-    repo_of: dict[str, tuple[str, str]] = {}
-    if dist is not None:
+        if not _inside(url):
+            return [f"{name}: {pkg} dist path {url!r} lies outside the repository"]
+    elif dist is not None:
         url = str(dist.get("url") or "")
         parts = urlsplit(url)
         if not _https_on(url, COMPOSER_HOSTS) or parts.query or parts.fragment:
@@ -182,7 +228,11 @@ def _composer_package(package: dict[str, Any], name: str) -> list[str]:
         if not _https_on(url, frozenset({"github.com"})) or parts.query or parts.fragment or not match:
             return [f"{name}: {pkg} source URL {url!r} is not a https://github.com/<owner>/<repo> repository"]
         repo_of["source"] = (match.group(1).lower(), match.group(2).lower())
-        if dist is not None and str(source.get("reference") or "") != str(dist.get("reference") or ""):
+        if (
+            dist is not None
+            and dist.get("type") != "path"
+            and str(source.get("reference") or "") != str(dist.get("reference") or "")
+        ):
             return [f"{name}: {pkg} source and dist have different references"]
     if len(repo_of) == 2 and repo_of["dist"] != repo_of["source"]:
         return [f"{name}: {pkg} dist and source are different repositories"]
@@ -215,18 +265,20 @@ def main(argv: list[str] | None = None) -> int:
 
     errors: list[str] = []
     checked: list[str] = []
-    for files, check in ((NPM_LOCKFILES, npm_errors), (COMPOSER_LOCKFILES, composer_errors)):
+    for files, npm in ((NPM_LOCKFILES, True), (COMPOSER_LOCKFILES, False)):
         for rel in files:
             path = args.root / rel
             if not path.exists():
                 continue
             try:
                 lock = json.loads(path.read_text(encoding="utf-8"))
+                manifest_path = path.parent / "package.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if npm and manifest_path.exists() else {}
             except json.JSONDecodeError as exc:
                 errors.append(f"{rel}: not JSON ({exc})")
                 continue
             checked.append(rel)
-            errors.extend(check(lock, rel))
+            errors.extend(npm_errors(lock, rel, manifest) if npm else composer_errors(lock, rel))
     if not checked and not errors:
         print("::error::no lockfile found", file=sys.stderr)
         return 1

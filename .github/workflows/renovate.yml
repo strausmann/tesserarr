@@ -9,17 +9,15 @@ name: Renovate
 # changed files have no code owner (lockfiles, docker/base-images.env); see
 # CONTRIBUTING.md, "Dependencies and licences".
 #
-# The token is a GitHub token of the identity Renovate acts as. It must not be
-# GITHUB_TOKEN: pull requests opened with that token start no workflows, so CI
-# would never run on them and nothing could be merged. It comes from either
-#   - the repository secret RENOVATE_TOKEN, or
-#   - Infisical: the repository secrets INFISICAL_CLIENT_ID and
-#     INFISICAL_CLIENT_SECRET (a machine identity with read access), and the
-#     repository variables INFISICAL_DOMAIN (the Infisical address),
-#     RENOVATE_INFISICAL_PROJECT (the project slug) and optionally
-#     RENOVATE_INFISICAL_PATH (the folder, default /); only the secret
-#     RENOVATE_TOKEN is read from that folder of environment prod.
-# Without either the run ends with a notice, not with an error.
+# Renovate acts as its own GitHub App (Renovate docs, "Running as a GitHub
+# App"), not as a user: the app is no bypass actor of the rulesets, so its
+# pull requests meet the code owner rule and the required checks like anyone
+# else's. Each run creates an installation token for this repository only
+# (actions/create-github-app-token) from the repository secrets
+# RENOVATE_APP_ID and RENOVATE_APP_PRIVATE_KEY. Pull requests opened with that
+# token start the CI workflows (GITHUB_TOKEN could not). Renovate detects the
+# app's username and git author itself. Without both secrets the run ends
+# with a notice, not with an error.
 
 on:
   schedule:
@@ -49,70 +47,51 @@ jobs:
     # Renovate works with its own token; this job's GITHUB_TOKEN reads nothing.
     permissions: {}
     steps:
-      - name: Find the token source
-        id: source
+      - name: Check the app credentials
+        id: app
         env:
-          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
-          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
-          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          INFISICAL_DOMAIN: ${{ vars.INFISICAL_DOMAIN }}
-          INFISICAL_PROJECT: ${{ vars.RENOVATE_INFISICAL_PROJECT }}
+          APP_ID: ${{ secrets.RENOVATE_APP_ID }}
+          APP_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
         run: |
           set -eu
-          if [ -n "$RENOVATE_TOKEN" ]; then
-            echo "source=secret" >> "$GITHUB_OUTPUT"
-          elif [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ] \
-            && [ -n "$INFISICAL_DOMAIN" ] && [ -n "$INFISICAL_PROJECT" ]; then
-            echo "source=infisical" >> "$GITHUB_OUTPUT"
+          if [ -n "$APP_ID" ] && [ -n "$APP_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "source=none" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Renovate::No token: set the secret RENOVATE_TOKEN, or the Infisical secrets and variables listed in renovate.yml. Renovate did not run."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Renovate::The secrets RENOVATE_APP_ID and RENOVATE_APP_PRIVATE_KEY are not both set. Renovate did not run."
             {
               echo "### Renovate did not run"
               echo
-              echo "No token is configured; see the comment at the top of .github/workflows/renovate.yml."
+              echo "The GitHub App is not configured; see the comment at the top of .github/workflows/renovate.yml."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Reads the one secret RENOVATE_TOKEN (secret-name), without imports, and
-      # exports it as an environment variable of this job (masked in the log);
-      # Renovate's container only receives RENOVATE_* and LOG_LEVEL
-      # (renovatebot/github-action, env-regex).
-      - name: Fetch the token from Infisical
-        if: steps.source.outputs.source == 'infisical'
-        uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
-        with:
-          method: universal
-          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
-          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          project-slug: ${{ vars.RENOVATE_INFISICAL_PROJECT }}
-          env-slug: prod
-          secret-path: ${{ vars.RENOVATE_INFISICAL_PATH || '/' }}
-          secret-name: RENOVATE_TOKEN
-          include-imports: false
-          domain: ${{ vars.INFISICAL_DOMAIN }}
-
-      - name: Check the token
+      # The token is limited to this repository and to the permissions Renovate
+      # needs (the app may hold more); it expires after an hour and is revoked
+      # when the job ends.
+      - name: Installation token of the Renovate app
         id: token
-        if: steps.source.outputs.source != 'none'
-        env:
-          FROM_SECRET: ${{ secrets.RENOVATE_TOKEN }}
-          SOURCE: ${{ steps.source.outputs.source }}
-        run: |
-          set -eu
-          if [ "$SOURCE" = secret ]; then token="$FROM_SECRET"; else token="${RENOVATE_TOKEN:-}"; fi
-          if [ -z "$token" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Renovate::Infisical has no secret RENOVATE_TOKEN in the project root. Renovate did not run."
-            exit 0
-          fi
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+        if: steps.app.outputs.ready == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: read
+          permission-checks: write
+          permission-contents: write
+          permission-issues: write
+          permission-metadata: read
+          permission-pull-requests: write
+          permission-statuses: write
+          permission-vulnerability-alerts: read
+          permission-workflows: write
 
       - name: Renovate
-        if: steps.token.outputs.ready == 'true'
+        if: steps.app.outputs.ready == 'true'
         uses: renovatebot/github-action@ebcbb513d07ead4d9c0c2139064301db05e84a3e # v46.3.15
         with:
-          token: ${{ secrets.RENOVATE_TOKEN || env.RENOVATE_TOKEN }}
+          token: ${{ steps.token.outputs.token }}
           # The image that holds the token, pinned by version and digest
           # (Renovate updates it, renovate.json); the action's default is the
           # floating tag 44.
