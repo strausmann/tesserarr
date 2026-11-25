@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        image: postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
         env:
           POSTGRES_DB: tesserarr_test
           POSTGRES_USER: tesserarr
@@ -222,7 +222,7 @@ jobs:
         run: npm run build
 
       # The browser tests run against the image as it ships, plus the sign-in
-      # route of stage `e2e` (docker/Dockerfile), with PostgreSQL 17 next to it.
+      # route of stage `e2e` (docker/Dockerfile), with PostgreSQL 18 next to it.
       - name: Set up Docker Buildx
         if: steps.app.outputs.exists == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -342,9 +342,9 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         run: scripts/smoke/body-limits.sh "$IMAGE"
 
-      # tesserarr:migrate in the image against PostgreSQL 17: a 0600 custom-format
+      # tesserarr:migrate in the image against PostgreSQL 18: a 0600 custom-format
       # dump that pg_restore can read, then the schema (pg_dump comes from the
-      # image's postgresql-client-17, which the Pest tests cannot exercise).
+      # image's postgresql-client-18, which the Pest tests cannot exercise).
       - name: Migrate with a backup
         if: steps.app.outputs.exists == 'true'
         run: scripts/smoke/migrate.sh "$IMAGE"
@@ -358,14 +358,46 @@ jobs:
       # A report, not a gate: findings never fail the job (--exit-code 0). The
       # counts per severity and the critical and high findings go to the job
       # summary. A hard gate for CRITICAL is a separate decision.
+      # The database is fetched first: up to three rounds over the OCI
+      # repositories in TRIVY_DB_REPOSITORIES (Trivy's own defaults, see the
+      # Trivy docs, "Database Locations"), one repository per call. Trivy itself
+      # falls back from one --db-repository to the next only on transient
+      # errors (429, 5xx), not when a registry cannot be resolved or reached.
+      # When no round gets a database, the step reports "scan skipped: database
+      # unavailable" and succeeds: a missing database is no finding and no
+      # defect of the image. A failing scan with a database stays an error.
       - name: Vulnerability report (Trivy)
         if: steps.app.outputs.exists == 'true'
         env:
           TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+          TRIVY_DB_REPOSITORIES: mirror.gcr.io/aquasec/trivy-db:2 ghcr.io/aquasecurity/trivy-db:2
         run: |
           set -euo pipefail
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" \
-            image --scanners vuln --format json --quiet --exit-code 0 "$IMAGE" > "$RUNNER_TEMP/trivy.json"
+          cache="$RUNNER_TEMP/trivy-cache"
+          mkdir -p "$cache"
+          trivy() {
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$cache":/root/.cache/trivy \
+              "$TRIVY_IMAGE" "$@"
+          }
+          db=false
+          for round in 1 2 3; do
+            for repo in $TRIVY_DB_REPOSITORIES; do
+              if trivy image --download-db-only --no-progress --db-repository "$repo"; then
+                db=true
+                break 2
+              fi
+              echo "Trivy database from $repo, round $round of 3: failed"
+            done
+            [ "$round" = 3 ] || sleep $((round * 20))
+          done
+          if [ "$db" != true ]; then
+            echo "::warning title=Trivy::scan skipped: database unavailable"
+            printf "### Trivy: \`%s\`\n\n**scan skipped: database unavailable** (%s)\n" \
+              "$IMAGE" "$TRIVY_DB_REPOSITORIES" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          trivy image --skip-db-update --scanners vuln --format json --quiet --exit-code 0 "$IMAGE" \
+            > "$RUNNER_TEMP/trivy.json"
           {
             echo "### Trivy: \`$IMAGE\`"
             echo
@@ -399,7 +431,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        image: postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
         env:
           POSTGRES_DB: tesserarr_upgrade
           POSTGRES_USER: tesserarr

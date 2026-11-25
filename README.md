@@ -20,7 +20,7 @@ files travel over Syncthing. You decide who sees which share, how much they may 
 a file stays around if nobody collects it.
 
 Tesserarr is a Laravel 13 application (PHP 8.5) with a Svelte 5 interface served
-through Inertia and a PostgreSQL 17 database. It ships as one FrankenPHP-based
+through Inertia and a PostgreSQL 18 database. It ships as one FrankenPHP-based
 image.
 
 ## Why the name
@@ -158,7 +158,7 @@ yet.
 Planned for the first release:
 
 - Docker with Compose
-- PostgreSQL 17 (included in the Compose file)
+- PostgreSQL 18 (included in the Compose file)
 - A Syncthing instance that Tesserarr may control
 - Optional: Sonarr, Radarr, Prowlarr and Plex
 
