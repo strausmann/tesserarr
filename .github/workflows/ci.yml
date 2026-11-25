@@ -282,6 +282,16 @@ jobs:
       - name: Coverage gate self-test
         run: php scripts/coverage_gate.php --self-test
 
+      # Release guard and registry rules (scripts/test_*.py); standard library
+      # only, pytest runs the unittest cases.
+      - name: Install pytest
+        run: python3 -m pip install --user --no-cache-dir 'pytest==9.1.1'
+
+      - name: Python scripts self-test
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m pytest scripts/ -q
+
   docker-build:
     name: Docker — build smoke test
     runs-on: ubuntu-24.04
@@ -332,6 +342,13 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         run: scripts/smoke/body-limits.sh "$IMAGE"
 
+      # tesserarr:migrate in the image against PostgreSQL 17: a 0600 custom-format
+      # dump that pg_restore can read, then the schema (pg_dump comes from the
+      # image's postgresql-client-17, which the Pest tests cannot exercise).
+      - name: Migrate with a backup
+        if: steps.app.outputs.exists == 'true'
+        run: scripts/smoke/migrate.sh "$IMAGE"
+
       - name: Licence files in the image
         if: steps.app.outputs.exists == 'true'
         run: |
@@ -341,6 +358,116 @@ jobs:
       - name: No-op (no Dockerfile on main yet)
         if: steps.app.outputs.exists != 'true'
         run: echo "No docker/Dockerfile on main yet; the image is built on the milestone branch and after its merge."
+
+  # Upgrade test (CONTRIBUTING.md, "Local CI checks"): the schema of the last
+  # release, filled by its seeder, migrated to this commit, then the feature
+  # suite. Before the first release with an application there is nothing to
+  # upgrade from, and the job is a named no-op (0.1.0). v0.0.0 is the baseline
+  # tag on the initial commit and holds no application.
+  upgrade:
+    name: Upgrade — migrations from the last release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        env:
+          POSTGRES_DB: tesserarr_upgrade
+          POSTGRES_USER: tesserarr
+          POSTGRES_PASSWORD: tesserarr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tesserarr -d tesserarr_upgrade"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_DATABASE: tesserarr_upgrade
+      DB_USERNAME: tesserarr
+      DB_PASSWORD: tesserarr
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Find the last release with an application
+        id: prev
+        env:
+          TARGET: ${{ github.base_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ ! -f composer.json ]; then
+            if [ "$TARGET" = main ]; then
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::composer.json is missing. Only main may run without the application."
+            exit 1
+          fi
+          tag=""
+          for t in $(git tag --merged HEAD --list 'v*' --sort=-version:refname); do
+            [[ "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+            [ "$t" = v0.0.0 ] && continue
+            if git cat-file -e "$t:composer.json" 2> /dev/null; then tag="$t"; break; fi
+          done
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up PHP 8.4
+        if: steps.prev.outputs.tag != ''
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, intl, pcntl
+          coverage: none
+          tools: composer:v2
+
+      - name: Schema and sample data of the last release
+        if: steps.prev.outputs.tag != ''
+        env:
+          TAG: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail
+          prev="$RUNNER_TEMP/previous"
+          git worktree add --detach "$prev" "$TAG"
+          cd "$prev"
+          composer install --no-interaction --no-progress --prefer-dist
+          cp .env.example .env
+          php artisan key:generate --ansi
+          php artisan migrate --force --no-interaction
+          php artisan db:seed --force --no-interaction
+
+      - name: Migrate to this commit, then nothing pending
+        if: steps.prev.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          composer install --no-interaction --no-progress --prefer-dist
+          cp .env.example .env
+          php artisan key:generate --ansi
+          php artisan migrate --force --no-interaction
+          out="$(php artisan migrate --pretend --force --no-interaction)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -q 'Nothing to migrate'
+
+      - name: Set up Node
+        if: steps.prev.outputs.tag != ''
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Feature suite on the upgraded code
+        if: steps.prev.outputs.tag != ''
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          ./vendor/bin/pest tests/Feature
+
+      - name: No-op (no release with an application yet)
+        if: steps.prev.outputs.tag == ''
+        run: echo "No release before this commit carries the application; the upgrade test starts with the first release after 0.1.0."
 
   privacy-scan:
     name: Privacy / secret scan

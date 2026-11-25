@@ -19,6 +19,9 @@ Contributions need a signed [Contributor License Agreement](CLA.md). You sign it
 [CLA assistant](https://cla-assistant.io/): when you open your first pull request, the bot comments with a link; follow it,
 sign in with GitHub and accept. The `license/cla` check must pass before a pull request can be merged.
 
+While the repository is private, CLA assistant cannot see it, so the `license/cla` check never reports and is not yet a
+required check of the ruleset `main: licence gate`. It becomes one when the repository is made public.
+
 ## No environment details, ever
 
 This repository must never contain anything that identifies a real installation: not in code, issues, commit messages, pull
@@ -61,14 +64,17 @@ Docker is the only requirement; PHP 8.4, Composer, Node and PostgreSQL run in co
 
 ```bash
 cp .env.example .env
+mkdir -p .dev/backups && sudo chown 10001:10001 .dev/backups   # the image runs as UID 10001
 docker compose -f compose.dev.yaml build
 docker compose -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show   # put the key into .env as APP_KEY
 docker compose -f compose.dev.yaml up
 ```
 
-`up` first runs the one-off `migrate` service (`artisan migrate --force`); `web`, `worker` and `scheduler` start only
-after it has finished. A satellite never migrates: it has no database. The web interface is then on
-<http://localhost:8080>.
+`up` first runs the one-off `migrate` service (`artisan tesserarr:migrate`); `web`, `worker` and `scheduler` start only
+after it has finished successfully. When migrations are pending, `tesserarr:migrate` first writes a `pg_dump` backup to
+`TESSERARR_BACKUP_DIR` (in the dev stack `.dev/backups/`), keeps the newest five (`TESSERARR_BACKUP_KEEP`, 1 to 50)
+and stops without migrating when the backup fails or is empty. Nothing pending means no backup. A satellite never
+migrates: it has no database. The web interface is then on <http://localhost:8080>.
 
 ### 3. Create a branch
 
@@ -179,6 +185,7 @@ npm run lint                                   # Oxlint (type-aware, warnings fa
 npm run test:coverage                          # Vitest; resources/js/lib at least 80 %
 npm run build
 scripts/e2e/run.sh                             # Playwright against the built image (see "Browser tests")
+python -m pytest scripts/                      # release guard and registry rules (standard library only)
 ```
 
 | Check                               | Job in CI                                  |
@@ -187,11 +194,18 @@ scripts/e2e/run.sh                             # Playwright against the built im
 | svelte-check, lint, tests, build    | `Web — typecheck, lint, test, build`       |
 | Image build and smoke tests         | `Docker — build smoke test`                |
 | Licences of every dependency        | `Licence gate (composer, npm)`             |
+| Self-tests of the scripts           | `Scripts — self-tests`                     |
+| Version impact of a pull request    | `release-impact`                           |
+| Migrations from the last release    | `Upgrade — migrations from the last release` |
 | Static analysis for security bugs   | `Semgrep`                                  |
 | Private network artefacts, secrets  | `Privacy / secret scan`                    |
 | SPDX header or annotation per file  | `REUSE — licensing of every file`          |
 | Vale on the English docs            | `Prose`                                    |
 | Pull request title                  | `commitlint`                               |
+
+Pull requests into `main` additionally need the checks of the ruleset `main: licence gate`:
+`Licence gate (composer, npm)`, `release-impact` and `Docker — build smoke test` (and `license/cla` once the repository is
+public, see "Contributor License Agreement").
 
 **Coverage.** The whole application needs 80 %. Security-relevant directories need more: `app/Authorization`,
 `app/Invitations`, `app/Mfa`, `app/Identity` and `app/Tokens` 90 %; `app/Execution`, `app/Catalog`, `app/Satellites` and
@@ -370,7 +384,14 @@ made from `main` only; a milestone ships by merging `milestone/X.Y.0` into `main
 
 **Starting a milestone.** A maintainer opens the GitHub milestone `X.Y.0` and creates `milestone/X.Y.0` from `main`. CI
 runs for pull requests into `milestone/**` exactly as for `main`. Major versions only come through a milestone `X.0.0`.
-The first release of the project is `0.1.0`; the repository carries the tag `v0.0.0` as the starting point.
+The first release of the project is `0.1.0`. The repository carries the tag `v0.0.0` on the initial commit as the
+starting point: without it, semantic-release computes `1.0.0` for the first `feat`, and the release guard stops the run.
+A maintainer sets it once:
+
+```bash
+git tag -a v0.0.0 85c6f9bb0a560e4f957451260de09f8c8875e140 -m "v0.0.0: baseline before the first release"
+git push origin v0.0.0
+```
 
 **One branch and one pull request per task.** Each task of a milestone gets its own branch from the milestone branch and
 one pull request against it, squash-merged after review.
@@ -412,11 +433,58 @@ did not come in through the milestone merge.
 
 ## Releases
 
-Releases are scheduled, not made on every merge. semantic-release reads the Conventional Commits on `main` since the last
-tag, computes the next version, checks it against the release guard, writes the changelog, tags `v<version>` and publishes
-the GitHub release and the images. Maintainers do not tag by hand; a release can be started early from the Actions tab.
-Before a milestone ships, a maintainer can build a preview image `X.Y.0-rc.N` from the milestone branch; a preview gets
-no tag, no release and no changelog entry.
+Releases are scheduled, not made on every merge. The `Release` workflow runs nightly at 04:00 UTC and can be started
+early from the Actions tab (with `dry_run` to see the computed version without publishing anything). semantic-release
+reads the Conventional Commits on `main` since the last tag, computes the next version, checks it against the release
+guard, writes the changelog and tags `v<version>`. Maintainers do not tag by hand.
+
+**Draft first, publish last.** semantic-release creates the GitHub release as a draft. The images are then built from the
+tag, the SBOM is attached to the draft, and only then is the draft published. A failed image or SBOM job leaves a draft
+and a step summary with the rerun command, never a published release with missing assets.
+
+**Images.** Every release is published as one multi-arch image (`linux/amd64`, `linux/arm64`) to both registries,
+`ghcr.io/strausmann/tesserarr` and `docker.io/bstrausmann/tesserarr`, with the same tags:
+
+| Tag          | Built from                         | Example      |
+| ------------ | ---------------------------------- | ------------ |
+| `x.y.z`      | a release                          | `0.1.0`      |
+| `x.y`, `x`   | a stable release                   | `0.1`, `0`   |
+| `latest`     | the newest stable release          | `latest`     |
+| `dev`        | every push to `main`               | `dev`        |
+| `x.y.z-rc.N` | a preview of a milestone           | `0.1.0-rc.1` |
+
+A preview gets only its exact tag, never `x.y`, `x` or `latest`. Each image carries build provenance (`mode=max`) and an
+SBOM; the CycloneDX SBOM is also attached to the GitHub release. The image index is signed without a key (cosign with the
+workflow's OIDC token), from `main` and `milestone/*` only:
+
+```bash
+cosign verify docker.io/bstrausmann/tesserarr:0.1.0-rc.1 \
+  --certificate-identity-regexp 'https://github.com/strausmann/tesserarr/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+**Previews.** Before a milestone ships, a maintainer runs `Preview image` on the milestone branch with the milestone
+version (`0.1.0`, or `0.1.x` for the next free patch); any other branch is refused, because only `main` and the
+milestone branches are signed. The rc number counts up from the tags in GHCR. A preview is signed like a release image
+(the signature covers the image index with its SBOM and provenance attestations), and gets no
+git tag, no release and no changelog entry. `Registry cleanup` removes a preview on both registries once its release
+exists; it deletes only when the repository variable `GHCR_CLEANUP_ENABLED` is `true`, a manual run is a dry run.
+
+**Docker Hub page.** `Docker Hub description` writes `docs/dockerhub/README.md` and the short description to Docker Hub
+when the file changes on `main` and after every release. The Docker Hub page is public, so that file follows the same
+rule as the rest of the repository: no details of a real installation.
+
+**Repository settings the release needs:**
+
+| Name                         | Kind     | Used by                                              |
+| ---------------------------- | -------- | ---------------------------------------------------- |
+| `SEMANTIC_RELEASE_SSH_KEY`   | secret   | `Release`: deploy key with write access (ruleset bypass) to push the tag and the changelog |
+| `DOCKERHUB_USERNAME`         | secret   | `Docker — publish`, `Preview image`: the organization name `bstrausmann`, the login of the organization access token |
+| `DOCKERHUB_TOKEN`            | secret   | the same jobs: organization access token with Image Push on `bstrausmann/tesserarr` |
+| `DOCKERHUB_ADMIN_USERNAME`   | secret   | `Docker Hub description`, `Registry cleanup`: a personal account that is a member or owner of the organization (not the organization) |
+| `DOCKERHUB_TOKEN_ADMIN`      | secret   | the same jobs: personal access token of that account, permission Read, Write, Delete. Organization access tokens cannot edit repository metadata (peter-evans/dockerhub-description#294) |
+| `ARM64_NATIVE_RUNNER`        | variable | `true` builds arm64 on the native runner (public repositories only); otherwise QEMU |
+| `GHCR_CLEANUP_ENABLED`       | variable | `true` lets the weekly `Registry cleanup` delete     |
 
 ## Trademarks
 

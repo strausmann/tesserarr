@@ -1,0 +1,234 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# The labels of the repository, synced from main by .github/workflows/labels-sync.yml.
+# Do not create labels in the GitHub UI: the next sync removes them.
+# Schema: https://github.com/EndBug/label-sync#config-files
+
+- name: "accessibility"
+  color: "f143ab"
+  description: "Barrier affecting people with disabilities"
+
+- name: "area:api"
+  color: "ededed"
+  description: "Betrifft den Baustein api"
+
+- name: "area:audit"
+  color: "ededed"
+  description: "Betrifft den Baustein audit"
+
+- name: "area:catalog"
+  color: "ededed"
+  description: "Betrifft den Baustein catalog"
+
+- name: "area:ci"
+  color: "ededed"
+  description: "Betrifft den Baustein ci"
+
+- name: "area:core"
+  color: "ededed"
+  description: "Skeleton, CLI, self-test"
+
+- name: "area:deploy"
+  color: "ededed"
+  description: "Reference deployment"
+
+- name: "area:docs"
+  color: "ededed"
+  description: "Betrifft den Baustein docs"
+
+- name: "area:downloader"
+  color: "ededed"
+  description: "Betrifft den Baustein downloader"
+
+- name: "area:grant"
+  color: "ededed"
+  description: "Betrifft den Baustein grant"
+
+- name: "area:identity"
+  color: "ededed"
+  description: "Betrifft den Baustein identity"
+
+- name: "area:indexer"
+  color: "ededed"
+  description: "Betrifft den Baustein indexer"
+
+- name: "area:integration"
+  color: "ededed"
+  description: "Arr and Plex connections"
+
+- name: "area:invite"
+  color: "ededed"
+  description: "Betrifft den Baustein invite"
+
+- name: "area:provision"
+  color: "ededed"
+  description: "Betrifft den Baustein provision"
+
+- name: "area:quota"
+  color: "ededed"
+  description: "Betrifft den Baustein quota"
+
+- name: "area:release"
+  color: "ededed"
+  description: "Betrifft den Baustein release"
+
+- name: "area:request"
+  color: "ededed"
+  description: "Betrifft den Baustein request"
+
+- name: "area:satellite"
+  color: "ededed"
+  description: "Satellite role"
+
+- name: "area:syncthing"
+  color: "ededed"
+  description: "Betrifft den Baustein syncthing"
+
+- name: "area:web"
+  color: "ededed"
+  description: "Betrifft den Baustein web"
+
+- name: "breaking-change"
+  color: "b60205"
+  description: "Breaking change"
+
+- name: "dependencies"
+  color: "0366d6"
+  description: "Dependency updates"
+
+- name: "docker"
+  color: "0366d6"
+  description: "Docker updates"
+
+- name: "github-actions"
+  color: "0366d6"
+  description: "GitHub Actions updates"
+
+- name: "good-first-issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help-wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: "javascript"
+  color: "0366d6"
+  description: "JavaScript updates"
+
+- name: "measure:experiment"
+  color: "5319e7"
+  description: "Experiments V1-V3"
+
+- name: "measure:php-tooling"
+  color: "5319e7"
+  description: "PHP tooling pilot measurement (V4)"
+
+- name: "php"
+  color: "0366d6"
+  description: "PHP updates"
+
+- name: "priority:critical"
+  color: "b60205"
+  description: "Priority critical"
+
+- name: "priority:high"
+  color: "d93f0b"
+  description: "Priority high"
+
+- name: "priority:low"
+  color: "c5def5"
+  description: "Priority low"
+
+- name: "priority:medium"
+  color: "fbca04"
+  description: "Priority medium"
+
+- name: "release-note"
+  color: "ededed"
+  description: "Appears in release notes"
+
+- name: "release:waived-by-maintainer"
+  color: "ededed"
+  description: "Release guard waived by maintainer"
+
+- name: "roadmap"
+  color: "0e8a16"
+  description: "Erscheint auf der oeffentlichen Roadmap"
+
+- name: "status:blocked"
+  color: "e4e669"
+  description: "Wartet auf etwas Externes"
+
+- name: "status:duplicate"
+  color: "cfd3d7"
+  description: "This issue or pull request already exists"
+
+- name: "status:implemented"
+  color: "0e8a16"
+  description: "Implemented, not yet released"
+
+- name: "status:in-progress"
+  color: "1d76db"
+  description: "Roadmap: In Entwicklung"
+
+- name: "status:needs-decision"
+  color: "fbca04"
+  description: "Braucht eine Entscheidung des Betreibers"
+
+- name: "status:needs-info"
+  color: "fbca04"
+  description: "Needs more information"
+
+- name: "status:needs-triage"
+  color: "fbca04"
+  description: "Needs triage"
+
+- name: "status:ready-for-review"
+  color: "1d76db"
+  description: "Ready for review"
+
+- name: "status:released"
+  color: "0e8a16"
+  description: "Set by semantic-release"
+
+- name: "status:wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"
+
+- name: "template:laravel-candidate"
+  color: "5319e7"
+  description: "Candidate for the Laravel Copier template"
+
+- name: "type:bug"
+  color: "d73a4a"
+  description: "Fehlverhalten"
+
+- name: "type:chore"
+  color: "cfd3d7"
+  description: "Wartung, Abhaengigkeiten, Werkzeuge"
+
+- name: "type:docs"
+  color: "0075ca"
+  description: "Dokumentation"
+
+- name: "type:feature"
+  color: "a2eeef"
+  description: "Neue Faehigkeit"
+
+- name: "type:question"
+  color: "d876e3"
+  description: "Further information is requested"
+
+- name: "type:refactor"
+  color: "cfd3d7"
+  description: "Refactoring without behaviour change"
+
+- name: "type:security"
+  color: "b60205"
+  description: "Sicherheit"
+
+- name: "type:test"
+  color: "0075ca"
+  description: "Tests"

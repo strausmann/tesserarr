@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Feature request
+description: Suggest a new capability or an improvement
+title: "feat: <one-line summary>"
+labels:
+  - "type:feature"
+  - "status:needs-triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first, then the solution you have in mind. No details of a real installation, please.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What do you want to do, and what stops you today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
