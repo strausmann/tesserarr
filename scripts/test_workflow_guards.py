@@ -116,6 +116,28 @@ class DockerHubRequestTest(unittest.TestCase):
                 self.assertRegex(line, r'^if \[ -z "\$DOCKERHUB_ADMIN_USERNAME" \] \|\| \[ -z "\$DOCKERHUB_TOKEN_ADMIN" \]; then$')
 
 
+class CosignVerifyDocsTest(unittest.TestCase):
+    """cosign v2 cannot see the v3 signature bundles, so every documented verify says v3."""
+
+    DOCS = ["CONTRIBUTING.md", "SECURITY.md", "README.md", "docs/dockerhub/README.md"]
+
+    def test_every_documented_verify_names_cosign_v3_and_a_container_command(self) -> None:
+        checked = 0
+        for name in self.DOCS:
+            path = ROOT / name
+            if not path.exists():
+                continue
+            text = path.read_text()
+            if "cosign verify" not in text and "cosign/cosign:" not in text:
+                continue
+            checked += 1
+            with self.subTest(file=name):
+                self.assertIn("cosign v3 or newer", text)
+                self.assertRegex(text, r"docker run --rm ghcr\.io/sigstore/cosign/cosign:v3\.[0-9]+\.[0-9]+ verify ")
+                self.assertNotRegex(text, r"cosign/cosign:v[0-2]\.")
+        self.assertGreaterEqual(checked, 2, "no document with a cosign verify command found")
+
+
 class ScriptTestLayoutTest(unittest.TestCase):
     """`python scripts/test_x.py` and pytest must run the same tests."""
 
