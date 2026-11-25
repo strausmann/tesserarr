@@ -146,15 +146,11 @@ These are drafts. They are replaced by real screenshots as soon as the interface
 
 ### Catalog
 
-<!-- ![The catalogue of shared media](docs/images/mockups/catalog.png) -->
-
-Mockups follow.
+![The catalogue of shared media](docs/images/mockups/catalog.png)
 
 ### Friend home
 
-<!-- ![What a friend sees after signing in](docs/images/mockups/friend-home.png) -->
-
-Mockups follow.
+![What a friend sees after signing in](docs/images/mockups/friend-home.png)
 
 ### Connections
 
@@ -162,23 +158,17 @@ Mockups follow.
 
 ### Users
 
-<!-- ![The user list with groups and roles](docs/images/mockups/users.png) -->
-
-Mockups follow.
+![The user list with groups and roles](docs/images/mockups/users.png)
 
 ### Sign-in
 
-<!-- ![The sign-in page](docs/images/mockups/sign-in.png) -->
-
-Mockups follow.
+![The sign-in page](docs/images/mockups/sign-in.png)
 
 ### On a phone
 
 ![The dashboard on a phone with the setup checklist and the attention list](docs/images/mockups/dashboard-phone.png)
 
-<!-- ![The catalogue on a phone](docs/images/mockups/catalog-phone.png) -->
-
-The catalogue on a phone follows.
+![The catalogue on a phone](docs/images/mockups/catalog-phone.png)
 
 ## Roadmap
 
