@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "Self-hosted Renovate (.github/workflows/renovate.yml). See CONTRIBUTING.md, 'Dependencies and licences'.",
-    "Automerge only touches files without a code owner (.github/CODEOWNERS): lockfiles, docker/base-images.env. Everything else waits for the maintainer.",
+    "Automerge only touches files without a code owner (.github/CODEOWNERS): lockfiles, docker/base-images.env (whose images the required check 'Base image pins' keeps on an allowlist). renovate.json itself is owned. Everything else waits for the maintainer.",
     "Renovate merges by itself once every check is green (platformAutomerge is off: the rulesets do not require every check)."
   ],
   "extends": [

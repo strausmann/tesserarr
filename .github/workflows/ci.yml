@@ -300,9 +300,21 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m pytest scripts/ -q
 
-      # docker/base-images.env is well-formed, and docker/Dockerfile (where the
-      # branch has one) declares exactly these image ARGs, without a default.
-      - name: Base image pins
+  # docker/base-images.env has no code owner, so Renovate's digest and tag
+  # updates merge after green CI. This job keeps the image behind every pin on
+  # the allowlist in scripts/base_images.py (owned) and checks that
+  # docker/Dockerfile (where the branch has one) declares exactly these image
+  # ARGs, without a default. A required check of the rulesets.
+  base-images:
+    name: Base image pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Pins on the allowlist, Dockerfile without a second pin
         run: python3 scripts/base_images.py check
 
   docker-build:

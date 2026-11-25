@@ -33,12 +33,14 @@
 # Files that hold nothing but dependency versions have no code owner, so a
 # Renovate update that changes only them merges after green CI (renovate.json,
 # automerge). The manifests composer.json and package.json stay owned: they
-# also carry scripts. An update that changes a manifest, a workflow, a GitHub
+# also carry scripts. renovate.json stays owned too: it decides what merges
+# without review. An update that changes a manifest, a workflow, a GitHub
 # Action or docker/Dockerfile waits for the maintainer. docker/base-images.env
-# holds the base image pins of docker/Dockerfile and nothing else
-# (scripts/base_images.py checks that the Dockerfile declares no second pin).
+# holds the base image pins of docker/Dockerfile and nothing else: the
+# required check "Base image pins" (scripts/base_images.py) refuses a second
+# pin in the Dockerfile and any image that is not on its allowlist, so only a
+# tag or digest can change without review.
 /composer.lock
 /package-lock.json
 /.github/release-tools/package-lock.json
-/renovate.json
 /docker/base-images.env

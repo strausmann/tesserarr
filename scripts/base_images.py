@@ -18,8 +18,9 @@ Every build passes the pins as build arguments:
     python3 scripts/base_images.py cli            # --build-arg KEY=VALUE … for docker build
     python3 scripts/base_images.py github-output --name build-args   # multiline step output
 
-Every command checks first and fails on a malformed pin or on a Dockerfile
-that does not match: an image ARG with a default (a second pin Renovate does
+Every command checks first and fails on a malformed pin, on a pin whose image
+is not on ALLOWED_REPOSITORIES (the file has no code owner, so only a tag or
+digest may change without review), or on a Dockerfile that does not match: an image ARG with a default (a second pin Renovate does
 not update), an image ARG without a pin, or a pin no ARG uses.
 Standard library only.
 """
@@ -47,6 +48,18 @@ PIN_RE = re.compile(
     rf"(?P<value>(?:{_REGISTRY}/)?{_COMPONENT}(?:/{_COMPONENT})*"
     r":[A-Za-z0-9_][A-Za-z0-9._-]{0,127}@sha256:[0-9a-f]{64})\Z"
 )
+# The image behind each pin. docker/base-images.env has no code owner so that
+# a tag or digest update merges after green CI; which image a key names is a
+# review decision, so the allowlist lives here, in an owned file. A pull
+# request that changes the repository of a pin fails `check` (CI job
+# "Base image pins", a required check) until this list is changed with the
+# maintainer's review.
+ALLOWED_REPOSITORIES = {
+    "FRANKENPHP_IMAGE": "docker.io/dunglas/frankenphp",
+    "COMPOSER_IMAGE": "docker.io/library/composer",
+    "NODE_IMAGE": "docker.io/library/node",
+}
+
 ARG_RE = re.compile(r"^\s*ARG\s+(?P<key>[A-Z][A-Z0-9_]*_IMAGE)(?P<default>=\S*)?\s*$", re.MULTILINE)
 
 
@@ -72,9 +85,39 @@ def parse_pins(text: str) -> dict[str, str]:
     return pins
 
 
-def check(pins: dict[str, str], dockerfile: str) -> list[str]:
-    """Differences between the pins and the image ARGs of the Dockerfile."""
+def repository(value: str) -> str:
+    """The repository of a pin, normalised: registry/path, Docker Hub written out."""
+    name = value.split("@", 1)[0].rsplit(":", 1)[0]
+    first, _, rest = name.partition("/")
+    if not rest:
+        return f"docker.io/library/{name}"
+    if "." not in first and ":" not in first and first != "localhost":
+        name = f"docker.io/{name}"
+    elif first in ("index.docker.io", "registry-1.docker.io"):
+        name = f"docker.io/{rest}"
+    if name.count("/") == 1 and name.startswith("docker.io/"):
+        name = "docker.io/library/" + name.split("/", 1)[1]
+    return name
+
+
+def allowlist_errors(pins: dict[str, str]) -> list[str]:
+    """Every pin whose image is not the one ALLOWED_REPOSITORIES names for its key."""
     errors: list[str] = []
+    for key, value in pins.items():
+        allowed = ALLOWED_REPOSITORIES.get(key)
+        if allowed is None:
+            errors.append(f"docker/base-images.env: {key} has no entry in the allowlist of scripts/base_images.py")
+        elif repository(value) != allowed:
+            errors.append(
+                f"docker/base-images.env: {key} must be {allowed}, not {value.split('@', 1)[0].rsplit(':', 1)[0]} "
+                "(the allowlist is in scripts/base_images.py)"
+            )
+    return errors
+
+
+def check(pins: dict[str, str], dockerfile: str) -> list[str]:
+    """The allowlist, and the differences between the pins and the image ARGs of the Dockerfile."""
+    errors: list[str] = allowlist_errors(pins)
     declared: list[str] = []
     for match in ARG_RE.finditer(dockerfile):
         key = match.group("key")
@@ -98,10 +141,13 @@ def _load(pins_path: Path, dockerfile_path: Path) -> dict[str, str]:
         pins = parse_pins(pins_path.read_text(encoding="utf-8"))
     except PinError as exc:
         raise SystemExit(f"::error::docker/base-images.env {exc}") from None
-    if dockerfile_path.exists():
-        errors = check(pins, dockerfile_path.read_text(encoding="utf-8"))
-        if errors:
-            raise SystemExit("\n".join(f"::error::{e}" for e in errors))
+    errors = (
+        check(pins, dockerfile_path.read_text(encoding="utf-8"))
+        if dockerfile_path.exists()
+        else allowlist_errors(pins)
+    )
+    if errors:
+        raise SystemExit("\n".join(f"::error::{e}" for e in errors))
     return pins
 
 
