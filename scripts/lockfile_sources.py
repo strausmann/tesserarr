@@ -682,30 +682,45 @@ def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, set[str]]:
 
 
 def version_errors(base: dict[str, Any], head: dict[str, Any], name: str, npm: bool) -> list[str]:
-    """Downgrades and new majors against the lockfile of the merge base, per package name.
+    """Downgrades and new majors against the lockfile of the merge base, per package name and major.
 
-    Compared by name, not by location: a package moved to another place in the
-    node_modules tree is still the same package. A head version below every
-    base version of that package, or a major that the base did not hold, is
-    refused (Renovate only raises versions and never merges a major by itself).
-    dev and other non-numeric versions are left to the other checks.
+    Compared by name, not by location: a package moved elsewhere in the
+    node_modules tree is still the same package. For every major the base
+    holds, the highest head version of that major is at least the highest
+    base version, and every version new in that major is at least that high
+    (so dropping the higher of two copies is a downgrade). A major may vanish
+    only for a higher major the base already held; a major the base did not
+    hold is refused (Renovate only raises versions and never merges a major by
+    itself). dev and other non-numeric versions are left to the other checks.
     """
     errors: list[str] = []
     old, new = _locked_versions(base, npm), _locked_versions(head, npm)
     for package in sorted(set(old) & set(new)):
-        before = {v: n for v in old[package] if (n := _numeric(v)) is not None}
+        before: dict[int, dict[str, tuple[int, ...]]] = {}
+        after: dict[int, dict[str, tuple[int, ...]]] = {}
+        for versions, groups in ((old[package], before), (new[package], after)):
+            for version in versions:
+                numbers = _numeric(version)
+                if numbers is not None:
+                    groups.setdefault(numbers[0], {})[version] = numbers
         if not before:
             continue
-        lowest = min(before.values())
-        majors = {n[0] for n in before.values()}
-        for version in sorted(new[package] - old[package]):
-            after = _numeric(version)
-            if after is None:
+        for major in sorted(set(after) - set(before)):
+            errors.append(f"{name}: {package} {', '.join(sorted(after[major]))} is a major version the base did not hold")
+        for major, base_versions in sorted(before.items()):
+            highest = max(base_versions.values())
+            shown = max(base_versions, key=lambda v: base_versions[v])
+            head_versions = after.get(major)
+            if not head_versions:
+                if not any(m > major for m in after if m in before):
+                    errors.append(f"{name}: {package} {major}.x is gone without a higher major of the base")
                 continue
-            if after < lowest:
-                errors.append(f"{name}: {package} goes down to {version}, below every version of the base")
-            elif after[0] not in majors:
-                errors.append(f"{name}: {package} {version} is a major version the base did not hold")
+            if max(head_versions.values()) < highest:
+                errors.append(f"{name}: {package} {major}.x goes down below {shown}, the highest of the base")
+                continue
+            for version, numbers in sorted(head_versions.items()):
+                if version not in base_versions and numbers < highest:
+                    errors.append(f"{name}: {package} {version} is new but below {shown}, the highest {major}.x of the base")
     return errors
 
 

@@ -363,7 +363,9 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
   Composer. Beyond the host, every locked package must equal its published metadata (npm registry, Packagist), be
   required from `package.json` or `composer.json`, and, on a pull request, not go down or change its major against the
   target branch unless the manifest changes as well. Versions are compared per package name, wherever the package
-  sits in `node_modules`: a version below every version of the target branch, or a major it did not hold, fails.
+  sits in `node_modules`, and per major: within each major of the target branch the highest version may not go down
+  and no new copy may sit below it, a major may only disappear for a higher one the branch already had, and a major
+  it did not hold fails.
 - **When `Lockfile sources` refuses a legitimate update.** The check fails closed on cases the project does not have
   today: an npm alias that only a dependency declares, a Composer metapackage, a `dev-*` version, a path repository
   declared with a glob. Such a pull request needs the maintainer: confirm the change by hand (the package, its source
