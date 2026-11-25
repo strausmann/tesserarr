@@ -1,0 +1,259 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Self-hosted Renovate (.github/workflows/renovate.yml). See CONTRIBUTING.md, 'Dependencies and licences'.",
+    "Automerge only touches files without a code owner (.github/CODEOWNERS): lockfiles, docker/base-images.env. Everything else waits for the maintainer.",
+    "Renovate merges by itself once every check is green (platformAutomerge is off: the rulesets do not require every check)."
+  ],
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":enableVulnerabilityAlerts",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "baseBranchPatterns": [
+    "main",
+    "/^milestone\\//"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 10,
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "platformCommit": "enabled",
+  "rangeStrategy": "update-lockfile",
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": [
+      "dependencies",
+      "type:security"
+    ]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on monday"
+    ]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Base images of docker/Dockerfile: NAME_IMAGE=repository:tag@sha256:digest (scripts/base_images.py).",
+      "managerFilePatterns": [
+        "/^docker/base-images\\.env$/"
+      ],
+      "matchStrings": [
+        "\\n[A-Z][A-Z0-9_]*_IMAGE=(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>[A-Za-z0-9_][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Images pinned by tag and digest in the test and scan scripts (PostgreSQL, Playwright, Trivy).",
+      "managerFilePatterns": [
+        "/^scripts/.+\\.sh$/",
+        "/^scripts/trivy_report\\.py$/"
+      ],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)*):(?<currentValue>v?[0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Tools pinned inside workflow steps: gitleaks (image), commitlint and the npm licence checker, pytest.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "(?<depName>zricethezav/gitleaks):(?<currentValue>v[0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})",
+        "(?<depName>@commitlint/(?:cli|config-conventional)|license-checker-rseidelsohn)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
+        "'(?<depName>pytest)==(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)'"
+      ],
+      "datasourceTemplate": "{{#if (equals depName 'zricethezav/gitleaks')}}docker{{else if (equals depName 'pytest')}}pypi{{else}}npm{{/if}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Docker images: two days for a broken tag or digest to be replaced upstream.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "minimumReleaseAge": "2 days",
+      "addLabels": [
+        "docker"
+      ]
+    },
+    {
+      "description": "Composer: three days, as npm.",
+      "matchManagers": [
+        "composer"
+      ],
+      "minimumReleaseAge": "3 days",
+      "addLabels": [
+        "php"
+      ]
+    },
+    {
+      "description": "npm: three days, the window in which npm still allows an unpublish.",
+      "matchManagers": [
+        "npm"
+      ],
+      "minimumReleaseAge": "3 days",
+      "addLabels": [
+        "javascript"
+      ]
+    },
+    {
+      "description": "GitHub Actions: pinned by SHA with the version comment; a workflow change, so ci(deps).",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "minimumReleaseAge": "3 days",
+      "semanticCommitType": "ci",
+      "addLabels": [
+        "github-actions"
+      ]
+    },
+    {
+      "description": "Everything pinned in a workflow is a workflow change: ci(deps), reviewed by the maintainer.",
+      "matchFileNames": [
+        ".github/workflows/**"
+      ],
+      "semanticCommitType": "ci"
+    },
+    {
+      "description": "The semantic-release toolchain of release.yml is CI tooling, not part of the image.",
+      "matchFileNames": [
+        ".github/release-tools/package.json"
+      ],
+      "semanticCommitType": "ci",
+      "groupName": "release tools"
+    },
+    {
+      "description": "conventional-changelog-conventionalcommits 10 empties the changelog with release-notes-generator 14 unless conventional-changelog-writer is overridden.",
+      "matchPackageNames": [
+        "conventional-changelog-conventionalcommits"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "prBodyNotes": [
+        "Version 10 needs `\"overrides\": { \"conventional-changelog-writer\": \"9.2.0\" }` in `.github/release-tools/package.json` (semantic-release/release-notes-generator#1021); check a dry run of `Release` before merging."
+      ]
+    },
+    {
+      "description": "The browsers of scripts/e2e/run.sh and the test runner of package-lock.json must be one Playwright release.",
+      "matchPackageNames": [
+        "@playwright/test",
+        "playwright-core",
+        "mcr.microsoft.com/playwright"
+      ],
+      "groupName": "playwright"
+    },
+    {
+      "description": "vite is an override onto vite-plus-core; both move together.",
+      "matchPackageNames": [
+        "vite",
+        "vite-plus",
+        "@voidzero-dev/vite-plus-core"
+      ],
+      "groupName": "vite-plus"
+    },
+    {
+      "description": "commitlint CLI and config are released together.",
+      "matchPackageNames": [
+        "@commitlint/cli",
+        "@commitlint/config-conventional"
+      ],
+      "groupName": "commitlint"
+    },
+    {
+      "description": "PostgreSQL of CI, the dev stack and the smoke tests: one pin.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "postgres"
+      ],
+      "groupName": "postgres"
+    },
+    {
+      "description": "A security fix of a dependency that ships in the image releases a patch.",
+      "matchFileNames": [
+        "composer.json",
+        "package.json"
+      ],
+      "matchDepTypes": [
+        "require",
+        "dependencies"
+      ],
+      "matchJsonata": [
+        "isVulnerabilityAlert = true"
+      ],
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "Automerge: base image pins (docker/base-images.env has no code owner).",
+      "matchFileNames": [
+        "docker/base-images.env"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge: updates inside the declared range change only composer.lock or a package-lock.json (no code owner).",
+      "matchManagers": [
+        "composer",
+        "npm"
+      ],
+      "matchFileNames": [
+        "composer.json",
+        "package.json",
+        ".github/release-tools/package.json"
+      ],
+      "matchJsonata": [
+        "isLockfileUpdate = true"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge: lockfile maintenance changes only lockfiles.",
+      "matchUpdateTypes": [
+        "lockFileMaintenance"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Majors are merged by hand.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Files shared with main come in through main (CONTRIBUTING.md, 'Workflow and repository files go to main first'); a milestone branch gets them with the sync pull request.",
+      "matchBaseBranches": [
+        "/^milestone\\//"
+      ],
+      "matchFileNames": [
+        ".github/**",
+        "docker/base-images.env",
+        "scripts/*.py",
+        "renovate.json"
+      ],
+      "enabled": false
+    }
+  ]
+}

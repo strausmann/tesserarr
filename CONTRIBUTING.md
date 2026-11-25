@@ -65,10 +65,14 @@ Docker is the only requirement; PHP 8.5, Composer, Node and PostgreSQL run in co
 ```bash
 cp .env.example .env
 mkdir -p .dev/backups && sudo chown 10001:10001 .dev/backups   # the image runs as UID 10001
-docker compose -f compose.dev.yaml build
-docker compose -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show   # put the key into .env as APP_KEY
-docker compose -f compose.dev.yaml up
+docker compose --env-file docker/base-images.env -f compose.dev.yaml build
+docker compose --env-file docker/base-images.env -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show   # put the key into .env as APP_KEY
+docker compose --env-file docker/base-images.env -f compose.dev.yaml up
 ```
+
+The base images of `docker/Dockerfile` are pinned in `docker/base-images.env` only, and every build passes them as build
+arguments: Compose reads them with `--env-file docker/base-images.env`, `docker build` with
+`$(python3 scripts/base_images.py cli)`. A build without them stops with "base name should not be blank".
 
 `up` first runs the one-off `migrate` service (`artisan tesserarr:migrate`); `web`, `worker` and `scheduler` start only
 after it has finished successfully. When migrations are pending, `tesserarr:migrate` first writes a `pg_dump` backup to
@@ -114,7 +118,7 @@ Tests use [Pest](https://pestphp.com) against PostgreSQL, never SQLite:
 ```bash
 ./vendor/bin/pest                         # all tests
 ./vendor/bin/pest tests/Unit              # unit tests only
-docker build -f docker/Dockerfile --target test .   # the test stage of the image
+docker build $(python3 scripts/base_images.py cli) -f docker/Dockerfile --target test .   # the test stage of the image
 ```
 
 ### 5. Commit messages: Conventional Commits
@@ -190,6 +194,7 @@ npm run test:coverage                          # Vitest; resources/js/lib at lea
 npm run build
 scripts/e2e/run.sh                             # Playwright against the built image (see "Browser tests")
 python -m pytest scripts/                      # release guard and registry rules (standard library only)
+python3 scripts/base_images.py check           # base image pins match docker/Dockerfile
 ```
 
 | Check                               | Job in CI                                  |
@@ -251,7 +256,7 @@ neither: the vendor stage deletes both files, `.dockerignore` keeps a marker out
 switch it on.
 
 ```bash
-docker build -f docker/Dockerfile --target e2e -t tesserarr:e2e .
+docker build $(python3 scripts/base_images.py cli) -f docker/Dockerfile --target e2e -t tesserarr:e2e .
 npm ci
 scripts/e2e/run.sh tesserarr:e2e               # extra arguments go to `playwright test`
 ```
@@ -329,6 +334,30 @@ A licence that is **not** on the list is not an exception to add quietly: it is 
 redistribute. Open an issue first. `GPL-2.0-only`, `LGPL-2.0-only` and SSPL are left out on purpose (incompatible with
 AGPL-3.0), as is anything non-free.
 
+### Dependency updates (Renovate)
+
+[Renovate](https://docs.renovatebot.com/) keeps the dependencies current: Composer, npm (also the release toolchain in
+`.github/release-tools/`), GitHub Actions (pinned by SHA), the base images in `docker/base-images.env` and the images
+pinned by digest in the workflows and scripts (PostgreSQL, Playwright, Trivy). It runs self-hosted every night
+(`.github/workflows/renovate.yml`), reads `renovate.json` from `main` and opens pull requests against `main` and every
+`milestone/**` branch. Files shared with `main` (workflows, scripts, `docker/base-images.env`) are updated on `main` only
+and reach a milestone with its sync pull request. Dependabot opens no version updates; Dependabot alerts stay on.
+
+- **Commit messages** follow Conventional Commits: `chore(deps):` for updates that do not ship (development
+  dependencies, lockfile updates, base images), `fix(deps):` for a security fix of a dependency in the image, which
+  releases a patch, and `ci(deps):` for GitHub Actions and the release toolchain.
+- **Waiting time.** An update is offered once the release is three days old (npm, Composer, GitHub Actions) or two days
+  (Docker images); a security fix comes at once.
+- **Automerge.** Renovate merges an update by itself once every check of the pull request is green, but only when it
+  changes nothing but files without a code owner (`.github/CODEOWNERS`): `composer.lock`, the `package-lock.json` files,
+  `docker/base-images.env` and `renovate.json`. That covers updates inside the declared range, lockfile maintenance
+  (Mondays) and patch, minor and digest updates of the base images. An update that changes `composer.json`,
+  `package.json`, a workflow, a GitHub Action or `docker/Dockerfile` waits for the maintainer's review, as does every
+  major update.
+- **Base images.** `docker/base-images.env` is the only place the base images are pinned (`NAME_IMAGE=repository:tag@sha256:<digest>`);
+  `docker/Dockerfile` declares them as `ARG` without a default, and `scripts/base_images.py check` fails when the two
+  differ.
+
 ## Licence headers
 
 <!-- REUSE-IgnoreStart -->
@@ -401,8 +430,9 @@ git push origin v0.0.0
 one pull request against it, squash-merged after review.
 
 **Workflow and repository files go to `main` first.** GitHub runs `schedule` and `workflow_dispatch` only from workflow
-files on the default branch, and Dependabot reads its configuration only there. So workflows, `.github/dependabot.yml`,
-CODEOWNERS, the CLA, the licence policy and the scripts they call come in a separate `chore:` or `ci:` pull request into
+files on the default branch, and Renovate and Dependabot read their configuration only there. So workflows,
+`renovate.json`, `.github/dependabot.yml`, `docker/base-images.env`, CODEOWNERS, the CLA, the licence policy and the
+scripts they call come in a separate `chore:` or `ci:` pull request into
 `main`; application code comes through the milestone branch. Until the milestone is merged, the jobs that need the
 application pass on `main` as an explicitly named no-op; on every other branch a missing `composer.json` or
 `package.json` fails them.
@@ -422,9 +452,9 @@ open issue: close them, move them to another milestone with a reason, or have a 
 
 **Patch milestones `X.Y.x`.** A group of fixes for a release line is collected in a patch milestone titled `X.Y.x` (branch
 `milestone/X.Y.x`). The title covers every patch `X.Y.Z` with `Z >= 1`: the milestone pull request gets the next free patch
-number when it is merged, because Dependabot updates and single fixes may already have released patches on the way. Such
-a milestone takes only `fix`, `perf`, `refactor`, `test`, `docs`, `ci`, `chore` and `build` commits. Dependabot pull
-requests and single fixes go to `main` at any time.
+number when it is merged, because dependency updates, weekly rebuilds and single fixes may already have released patches
+on the way. Such a milestone takes only `fix`, `perf`, `refactor`, `test`, `docs`, `ci`, `chore` and `build` commits.
+Renovate pull requests and single fixes go to `main` at any time.
 
 **Fixes while a milestone is open.** Fixes go to `main` and ship as patch releases. After every patch release from `main`,
 merge `main` back into each open milestone branch with a sync pull request (`chore: sync main into milestone/X.Y.0`) and a
@@ -483,6 +513,18 @@ milestone branches are signed. The rc number counts up from the tags in GHCR. A 
 git tag, no release and no changelog entry. `Registry cleanup` removes a preview on both registries once its release
 exists; it deletes only when the repository variable `GHCR_CLEANUP_ENABLED` is `true`, a manual run is a dry run.
 
+**Weekly rebuild.** `Image rebuild` (Mondays, and by hand) rebuilds the highest published release from its tag, with the
+base image pins of `main` and freshly upgraded Debian packages, and scans the rebuild and the published image with the
+same Trivy and the same database as the CI report (`scripts/trivy_report.py`). When the rebuild has no more critical and
+no more high findings than the published image and fewer of both together, it pushes the empty commit
+`fix(image): rebuild with updated base packages` to `main` with the deploy key and starts `Release`: semantic-release
+computes the next patch, which the release guard allows, and the release is built, signed and published like any
+other, with its SBOM and the Docker Hub description. A commit instead of a release outside semantic-release keeps one
+way to release: the changelog lists the rebuild, the tag comes from semantic-release, and the release guard decides.
+Critical findings without a fixed version open one issue labelled `type:security`, or are added to the open one; a
+finding already listed changes nothing. When the vulnerability database cannot be downloaded, nothing is compared,
+released or opened. Before the first release (only `v0.0.0`) the workflow ends with a notice.
+
 **Docker Hub page.** `Docker Hub description` writes `docs/dockerhub/README.md` and the short description to Docker Hub
 when the file changes on `main` and after every release. The Docker Hub page is public, so that file follows the same
 rule as the rest of the repository: no details of a real installation.
@@ -491,13 +533,16 @@ rule as the rest of the repository: no details of a real installation.
 
 | Name                         | Kind     | Used by                                              |
 | ---------------------------- | -------- | ---------------------------------------------------- |
-| `SEMANTIC_RELEASE_SSH_KEY`   | secret   | `Release`: deploy key with write access (ruleset bypass) to push the tag and the changelog |
+| `SEMANTIC_RELEASE_SSH_KEY`   | secret   | `Release`: deploy key with write access (ruleset bypass) to push the tag and the changelog; `Image rebuild`: to push the rebuild commit |
 | `DOCKERHUB_USERNAME`         | secret   | `Docker — publish`, `Preview image`: the organization name `bstrausmann`, the login of the organization access token |
 | `DOCKERHUB_TOKEN`            | secret   | the same jobs: organization access token with Image Push on `bstrausmann/tesserarr` |
 | `DOCKERHUB_ADMIN_USERNAME`   | secret   | `Docker Hub description`, `Registry cleanup`: a personal account that is a member or owner of the organization (not the organization) |
 | `DOCKERHUB_TOKEN_ADMIN`      | secret   | the same jobs: personal access token of that account, permission Read, Write, Delete. Organization access tokens cannot edit repository metadata (peter-evans/dockerhub-description#294) |
 | `ARM64_NATIVE_RUNNER`        | variable | `true` builds arm64 on the native runner (public repositories only); otherwise QEMU |
 | `GHCR_CLEANUP_ENABLED`       | variable | `true` lets the weekly `Registry cleanup` delete     |
+| `RENOVATE_TOKEN`             | secret   | `Renovate`: the token Renovate acts with (see `.github/workflows/renovate.yml`); optional when it comes from Infisical |
+| `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` | secret | `Renovate`: machine identity that reads `RENOVATE_TOKEN` from Infisical |
+| `RENOVATE_INFISICAL_PROJECT` | variable | `Renovate`: Infisical project that holds `RENOVATE_TOKEN` (default `fileee-server-ci`, environment `prod`) |
 
 ## Trademarks
 

@@ -1,8 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-# Version updates. Dependabot reads this file only from main. Patch and minor
-# updates are merged by dependabot-auto-merge.yml after green CI; majors by hand.
+# Version updates come from Renovate (renovate.json, .github/workflows/renovate.yml).
+# Dependabot opens no version update: open-pull-requests-limit is 0 for every
+# ecosystem. Dependabot alerts stay on (a repository setting, not this file).
+# The entries stay so that a Dependabot security update, if the repository
+# setting "Dependabot security updates" is ever turned on again, still gets a
+# commit message commitlint accepts. Dependabot reads this file only from main.
 version: 2
 updates:
   - package-ecosystem: composer
@@ -12,7 +16,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Berlin
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     labels: [dependencies, php]
     commit-message:
       prefix: chore
@@ -29,7 +33,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Berlin
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     labels: [dependencies, javascript]
     commit-message:
       prefix: chore
@@ -47,7 +51,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Berlin
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, javascript]
     commit-message:
       prefix: ci
@@ -63,7 +67,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Berlin
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, docker]
     commit-message:
       prefix: chore
@@ -76,7 +80,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Berlin
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, github-actions]
     commit-message:
       prefix: ci
