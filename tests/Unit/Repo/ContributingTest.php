@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 // CONTRIBUTING.md and CLAUDE.md are read as data. The release guard (task 4)
 // recognises a milestone release only by the standard merge subject, so the
 // subject documented here has to be the one GitHub writes for a merge commit.

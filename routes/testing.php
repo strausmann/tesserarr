@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 // Browser tests only. Loaded by App\Runtime\E2eImage::registerRoutes in the
 // e2e image; the published image does not contain this file.
 

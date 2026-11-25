@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 use Symfony\Component\Process\Process;
 
 // The gate is run as a process, the way CI runs it: exit code and output are
