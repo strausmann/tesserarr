@@ -51,6 +51,15 @@ cosign verify docker.io/bstrausmann/tesserarr:0.1.0-rc.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+This needs **cosign v3 or newer**. cosign v3 stores the signature as a Sigstore bundle in the OCI referrers of the image;
+cosign v2 does not look there and reports `no signatures found`. Without a local installation, run cosign in a container:
+
+```bash
+docker run --rm ghcr.io/sigstore/cosign/cosign:v3.0.2 verify docker.io/bstrausmann/tesserarr:0.1.0-rc.1 \
+  --certificate-identity-regexp 'https://github.com/strausmann/tesserarr/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Licence
 
 GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). Sonarr, Radarr, Prowlarr, Plex and Syncthing

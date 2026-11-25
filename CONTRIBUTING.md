@@ -463,6 +463,15 @@ cosign verify docker.io/bstrausmann/tesserarr:0.1.0-rc.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+This needs **cosign v3 or newer**. cosign v3 stores the signature as a Sigstore bundle in the OCI referrers of the image;
+cosign v2 does not look there and reports `no signatures found`. Without a local installation, run cosign in a container:
+
+```bash
+docker run --rm ghcr.io/sigstore/cosign/cosign:v3.0.2 verify docker.io/bstrausmann/tesserarr:0.1.0-rc.1 \
+  --certificate-identity-regexp 'https://github.com/strausmann/tesserarr/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 **Previews.** Before a milestone ships, a maintainer runs `Preview image` on the milestone branch with the milestone
 version (`0.1.0`, or `0.1.x` for the next free patch); any other branch is refused, because only `main` and the
 milestone branches are signed. The rc number counts up from the tags in GHCR. A preview is signed like a release image
