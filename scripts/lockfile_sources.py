@@ -31,6 +31,26 @@ without `resolved` must be bundled inside another package (`inBundle`), whose
 tarball and integrity are checked. The legacy `dependencies` tree of
 version 2 is checked with the same rules.
 
+A matching tarball is not enough either: npm creates the `.bin` links and
+decides about install scripts from the lock entry, not from the tarball. So
+every registry entry is compared with its published version document
+(https://registry.npmjs.org/<name>/<version>, fetched in parallel with
+retries; an unreachable registry fails the check): `bin` (a string normalised
+to {name: path}, a leading ./ removed), `dependencies`,
+`optionalDependencies`, and `peerDependencies`, `peerDependenciesMeta`,
+`engines`, `os`, `cpu`, `libc`, `license`, `funding`, `deprecated`,
+`bundleDependencies` and `workspaces` where the lock has them, and
+`hasInstallScript` against the preinstall, install and postinstall scripts and
+`gypfile`. A key outside NPM_ENTRY_FIELDS is refused. Every entry must also be
+reachable from the package.json next to the lockfile (owned) by Node's
+resolution (node_modules/a/node_modules/b, then the parent directories): a
+package nobody requires is an orphan and an error, so the lockfile cannot add
+a package whose only purpose is a `.bin` name. The edges of that walk are the
+dependency fields compared with the registry, so the lockfile cannot invent
+one; it also derives which packages the runtime needs, which must not be
+flagged `dev` (`npm ci --omit=dev` would drop them, also from the licence
+gate) or, when required, `optional`.
+
 Composer (composer.lock): GitHub URLs alone prove nothing about which package
 they hold, so every package that is not a `path` package is compared with
 its published metadata on Packagist (https://repo.packagist.org/p2/<name>.json,
@@ -52,6 +72,23 @@ exists in the repository and its composer.json carries the package's name;
 it has no `source`. Any other `path` dist is refused, so a lockfile alone
 cannot turn a published package into an unchecked local one.
 
+Composer packages must be reachable as well: from `require` and `require-dev`
+of composer.json through the `require` of reached packages (compared with
+Packagist); a `replace` or `provide` meets a requirement only for a package
+that is reached by its own name. Platform requirements (php, ext-*, lib-*,
+composer-*) are skipped. `notification-url` is absent or Packagist's own.
+
+With --base <ref> (CI on a pull request: the target branch), every version is
+compared with the lockfile of that ref: going down or changing the major
+fails, unless the manifest next to the lockfile changed too (then the code
+owner reviews it). Renovate only raises versions and never merges a major by
+itself.
+
+Known false alarms, all failing closed (CONTRIBUTING.md, "Dependency updates"):
+an npm alias that only a dependency (not package.json) declares, a Composer
+metapackage without dist or source, a dev-* version whose reference moved on
+Packagist, and a path repository declared with a glob.
+
 A lockfile that does not exist on the branch is skipped; none at all fails, and
 so does a lockfile without packages.
 Standard library only. Values from the lockfiles are data: printed, never run.
@@ -66,7 +103,9 @@ import re
 from pathlib import Path, PurePosixPath
 import urllib.error
 import urllib.request
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
@@ -284,6 +323,197 @@ def _composer_package(package: dict[str, Any], name: str) -> list[str]:
     return []
 
 
+NPM_REGISTRY = "https://registry.npmjs.org/"
+# Lock entry keys: bookkeeping npm derives itself (dev, optional, devOptional,
+# peer, inBundle, the name of an alias), the download (version, resolved,
+# integrity) and published metadata, which is compared with the registry.
+NPM_BOOKKEEPING_FIELDS = frozenset(
+    {"version", "resolved", "integrity", "dev", "optional", "devOptional", "peer", "inBundle", "name"}
+)
+NPM_COMPARED_FIELDS = (
+    "bin", "dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta",
+    "engines", "os", "cpu", "libc", "license", "funding", "deprecated", "bundleDependencies", "workspaces",
+)  # fmt: skip
+# Fields compared even when the lock leaves them out: their absence changes
+# what npm links or installs.
+NPM_ALWAYS_COMPARED = frozenset({"bin", "dependencies", "optionalDependencies", "peerDependencies"})
+NPM_ENTRY_FIELDS = NPM_BOOKKEEPING_FIELDS | frozenset(NPM_COMPARED_FIELDS) | {"hasInstallScript"}
+_INSTALL_SCRIPTS = ("preinstall", "install", "postinstall")
+_DEPENDENCY_KINDS = ("dependencies", "optionalDependencies", "peerDependencies")
+
+
+def _normal_bin(name: str, value: Any) -> Any:
+    if isinstance(value, str):
+        value = {name.rsplit("/", 1)[-1]: value}
+    if isinstance(value, dict):
+        return {k: v[2:] if isinstance(v, str) and v.startswith("./") else v for k, v in value.items()}
+    return value
+
+
+def _normal_funding(value: Any) -> Any:
+    """npm writes a funding string as {"url": ...}, also inside a list."""
+    if isinstance(value, str):
+        return {"url": value}
+    if isinstance(value, list):
+        return [_normal_funding(v) for v in value]
+    return value
+
+
+def _published_field(doc: dict[str, Any], field: str, package: str) -> Any:
+    if field == "bin":
+        return _normal_bin(package, doc.get("bin")) if doc.get("bin") else None
+    if field == "funding":
+        return _normal_funding(doc.get("funding"))
+    if field == "dependencies":
+        # An optional dependency is not repeated in dependencies (npm package.json docs,
+        # "optionalDependencies": entries there override those in dependencies).
+        optional = doc.get("optionalDependencies") or {}
+        return {k: v for k, v in (doc.get("dependencies") or {}).items() if k not in optional}
+    if field == "bundleDependencies":
+        return doc.get("bundleDependencies", doc.get("bundledDependencies"))
+    if field == "license" and isinstance(doc.get("license"), dict):
+        return doc["license"].get("type")
+    return doc.get(field)
+
+
+def _empty(value: Any) -> bool:
+    return value is None or value == {} or value == []
+
+
+def npm_metadata_errors(lock: dict[str, Any], name: str, fetch: Fetch | None = None, workers: int = 16) -> list[str]:
+    """Every registry entry of the lock compared with its published version document."""
+    fetch = fetch or fetch_json
+    wanted: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
+    errors: list[str] = []
+    for key, entry in (lock.get("packages") or {}).items():
+        if key == "" or not isinstance(entry, dict) or entry.get("link"):
+            continue
+        unknown = sorted(set(entry) - NPM_ENTRY_FIELDS)
+        if unknown:
+            errors.append(f"{name}: {key} has keys npm metadata does not explain: {', '.join(unknown)}")
+            continue
+        package = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
+        wanted.setdefault((package, str(entry.get("version") or "")), []).append((key, entry))
+
+    def get(item: tuple[str, str]) -> tuple[tuple[str, str], Any]:
+        package, version = item
+        url = f"{NPM_REGISTRY}{quote(package, safe='@')}/{quote(version, safe='')}"
+        last: Exception | None = None
+        for attempt in range(3):
+            try:
+                return item, fetch(url)
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return item, None
+                last = exc
+            except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+                last = exc
+            if attempt < 2:
+                time.sleep(attempt + 1)
+        return item, last
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = dict(pool.map(get, sorted(wanted)))
+    for (package, version), entries in sorted(wanted.items()):
+        doc = results[(package, version)]
+        for key, entry in entries:
+            if isinstance(doc, Exception):
+                errors.append(f"{name}: {key} could not be compared with the npm registry ({doc})")
+                continue
+            if not isinstance(doc, dict) or doc.get("version") != version:
+                errors.append(f"{name}: {key} {package}@{version} is not published on the npm registry")
+                continue
+            for field in NPM_COMPARED_FIELDS:
+                if field not in entry and field not in NPM_ALWAYS_COMPARED:
+                    continue
+                mine = entry.get(field)
+                if field == "bin":
+                    mine = _normal_bin(package, mine)
+                elif field == "funding":
+                    mine = _normal_funding(mine)
+                theirs = _published_field(doc, field, package)
+                if _empty(mine) and _empty(theirs):
+                    continue
+                if mine != theirs:
+                    errors.append(f"{name}: {key} {field} differs from {package}@{version} on the npm registry")
+            scripts = doc.get("scripts") if isinstance(doc.get("scripts"), dict) else {}
+            installs = any(scripts.get(s) for s in _INSTALL_SCRIPTS) or bool(doc.get("gypfile"))
+            if bool(entry.get("hasInstallScript")) != installs:
+                errors.append(f"{name}: {key} hasInstallScript differs from {package}@{version} on the npm registry")
+    return errors
+
+
+def _resolve(packages: dict[str, Any], location: str, dependency: str) -> str | None:
+    """Node's lookup: <location>/node_modules/<dep>, then each parent directory."""
+    base = location
+    while True:
+        candidate = f"{base}/node_modules/{dependency}" if base else f"node_modules/{dependency}"
+        if candidate in packages:
+            return candidate
+        if not base:
+            return None
+        cut = base.rfind("/node_modules/")
+        base = base[:cut] if cut >= 0 else ""
+
+
+def _edges(entry: dict[str, Any], required_only: bool) -> list[str]:
+    """Dependency names of an entry; with required_only, without optional ones."""
+    names = list(entry.get("dependencies") or {})
+    meta = entry.get("peerDependenciesMeta") or {}
+    for peer in entry.get("peerDependencies") or {}:
+        if not (required_only and isinstance(meta.get(peer), dict) and meta[peer].get("optional")):
+            names.append(peer)
+    if not required_only:
+        names += list(entry.get("optionalDependencies") or {})
+    return names
+
+
+def _reach(packages: dict[str, Any], roots: list[str], required_only: bool) -> set[str]:
+    reached: set[str] = set()
+    queue: list[tuple[str, list[str]]] = [("", roots)]
+    while queue:
+        location, names = queue.pop()
+        for dependency in names:
+            target = _resolve(packages, location, dependency)
+            if target and target not in reached:
+                reached.add(target)
+                queue.append((target, _edges(packages[target], required_only)))
+    # Bundled packages ship inside the tarball of a reached parent.
+    for key, entry in packages.items():
+        if entry.get("inBundle") and any(key.startswith(f"{r}/node_modules/") for r in reached):
+            reached.add(key)
+    return reached
+
+
+def orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any]) -> list[str]:
+    """Entries no dependency of package.json reaches, and dev/optional flags that hide runtime packages.
+
+    The edges are the dependency fields of the entries, which npm_metadata_errors
+    compares with the registry; the roots come from package.json (owned).
+    """
+    packages = {k: v for k, v in (lock.get("packages") or {}).items() if k and isinstance(v, dict)}
+    runtime = list(manifest.get("dependencies") or {}) + list(manifest.get("peerDependencies") or {})
+    optional = list(manifest.get("optionalDependencies") or {})
+    everything = _reach(packages, runtime + optional + list(manifest.get("devDependencies") or {}), False)
+    production = _reach(packages, runtime + optional, False)
+    required = _reach(packages, runtime, True)
+    errors = [
+        f"{name}: {key} is not required by package.json or by any package it reaches"
+        for key in sorted(packages)
+        if key not in everything
+    ]
+    for key in sorted(production):
+        entry = packages[key]
+        if entry.get("inBundle"):
+            continue  # part of its parent's tarball, flagged by npm from the parent's view
+        # `npm ci --omit=dev` (licence gate, image) drops dev; omit=optional drops optional.
+        if entry.get("dev"):
+            errors.append(f"{name}: {key} is needed at runtime but marked dev")
+        if key in required and (entry.get("optional") or entry.get("devOptional")):
+            errors.append(f"{name}: {key} is required at runtime but marked optional")
+    return errors
+
+
 PACKAGIST = "https://repo.packagist.org/p2/"
 COMPOSER_NAME_RE = re.compile(r"\A[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*\Z")
 Fetch = Callable[[str], Any]
@@ -310,10 +540,27 @@ def expand_minified(versions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return expanded
 
 
+def _with_retry(fetch: Fetch, url: str, attempts: int = 3) -> Any:
+    """Up to three attempts with backoff; a 404 is final at once (None)."""
+    for attempt in range(attempts):
+        try:
+            return fetch(url)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            if attempt == attempts - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt == attempts - 1:
+                raise
+        time.sleep(2**attempt)
+    return None
+
+
 def _published(pkg: str, version: str, fetch: Fetch, cache: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
     url = f"{PACKAGIST}{quote(pkg)}{'~dev' if version.startswith('dev-') or version.endswith('-dev') else ''}.json"
     if url not in cache:
-        data = fetch(url)
+        data = _with_retry(fetch, url)
         versions = ((data or {}).get("packages") or {}).get(pkg) or []
         cache[url] = expand_minified(versions) if (data or {}).get("minified") == "composer/2.0" else list(versions)
     return next((v for v in cache[url] if v.get("version") == version), None)
@@ -323,8 +570,12 @@ def _published(pkg: str, version: str, fetch: Fetch, cache: dict[str, list[dict[
 # writes some of them differently (keyword order, empty lists left out), so
 # they are not compared. Everything else is.
 DESCRIPTIVE_FIELDS = frozenset(
-    {"authors", "description", "funding", "homepage", "keywords", "license", "notification-url", "support", "time"}
+    {"authors", "description", "funding", "homepage", "keywords", "license", "support", "time"}
 )
+# Composer posts the installed package list to notification-url; only
+# Packagist's own address is accepted (or none).
+NOTIFICATION_URL = "https://packagist.org/downloads/"
+PLATFORM_RE = re.compile(r"\A(?:php(?:-64bit|-ipv6|-zts|-debug)?|hhvm|ext-.+|lib-.+|composer(?:-plugin-api|-runtime-api)?)\Z")
 PACKAGIST_ONLY_FIELDS = frozenset({"published-time", "version_normalized"})
 
 
@@ -351,10 +602,105 @@ def packagist_errors(lock: dict[str, Any], name: str, fetch: Fetch = fetch_json)
             if published is None:
                 errors.append(f"{name}: {pkg} {version} is not published on Packagist")
                 continue
-            for field in sorted((set(package) | set(published)) - DESCRIPTIVE_FIELDS - PACKAGIST_ONLY_FIELDS):
+            if package.get("notification-url", NOTIFICATION_URL) != NOTIFICATION_URL:
+                errors.append(f"{name}: {pkg} {version} notification-url is not {NOTIFICATION_URL}")
+            for field in sorted(
+                (set(package) | set(published)) - DESCRIPTIVE_FIELDS - PACKAGIST_ONLY_FIELDS - {"notification-url"}
+            ):
                 if package.get(field) != published.get(field):
                     errors.append(f"{name}: {pkg} {version} {field} differs from Packagist")
     return errors
+
+
+def composer_orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any]) -> list[str]:
+    """Packages that composer.json does not reach through the `require` of reached packages.
+
+    The `require`, `replace` and `provide` of each entry are compared with
+    Packagist (packagist_errors); the roots come from composer.json (owned).
+    A requirement that no package carries by name counts as met by `replace`
+    or `provide` only of a package that is reached on its own, so an added
+    package cannot stand in for a real one.
+    """
+    packages = [p for section in ("packages", "packages-dev") for p in lock.get(section) or [] if isinstance(p, dict)]
+    by_name = {str(p.get("name")).lower(): p for p in packages}
+    roots = list((manifest.get("require") or {})) + list((manifest.get("require-dev") or {}))
+    reached: set[str] = set()
+    pending = [r.lower() for r in roots]
+    unmet: set[str] = set()
+    while pending or unmet:
+        progress = False
+        while pending:
+            wanted = pending.pop()
+            if PLATFORM_RE.match(wanted) or wanted in reached:
+                continue
+            if wanted in by_name:
+                reached.add(wanted)
+                pending.extend(r.lower() for r in (by_name[wanted].get("require") or {}))
+                progress = True
+            else:
+                unmet.add(wanted)
+        for wanted in sorted(unmet):
+            for owner in sorted(reached):
+                package = by_name[owner]
+                if wanted in {k.lower() for k in (package.get("replace") or {})} | {
+                    k.lower() for k in (package.get("provide") or {})
+                }:
+                    unmet.discard(wanted)
+                    progress = True
+                    break
+        if not progress:
+            break
+    return [
+        f"{name}: {p.get('name')} is not required by composer.json or by any package it reaches"
+        for p in packages
+        if str(p.get("name")).lower() not in reached
+    ]
+
+
+_VERSION_RE = re.compile(r"\Av?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?\Z")
+
+
+def _numeric(version: str) -> tuple[int, ...] | None:
+    match = _VERSION_RE.match(version)
+    return tuple(int(g or 0) for g in match.groups()) if match else None
+
+
+def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, str]:
+    if npm:
+        return {k: str(e.get("version")) for k, e in (lock.get("packages") or {}).items() if k and isinstance(e, dict)}
+    return {
+        str(p.get("name")).lower(): str(p.get("version"))
+        for section in ("packages", "packages-dev")
+        for p in lock.get(section) or []
+        if isinstance(p, dict)
+    }
+
+
+def version_errors(base: dict[str, Any], head: dict[str, Any], name: str, npm: bool) -> list[str]:
+    """Downgrades and major changes against the lockfile of the merge base.
+
+    Renovate only raises versions and never merges a major by itself; a
+    lockfile that lowers one or changes its major without a manifest change
+    is refused. dev and other non-numeric versions are left to the other checks.
+    """
+    errors: list[str] = []
+    old, new = _locked_versions(base, npm), _locked_versions(head, npm)
+    for key in sorted(set(old) & set(new)):
+        before, after = _numeric(old[key]), _numeric(new[key])
+        if before is None or after is None or before == after:
+            continue
+        if after < before:
+            errors.append(f"{name}: {key} goes down from {old[key]} to {new[key]}")
+        elif after[0] != before[0]:
+            errors.append(f"{name}: {key} changes its major version from {old[key]} to {new[key]}")
+    return errors
+
+
+def _git_show(root: Path, ref: str, rel: str) -> str | None:
+    import subprocess
+
+    done = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{rel}"], capture_output=True, text=True, check=False)
+    return done.stdout if done.returncode == 0 else None
 
 
 def composer_errors(
@@ -386,9 +732,13 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument(
+        "--base",
+        help="git ref of the merge base (e.g. origin/main): refuse downgrades and major changes against its lockfiles",
+    )
+    parser.add_argument(
         "--offline",
         action="store_true",
-        help="skip the comparison with Packagist (the self-tests only; CI runs without it)",
+        help="skip the comparison with Packagist and the npm registry (self-tests only; CI runs without it)",
     )
     args = parser.parse_args(argv)
 
@@ -407,10 +757,29 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
                 errors.append(f"{rel}: not JSON ({exc})")
                 continue
             checked.append(rel)
+            if args.base:
+                old_lock = _git_show(args.root, args.base, rel)
+                manifest_rel = str(Path(rel).parent / ("package.json" if npm else "composer.json"))
+                old_manifest = _git_show(args.root, args.base, manifest_rel)
+                current_manifest = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else None
+                if old_lock is not None and old_manifest == current_manifest:
+                    try:
+                        errors.extend(version_errors(json.loads(old_lock), lock, rel, npm))
+                    except json.JSONDecodeError:
+                        errors.append(f"{rel}: the lockfile of {args.base} is not JSON")
+                elif old_lock is not None:
+                    print(f"{rel}: the manifest changed since {args.base}; versions are left to the review")
             if npm:
-                errors.extend(npm_errors(lock, rel, manifest))
+                found = npm_errors(lock, rel, manifest)
+                if not found:
+                    found = orphan_errors(lock, rel, manifest)
+                errors.extend(found)
+                if not found and not args.offline:
+                    errors.extend(npm_metadata_errors(lock, rel, fetch))
             else:
                 found = composer_errors(lock, rel, manifest, path.parent)
+                if not found:
+                    found = composer_orphan_errors(lock, rel, manifest)
                 errors.extend(found)
                 if not found and not args.offline:
                     errors.extend(packagist_errors(lock, rel, fetch))

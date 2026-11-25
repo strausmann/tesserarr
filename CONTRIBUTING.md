@@ -359,7 +359,14 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
   updates inside the declared range, lockfile maintenance (Mondays) and patch, minor and digest updates of the base
   images. The required check `Lockfile sources` (`scripts/lockfile_sources.py`) keeps every locked download on its
   expected host: `https://registry.npmjs.org/` with a sha512 integrity for npm, GitHub or Packagist over https for
-  Composer. An update that changes `composer.json`,
+  Composer. Beyond the host, every locked package must equal its published metadata (npm registry, Packagist), be
+  required from `package.json` or `composer.json`, and, on a pull request, not go down or change its major against the
+  target branch unless the manifest changes as well.
+- **When `Lockfile sources` refuses a legitimate update.** The check fails closed on cases the project does not have
+  today: an npm alias that only a dependency declares, a Composer metapackage, a `dev-*` version, a path repository
+  declared with a glob. Such a pull request needs the maintainer: confirm the change by hand (the package, its source
+  and why it is needed), then extend `scripts/lockfile_sources.py` with a test for that case in the same pull request,
+  instead of merging past a red check. An update that changes `composer.json`,
   `package.json`, a workflow, a GitHub Action or `docker/Dockerfile` waits for the maintainer's review, as does every
   major update.
 - **Base images.** `docker/base-images.env` is the only place the base images are pinned (`NAME_IMAGE=repository:tag@sha256:<digest>`);

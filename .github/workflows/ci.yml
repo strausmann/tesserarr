@@ -317,19 +317,31 @@ jobs:
       - name: Pins on the allowlist, Dockerfile without a second pin
         run: python3 scripts/base_images.py check
 
-  # The lockfiles have no code owner either: every locked download must come
-  # from the expected hosts (scripts/lockfile_sources.py). A required check.
+  # The lockfiles have no code owner either: every locked package must be the
+  # published one, required from the manifests, and on a pull request no
+  # lower and no other major than on the target branch
+  # (scripts/lockfile_sources.py). A required check. It asks the npm registry
+  # and Packagist, so it fails when they cannot be reached.
   lockfile-sources:
     name: Lockfile sources
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0   # the lockfiles of the target branch, for the version comparison
           persist-credentials: false
 
-      - name: npm and Composer downloads on the allowed hosts
-        run: python3 scripts/lockfile_sources.py
+      - name: Locked packages as published, required and not downgraded
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$BASE_REF" ]; then args+=(--base "origin/$BASE_REF"); fi
+          start=$(date +%s)
+          python3 scripts/lockfile_sources.py "${args[@]}"
+          echo "Lockfile sources: $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
 
   docker-build:
     name: Docker — build smoke test

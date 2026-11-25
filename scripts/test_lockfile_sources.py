@@ -315,6 +315,38 @@ class PackagistTest(unittest.TestCase):
         errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(published))
         self.assertEqual(errors, ["composer.lock: a/b v1.2.0 autoload differs from Packagist"])
 
+    def test_a_foreign_notification_url_is_refused(self) -> None:
+        forged = {**self.PKG, "notification-url": "https://evil.invalid/collect"}
+        errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 notification-url is not https://packagist.org/downloads/"])
+        fine = {**self.PKG, "notification-url": "https://packagist.org/downloads/"}
+        self.assertEqual(ls.packagist_errors({"packages": [fine]}, "composer.lock", self.fetch_from(self.metadata())), [])
+
+    def test_packagist_is_retried_and_a_lasting_failure_fails(self) -> None:
+        sleep = ls.time.sleep
+        ls.time.sleep = lambda _: None
+        try:
+            calls: list[str] = []
+
+            def flaky(url: str) -> Any:
+                calls.append(url)
+                if len(calls) < 2:
+                    raise ls.urllib.error.URLError("blip")
+                return self.metadata()
+
+            self.assertEqual(ls.packagist_errors({"packages": [self.PKG]}, "composer.lock", flaky), [])
+            self.assertEqual(len(calls), 2)
+
+            def down(url: str) -> Any:
+                calls.append(url)
+                raise ls.urllib.error.URLError("down")
+
+            calls.clear()
+            self.assertEqual(len(ls.packagist_errors({"packages": [self.PKG]}, "composer.lock", down)), 1)
+            self.assertEqual(len(calls), 3)
+        finally:
+            ls.time.sleep = sleep
+
     def test_an_unpublished_version_is_refused(self) -> None:
         errors = ls.packagist_errors({"packages": [{**self.PKG, "version": "v9.9.9"}]}, "composer.lock", self.fetch_from(self.metadata()))
         self.assertEqual(errors, ["composer.lock: a/b v9.9.9 is not published on Packagist"])
@@ -328,7 +360,12 @@ class PackagistTest(unittest.TestCase):
         def down(url: str) -> Any:
             raise ls.urllib.error.URLError("unreachable")
 
-        errors = ls.packagist_errors({"packages": [self.PKG]}, "composer.lock", down)
+        sleep = ls.time.sleep
+        ls.time.sleep = lambda _: None
+        try:
+            errors = ls.packagist_errors({"packages": [self.PKG]}, "composer.lock", down)
+        finally:
+            ls.time.sleep = sleep
         self.assertEqual(len(errors), 1)
         self.assertIn("could not be compared with Packagist", errors[0])
 
@@ -342,6 +379,171 @@ class PackagistTest(unittest.TestCase):
     def test_unset_markers_remove_inherited_keys(self) -> None:
         expanded = ls.expand_minified([{"version": "2", "a": 1, "b": 2}, {"version": "1", "b": "__unset"}])
         self.assertEqual(expanded, [{"version": "2", "a": 1, "b": 2}, {"version": "1", "a": 1}])
+
+
+def registry_doc(name: str = "a", version: str = "1.0.0", **fields: Any) -> dict[str, Any]:
+    return {"name": name, "version": version, **fields}
+
+
+class NpmMetadataTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sleep = ls.time.sleep
+        ls.time.sleep = lambda _: None
+
+    def tearDown(self) -> None:
+        ls.time.sleep = self.sleep
+
+    def check(self, entry: dict[str, Any], doc: dict[str, Any] | Exception | None, key: str = "node_modules/a") -> list[str]:
+        def fetch(url: str) -> Any:
+            if isinstance(doc, Exception):
+                raise doc
+            return doc
+
+        return ls.npm_metadata_errors(npm_lock(**{key: entry}), "x", fetch)
+
+    def test_an_entry_as_published_passes_with_npm_normalisation(self) -> None:
+        entry = {**npm_pkg(), "bin": {"a": "cli.js"}, "funding": {"url": "https://example.com/f"}, "dependencies": {"b": "^1"}, "optionalDependencies": {"c": "^1"}}
+        doc = registry_doc(bin="./cli.js", funding="https://example.com/f", dependencies={"b": "^1", "c": "^1"}, optionalDependencies={"c": "^1"})
+        self.assertEqual(self.check(entry, doc), [])
+
+    def test_a_removed_bin_is_refused(self) -> None:
+        errors = self.check(npm_pkg(), registry_doc(bin={"a": "cli.js"}))
+        self.assertEqual(errors, ["x: node_modules/a bin differs from a@1.0.0 on the npm registry"])
+
+    def test_a_bin_the_package_does_not_publish_is_refused(self) -> None:
+        errors = self.check({**npm_pkg(), "bin": {"semantic-release": "index.js"}}, registry_doc())
+        self.assertEqual(errors, ["x: node_modules/a bin differs from a@1.0.0 on the npm registry"])
+
+    def test_has_install_script_must_match_the_published_scripts(self) -> None:
+        for doc in (registry_doc(scripts={"postinstall": "node x.js"}), registry_doc(gypfile=True)):
+            with self.subTest(doc=doc):
+                self.assertEqual(self.check(npm_pkg(), doc), ["x: node_modules/a hasInstallScript differs from a@1.0.0 on the npm registry"])
+        self.assertEqual(len(self.check({**npm_pkg(), "hasInstallScript": True}, registry_doc())), 1)
+
+    def test_an_added_dependency_is_refused(self) -> None:
+        errors = self.check({**npm_pkg(), "dependencies": {"b": "^1", "evil": "1.0.0"}}, registry_doc(dependencies={"b": "^1"}))
+        self.assertEqual(errors, ["x: node_modules/a dependencies differs from a@1.0.0 on the npm registry"])
+
+    def test_a_key_npm_metadata_does_not_explain_is_refused(self) -> None:
+        errors = self.check({**npm_pkg(), "scripts": {"x": "y"}}, registry_doc())
+        self.assertEqual(len(errors), 1)
+        self.assertIn("has keys npm metadata does not explain: scripts", errors[0])
+
+    def test_an_unpublished_version_and_an_unreachable_registry_are_refused(self) -> None:
+        self.assertIn("is not published", self.check(npm_pkg(), None)[0])
+        self.assertIn("could not be compared", self.check(npm_pkg(), ls.urllib.error.URLError("down"))[0])
+
+    def test_a_transient_failure_is_retried(self) -> None:
+        calls: list[str] = []
+
+        def flaky(url: str) -> Any:
+            calls.append(url)
+            if len(calls) < 3:
+                raise ls.urllib.error.URLError("blip")
+            return registry_doc()
+
+        self.assertEqual(ls.npm_metadata_errors(npm_lock(**{"node_modules/a": npm_pkg()}), "x", flaky), [])
+        self.assertEqual(len(calls), 3)
+
+
+class NpmGraphTest(unittest.TestCase):
+    def test_every_entry_reached_from_package_json_passes(self) -> None:
+        lock = npm_lock(**{"node_modules/a": {**npm_pkg(), "dependencies": {"b": "^1"}}, "node_modules/b": {**npm_pkg("https://registry.npmjs.org/b/-/b-1.0.0.tgz")}})
+        self.assertEqual(ls.orphan_errors(lock, "x", {"dependencies": {"a": "^1"}}), [])
+
+    def test_the_codex_bin_scenario_is_an_orphan(self) -> None:
+        # semantic-release without its bin, plus a package nobody requires that claims the bin name.
+        lock = npm_lock(
+            **{
+                "node_modules/semantic-release": npm_pkg("https://registry.npmjs.org/semantic-release/-/semantic-release-1.0.0.tgz"),
+                "node_modules/left-pad": {**npm_pkg("https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz"), "bin": {"semantic-release": "index.js"}},
+            }
+        )
+        errors = ls.orphan_errors(lock, "x", {"dependencies": {"semantic-release": "1.0.0"}})
+        self.assertEqual(errors, ["x: node_modules/left-pad is not required by package.json or by any package it reaches"])
+
+    def test_node_resolution_prefers_the_nested_copy(self) -> None:
+        lock = npm_lock(**{"node_modules/a": {**npm_pkg(), "dependencies": {"b": "^2"}}, "node_modules/a/node_modules/b": npm_pkg("https://registry.npmjs.org/b/-/b-1.0.0.tgz"), "node_modules/b": npm_pkg("https://registry.npmjs.org/b/-/b-1.0.0.tgz")})
+        self.assertEqual(ls.orphan_errors(lock, "x", {"dependencies": {"a": "^1"}}), ["x: node_modules/b is not required by package.json or by any package it reaches"])
+
+    def test_a_runtime_package_marked_dev_or_optional_is_refused(self) -> None:
+        lock = npm_lock(**{"node_modules/a": {**npm_pkg(), "dev": True}})
+        self.assertEqual(ls.orphan_errors(lock, "x", {"dependencies": {"a": "^1"}}), ["x: node_modules/a is needed at runtime but marked dev"])
+        lock = npm_lock(**{"node_modules/a": {**npm_pkg(), "optional": True}})
+        self.assertEqual(ls.orphan_errors(lock, "x", {"dependencies": {"a": "^1"}}), ["x: node_modules/a is required at runtime but marked optional"])
+        lock = npm_lock(**{"node_modules/a": {**npm_pkg(), "dev": True}})
+        self.assertEqual(ls.orphan_errors(lock, "x", {"devDependencies": {"a": "^1"}}), [])
+
+
+class ComposerGraphTest(unittest.TestCase):
+    def pkg(self, name: str, **fields: Any) -> dict[str, Any]:
+        return {"name": name, "version": "1.0.0", **fields}
+
+    def test_packages_reached_from_composer_json_pass_and_platform_requirements_are_skipped(self) -> None:
+        lock = {"packages": [self.pkg("a/a", require={"php": "^8.5", "ext-intl": "*", "b/b": "^1"}), self.pkg("b/b")], "packages-dev": [self.pkg("d/d")]}
+        self.assertEqual(ls.composer_orphan_errors(lock, "composer.lock", {"require": {"a/a": "^1"}, "require-dev": {"d/d": "^1"}}), [])
+
+    def test_an_appended_package_is_an_orphan(self) -> None:
+        lock = {"packages": [self.pkg("a/a"), self.pkg("wikimedia/composer-merge-plugin")]}
+        self.assertEqual(
+            ls.composer_orphan_errors(lock, "composer.lock", {"require": {"a/a": "^1"}}),
+            ["composer.lock: wikimedia/composer-merge-plugin is not required by composer.json or by any package it reaches"],
+        )
+
+    def test_replace_counts_only_for_a_package_reached_on_its_own(self) -> None:
+        # laravel/framework replaces illuminate/support and is required itself: fine.
+        ok = {"packages": [self.pkg("laravel/framework", replace={"illuminate/support": "self.version"}), self.pkg("x/uses", require={"illuminate/support": "^13"})]}
+        self.assertEqual(ls.composer_orphan_errors(ok, "composer.lock", {"require": {"laravel/framework": "^13", "x/uses": "^1"}}), [])
+        # An added package that "replaces" a required one, with the real one removed.
+        forged = {"packages": [self.pkg("evil/framework", replace={"laravel/framework": "*"})]}
+        self.assertEqual(
+            ls.composer_orphan_errors(forged, "composer.lock", {"require": {"laravel/framework": "^13"}}),
+            ["composer.lock: evil/framework is not required by composer.json or by any package it reaches"],
+        )
+
+
+class VersionTest(unittest.TestCase):
+    def test_raising_a_version_passes(self) -> None:
+        base = {"packages": [{"name": "a/b", "version": "v13.17.0"}]}
+        head = {"packages": [{"name": "a/b", "version": "v13.43.0"}]}
+        self.assertEqual(ls.version_errors(base, head, "composer.lock", npm=False), [])
+
+    def test_a_downgrade_or_a_major_change_is_refused(self) -> None:
+        base = {"packages": [{"name": "laravel/framework", "version": "v13.43.0"}]}
+        for version, word in (("v11.0.0", "goes down"), ("v13.42.9", "goes down"), ("v14.0.0", "major")):
+            with self.subTest(version=version):
+                head = {"packages": [{"name": "laravel/framework", "version": version}]}
+                errors = ls.version_errors(base, head, "composer.lock", npm=False)
+                self.assertEqual(len(errors), 1)
+                self.assertIn(word, errors[0])
+
+    def test_npm_entries_are_compared_by_their_location(self) -> None:
+        base = npm_lock(**{"node_modules/a": npm_pkg()})
+        head = npm_lock(**{"node_modules/a": {**npm_pkg(), "version": "0.9.0"}})
+        self.assertEqual(ls.version_errors(base, head, "x", npm=True), ["x: node_modules/a goes down from 1.0.0 to 0.9.0"])
+
+    def test_the_base_is_read_from_git_and_a_changed_manifest_hands_it_to_review(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            (root / "composer.json").write_text(json.dumps({"require": {"a/b": "^1"}}))
+            (root / "composer.lock").write_text(json.dumps({"packages": [{**PackagistTest.PKG, "version": "v1.3.0"}]}))
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            (root / "composer.lock").write_text(json.dumps({"packages": [PackagistTest.PKG]}))
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = ls.main(["--root", tmp, "--offline", "--base", "HEAD"])
+            self.assertEqual(code, 1)
+            self.assertIn("a/b goes down from v1.3.0 to v1.2.0", err.getvalue())
+            (root / "composer.json").write_text(json.dumps({"require": {"a/b": "^1.2"}}))
+            with redirect_stdout(out), redirect_stderr(err):
+                code = ls.main(["--root", tmp, "--offline", "--base", "HEAD"])
+            self.assertEqual(code, 0)
+            self.assertIn("versions are left to the review", out.getvalue())
 
 
 class CliTest(unittest.TestCase):
@@ -363,6 +565,7 @@ class CliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "composer.lock").write_text(json.dumps({"packages": [PackagistTest.PKG]}))
+            (root / "composer.json").write_text(json.dumps({"require": {"a/b": "^1.2"}}))
             out, err = io.StringIO(), io.StringIO()
             with redirect_stdout(out), redirect_stderr(err):
                 code = ls.main(["--root", str(root)], fetch=lambda url: {"packages": {"a/b": []}})
