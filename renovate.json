@@ -29,7 +29,7 @@
     "lockFileMaintenance": {
         "enabled": true,
         "schedule": ["before 6am on monday"],
-        "minimumReleaseAge": "0 days"
+        "automerge": false
     },
     "customManagers": [
         {
@@ -183,9 +183,9 @@
             "automerge": true
         },
         {
-            "description": "Automerge: lockfile maintenance changes only lockfiles.",
+            "description": "Lock file maintenance is merged by hand: it has no release timestamps, so the wait cannot hold it back (Renovate docs, key-concepts/minimum-release-age, 'lockFileMaintenance updates'), and with timestamp-required its renovate/stability-days check stays pending.",
             "matchUpdateTypes": ["lockFileMaintenance"],
-            "automerge": true
+            "automerge": false
         },
         {
             "description": "Majors are merged by hand.",

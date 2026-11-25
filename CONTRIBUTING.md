@@ -356,12 +356,14 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
 - **Automerge.** Renovate merges an update by itself once every check of the pull request is green, but only when it
   changes nothing but files without a code owner (`.github/CODEOWNERS`): `composer.lock`, the `package-lock.json` files
   and `docker/base-images.env`. `renovate.json` stays owned, because it decides what merges without review. That covers
-  updates inside the declared range, lockfile maintenance (Mondays) and patch, minor and digest updates of the base
-  images. The required check `Lockfile sources` (`scripts/lockfile_sources.py`) keeps every locked download on its
+  updates inside the declared range and patch, minor and digest updates of the base images. Lockfile maintenance
+  (Mondays) refreshes the transitive versions and is merged by the maintainer: it has no release timestamps, so the
+  waiting time cannot hold its new versions back. The required check `Lockfile sources` (`scripts/lockfile_sources.py`) keeps every locked download on its
   expected host: `https://registry.npmjs.org/` with a sha512 integrity for npm, GitHub or Packagist over https for
   Composer. Beyond the host, every locked package must equal its published metadata (npm registry, Packagist), be
   required from `package.json` or `composer.json`, and, on a pull request, not go down or change its major against the
-  target branch unless the manifest changes as well.
+  target branch unless the manifest changes as well. Versions are compared per package name, wherever the package
+  sits in `node_modules`: a version below every version of the target branch, or a major it did not hold, fails.
 - **When `Lockfile sources` refuses a legitimate update.** The check fails closed on cases the project does not have
   today: an npm alias that only a dependency declares, a Composer metapackage, a `dev-*` version, a path repository
   declared with a glob. Such a pull request needs the maintainer: confirm the change by hand (the package, its source

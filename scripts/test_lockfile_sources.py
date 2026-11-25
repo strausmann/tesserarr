@@ -510,17 +510,30 @@ class VersionTest(unittest.TestCase):
 
     def test_a_downgrade_or_a_major_change_is_refused(self) -> None:
         base = {"packages": [{"name": "laravel/framework", "version": "v13.43.0"}]}
-        for version, word in (("v11.0.0", "goes down"), ("v13.42.9", "goes down"), ("v14.0.0", "major")):
+        for version, word in (("v11.0.0", "goes down"), ("v13.42.9", "goes down"), ("v14.0.0", "major version the base did not hold")):
             with self.subTest(version=version):
                 head = {"packages": [{"name": "laravel/framework", "version": version}]}
                 errors = ls.version_errors(base, head, "composer.lock", npm=False)
                 self.assertEqual(len(errors), 1)
                 self.assertIn(word, errors[0])
 
-    def test_npm_entries_are_compared_by_their_location(self) -> None:
+    def test_npm_versions_are_compared_per_package_name(self) -> None:
         base = npm_lock(**{"node_modules/a": npm_pkg()})
         head = npm_lock(**{"node_modules/a": {**npm_pkg(), "version": "0.9.0"}})
-        self.assertEqual(ls.version_errors(base, head, "x", npm=True), ["x: node_modules/a goes down from 1.0.0 to 0.9.0"])
+        self.assertEqual(ls.version_errors(base, head, "x", npm=True), ["x: a goes down to 0.9.0, below every version of the base"])
+
+    def test_a_package_moved_in_the_tree_and_downgraded_is_refused(self) -> None:
+        # The location changes, the package does not.
+        base = npm_lock(**{"node_modules/a": {**npm_pkg(), "version": "2.1.0"}})
+        head = npm_lock(**{"node_modules/x/node_modules/a": {**npm_pkg(), "version": "2.0.0"}})
+        self.assertEqual(ls.version_errors(base, head, "x", npm=True), ["x: a goes down to 2.0.0, below every version of the base"])
+
+    def test_npm_may_hold_several_versions_but_no_new_major(self) -> None:
+        base = npm_lock(**{"node_modules/s": {**npm_pkg(), "version": "7.0.0"}, "node_modules/p/node_modules/s": {**npm_pkg(), "version": "5.2.0"}})
+        moved_up = npm_lock(**{"node_modules/s": {**npm_pkg(), "version": "7.1.0"}, "node_modules/q/node_modules/s": {**npm_pkg(), "version": "5.2.0"}})
+        self.assertEqual(ls.version_errors(base, moved_up, "x", npm=True), [])
+        new_major = npm_lock(**{"node_modules/s": {**npm_pkg(), "version": "8.0.0"}})
+        self.assertEqual(ls.version_errors(base, new_major, "x", npm=True), ["x: s 8.0.0 is a major version the base did not hold"])
 
     def test_the_base_is_read_from_git_and_a_changed_manifest_hands_it_to_review(self) -> None:
         import subprocess
@@ -538,7 +551,7 @@ class VersionTest(unittest.TestCase):
             with redirect_stdout(out), redirect_stderr(err):
                 code = ls.main(["--root", tmp, "--offline", "--base", "HEAD"])
             self.assertEqual(code, 1)
-            self.assertIn("a/b goes down from v1.3.0 to v1.2.0", err.getvalue())
+            self.assertIn("a/b goes down to v1.2.0, below every version of the base", err.getvalue())
             (root / "composer.json").write_text(json.dumps({"require": {"a/b": "^1.2"}}))
             with redirect_stdout(out), redirect_stderr(err):
                 code = ls.main(["--root", tmp, "--offline", "--base", "HEAD"])
