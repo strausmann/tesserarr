@@ -430,6 +430,8 @@ jobs:
           # from the released commit rather than whatever the calling
           # workflow ran on. Empty = the event's default ref.
           ref: ${{ inputs.ref || (inputs.tag && (startsWith(inputs.tag, 'v') && format('refs/tags/{0}', inputs.tag) || format('refs/tags/v{0}', inputs.tag))) || '' }}
+          # Every tag: scripts/floating_tags.py compares the build with all releases.
+          fetch-depth: 0
           persist-credentials: false
 
       # The commit that is actually built. For a release this is the tag's
@@ -532,6 +534,23 @@ jobs:
           echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # x.y, x and latest move only when this build is the highest stable
+      # version of their scope (scripts/floating_tags.py): a rerun of an older
+      # release after a newer one must not take them back. Previews and dev
+      # builds never move them.
+      - name: Floating tags
+        id: floating
+        env:
+          FLAVOR: ${{ steps.tag.outputs.flavor }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$FLAVOR" = release ]; then
+            python3 scripts/floating_tags.py --version "$TAG" | tee -a "$GITHUB_OUTPUT"
+          else
+            printf 'latest=false\nmajor=false\nminor=false\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
       # Metadata again — the merge job needs the tag list and the
       # index-level annotations. Labels are NOT applied here (they live
       # on each per-platform manifest from the build phase).
@@ -555,9 +574,9 @@ jobs:
             type=ref,event=branch,enable=${{ steps.tag.outputs.flavor == 'branch' }}
             type=raw,value=dev,enable=${{ steps.tag.outputs.flavor == 'dev' }}
             type=semver,pattern={{version}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') }}
-            type=semver,pattern={{major}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') }}
-            type=raw,value=latest,enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.minor == 'true' }}
+            type=semver,pattern={{major}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.major == 'true' }}
+            type=raw,value=latest,enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.latest == 'true' }}
           # Annotations are emitted at both manifest and index level (see env
           # at workflow root). For a manifest-list-create operation only the
           # index level applies — the merge step filters them.
