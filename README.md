@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-early%20development-orange.svg)][ms-1]
-[![PHP 8.4](https://img.shields.io/badge/PHP-8.4-777BB4.svg?logo=php&logoColor=white)](https://www.php.net)
+[![PHP 8.5](https://img.shields.io/badge/PHP-8.5-777BB4.svg?logo=php&logoColor=white)](https://www.php.net)
 [![Laravel 13](https://img.shields.io/badge/Laravel-13-FF2D20.svg?logo=laravel&logoColor=white)](https://laravel.com)
 
 Share parts of your media library with friends over an existing Syncthing link,
@@ -19,7 +19,7 @@ from any other source, or directly in the web interface (both from 0.3.0). The
 files travel over Syncthing. You decide who sees which share, how much they may request and how long
 a file stays around if nobody collects it.
 
-Tesserarr is a Laravel 13 application (PHP 8.4) with a Svelte 5 interface served
+Tesserarr is a Laravel 13 application (PHP 8.5) with a Svelte 5 interface served
 through Inertia and a PostgreSQL 17 database. It ships as one FrankenPHP-based
 image.
 

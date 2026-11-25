@@ -60,7 +60,7 @@ cd tesserarr
 
 ### 2. Set up your environment
 
-Docker is the only requirement; PHP 8.4, Composer, Node and PostgreSQL run in containers.
+Docker is the only requirement; PHP 8.5, Composer, Node and PostgreSQL run in containers.
 
 ```bash
 cp .env.example .env
