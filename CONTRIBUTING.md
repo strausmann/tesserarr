@@ -367,7 +367,9 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
   and no new copy may sit below it, a major may only disappear for a higher one the branch already had, and a major
   it did not hold fails. For npm, the version each package loads for a dependency may not go down either, also for a
   package that moved to another place in `node_modules` (compared with the copies of the same package on the target
-  branch); bundled copies inside another package's tarball are never an allowed version. A Composer package belongs in
+  branch); bundled copies inside another package's tarball are never an allowed version. Whether an entry is
+  bundled follows from the tree (a package above it that bundles it), not from its `inBundle` flag, and the two must
+  agree. A Composer package belongs in
   `packages` exactly when `require` needs it, and Composer prereleases are ordered like Composer orders them
   (`beta9` < `beta10` < `RC1`). A `--base` that is not a commit fails the check.
 - **When `Lockfile sources` refuses a legitimate update.** The check fails closed on cases the project does not have

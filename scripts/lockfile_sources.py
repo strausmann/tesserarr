@@ -27,8 +27,11 @@ unlike the lockfile) declares as "<key name>": "npm:<name>@…"; any other
 `name` is an error. Names follow the npm name grammar and versions are strict
 semver; a `resolved` path with `%` or a `.` or `..` segment is refused before
 anything is compared. An entry
-without `resolved` must be bundled inside another package (`inBundle`), whose
-tarball and integrity are checked. The legacy `dependencies` tree of
+without `resolved` must be bundled inside another package, whose tarball and
+integrity are checked. Bundled is derived from the structure, not from the
+`inBundle` flag (a field of the lock): an ancestor P whose bundleDependencies
+names the package, or the dependency closure of those inside P/node_modules/.
+The flag must agree with that, and a bundled entry has no `resolved`. The legacy `dependencies` tree of
 version 2 is checked with the same rules.
 
 A matching tarball is not enough either: npm creates the `.bin` links and
@@ -219,6 +222,58 @@ def _legacy_errors(tree: dict[str, Any], name: str, trail: str, aliases: dict[st
     return errors
 
 
+def _bundlers(packages: dict[str, Any]) -> dict[str, str]:
+    """Bundled entry -> the package whose tarball ships it, derived from the structure.
+
+    `inBundle` is a field of the lock and so as untrusted as the rest of it.
+    What counts is the structure: a package P whose (registry-compared)
+    `bundleDependencies` names a dependency ships it inside P/node_modules/,
+    and with it every dependency of a bundled package that resolves inside
+    P/node_modules/ too (npm bundles the closure: in the lock of the npm
+    package only 65 of its 143 bundled entries are named in
+    bundleDependencies). `true` bundles all dependencies.
+    """
+    packages = {k: v for k, v in packages.items() if k and isinstance(v, dict)}
+    owner: dict[str, str] = {}
+    for parent, entry in sorted(packages.items()):
+        names = entry.get("bundleDependencies", entry.get("bundledDependencies"))
+        if names is True:
+            names = list(entry.get("dependencies") or {})
+        if not isinstance(names, list):
+            continue
+        prefix = f"{parent}/node_modules/"
+        queue = [(parent, n) for n in names if isinstance(n, str)]
+        while queue:
+            location, dependency = queue.pop()
+            target = _resolve(packages, location, dependency)
+            if target and target.startswith(prefix) and target not in owner:
+                owner[target] = parent
+                queue.extend((target, d) for d in _edges(packages[target], False))
+    return owner
+
+
+def bundled_keys(packages: dict[str, Any]) -> set[str]:
+    """The entries the structure shows as bundled (see _bundlers); never the flag."""
+    return set(_bundlers(packages))
+
+
+def bundle_errors(packages: dict[str, Any], name: str) -> list[str]:
+    """`inBundle` must say exactly what the structure says, and a bundled entry has no download of its own."""
+    owner = _bundlers(packages)
+    errors: list[str] = []
+    for key, entry in sorted(packages.items()):
+        if not key or not isinstance(entry, dict):
+            continue
+        if key in owner:
+            if entry.get("resolved") is not None:
+                errors.append(f"{name}: {key} is bundled but has a resolved URL")
+            if not entry.get("inBundle"):
+                errors.append(f"{name}: {key} is bundled by {owner[key]} but not marked inBundle")
+        elif entry.get("inBundle"):
+            errors.append(f"{name}: {key} is marked inBundle, but no package above it bundles it")
+    return errors
+
+
 def npm_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any] | None = None) -> list[str]:
     aliases = declared_aliases(manifest or {})
     errors: list[str] = []
@@ -233,6 +288,8 @@ def npm_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any] | None 
             errors.append(f"{name}: a legacy dependencies tree belongs to lockfile version 2 only")
         else:
             errors.extend(_legacy_errors(legacy, name, "", aliases))
+    errors.extend(bundle_errors(packages, name))
+    bundled = bundled_keys(packages)
     for key, entry in packages.items():
         if key == "" or not isinstance(entry, dict):
             continue
@@ -241,7 +298,7 @@ def npm_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any] | None 
             errors.append(f"{name}: {key} is a link; this project has no workspaces")
             continue
         if resolved is None:
-            if not entry.get("inBundle"):
+            if key not in bundled:
                 errors.append(f"{name}: {key} has no resolved URL and is not bundled")
             continue
         package = key.rsplit("node_modules/", 1)[-1]
@@ -493,8 +550,8 @@ def _reach(packages: dict[str, Any], roots: list[str], required_only: bool) -> s
                 reached.add(target)
                 queue.append((target, _edges(packages[target], required_only)))
     # Bundled packages ship inside the tarball of a reached parent.
-    for key, entry in packages.items():
-        if entry.get("inBundle") and any(key.startswith(f"{r}/node_modules/") for r in reached):
+    for key in bundled_keys(packages):
+        if any(key.startswith(f"{r}/node_modules/") for r in reached):
             reached.add(key)
     return reached
 
@@ -516,9 +573,10 @@ def orphan_errors(lock: dict[str, Any], name: str, manifest: dict[str, Any]) -> 
         for key in sorted(packages)
         if key not in everything
     ]
+    bundled = bundled_keys(packages)
     for key in sorted(production):
         entry = packages[key]
-        if entry.get("inBundle"):
+        if key in bundled:
             continue  # part of its parent's tarball, flagged by npm from the parent's view
         # `npm ci --omit=dev` (licence gate, image) drops dev; omit=optional drops optional.
         if entry.get("dev"):
@@ -741,10 +799,13 @@ def _locked_versions(lock: dict[str, Any], npm: bool) -> dict[str, set[str]]:
     """Package name -> every version the lockfile holds of it (npm may hold several)."""
     found: dict[str, set[str]] = {}
     if npm:
-        for key, entry in (lock.get("packages") or {}).items():
+        packages = lock.get("packages") or {}
+        bundled = bundled_keys(packages)
+        for key, entry in packages.items():
             # A bundled copy ships inside its parent's tarball (checked there);
             # it is no version anybody may pick, and moves with its parent.
-            if key and isinstance(entry, dict) and not entry.get("inBundle"):
+            # Bundled by the structure (bundled_keys), not by the inBundle flag.
+            if key and isinstance(entry, dict) and key not in bundled:
                 package = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
                 found.setdefault(package, set()).add(str(entry.get("version")))
         return found
@@ -818,7 +879,9 @@ def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manif
     ranges (compared with the registry); only for a version the base does
     not hold are all copies of that name taken. Bundled consumers and
     bundled targets of the base do not count: they ship inside another
-    package's tarball, and their versions are nobody's to pick.
+    package's tarball, and their versions are nobody's to pick. Bundled
+    means bundled by the structure (bundled_keys), never by the inBundle
+    flag, which the lock could set anywhere.
     """
     old = {k: v for k, v in (base.get("packages") or {}).items() if k and isinstance(v, dict)}
     new = {k: v for k, v in (head.get("packages") or {}).items() if k and isinstance(v, dict)}
@@ -829,7 +892,8 @@ def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manif
     consumers: list[tuple[str, list[str]]] = [
         ("", [d for kind in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies") for d in (manifest.get(kind) or {})])
     ]
-    consumers += [(key, _edges(new[key], False)) for key in sorted(set(old) & set(new)) if not new[key].get("inBundle")]
+    old_bundled, new_bundled = bundled_keys(old), bundled_keys(new)
+    consumers += [(key, _edges(new[key], False)) for key in sorted(set(old) & set(new)) if key not in new_bundled]
     errors: list[str] = []
     for location, dependencies in consumers:
         for dependency in sorted(set(dependencies)):
@@ -843,12 +907,12 @@ def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manif
 
     base_copies: dict[str, list[tuple[str, str]]] = {}
     for key, entry in old.items():
-        if not entry.get("inBundle"):
+        if key not in old_bundled:
             base_copies.setdefault(package_of(key, entry), []).append((key, str(entry.get("version"))))
     for key in sorted(set(new) - set(old)):
         entry = new[key]
         consumer = package_of(key, entry)
-        if entry.get("inBundle") or consumer not in base_copies:
+        if key in new_bundled or consumer not in base_copies:
             continue
         version = str(entry.get("version"))
         copies = [k for k, v in base_copies[consumer] if v == version] or [k for k, _ in base_copies[consumer]]
@@ -858,7 +922,7 @@ def consumer_errors(base: dict[str, Any], head: dict[str, Any], name: str, manif
             loaded: list[tuple[tuple[Any, ...], str]] = []
             for copy in copies:
                 before = _resolve(old, copy, dependency)
-                if before is not None and not old[before].get("inBundle"):
+                if before is not None and before not in old_bundled:
                     was = str(old[before].get("version"))
                     was_key = _numeric(was)
                     if was_key is not None:
