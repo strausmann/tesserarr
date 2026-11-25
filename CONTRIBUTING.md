@@ -542,7 +542,8 @@ rule as the rest of the repository: no details of a real installation.
 | `GHCR_CLEANUP_ENABLED`       | variable | `true` lets the weekly `Registry cleanup` delete     |
 | `RENOVATE_TOKEN`             | secret   | `Renovate`: the token Renovate acts with (see `.github/workflows/renovate.yml`); optional when it comes from Infisical |
 | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` | secret | `Renovate`: machine identity that reads `RENOVATE_TOKEN` from Infisical |
-| `RENOVATE_INFISICAL_PROJECT` | variable | `Renovate`: Infisical project that holds `RENOVATE_TOKEN` (default `fileee-server-ci`, environment `prod`) |
+| `INFISICAL_DOMAIN`           | variable | `Renovate`: address of the Infisical instance |
+| `RENOVATE_INFISICAL_PROJECT` | variable | `Renovate`: slug of the Infisical project that holds `RENOVATE_TOKEN` (environment `prod`, root folder) |
 
 ## Trademarks
 
