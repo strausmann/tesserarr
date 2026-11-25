@@ -6,21 +6,26 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 # Tesserarr
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/adr/)
-[![PHP](https://img.shields.io/badge/PHP-8.4-777BB4.svg?logo=php&logoColor=white)](https://www.php.net)
-[![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20.svg?logo=laravel&logoColor=white)](https://laravel.com)
+[![Status](https://img.shields.io/badge/status-early%20development-orange.svg)][ms-1]
+[![PHP 8.4](https://img.shields.io/badge/PHP-8.4-777BB4.svg?logo=php&logoColor=white)](https://www.php.net)
+[![Laravel 13](https://img.shields.io/badge/Laravel-13-FF2D20.svg?logo=laravel&logoColor=white)](https://laravel.com)
 
-Share parts of your media library with friends over an existing Syncthing link —
-without torrents, without a public index, and without doing it by hand.
+Share parts of your media library with friends over an existing Syncthing link,
+without torrents, without a public index and without doing it by hand.
 
-Your friends browse what you chose to share, request a title, and their own
-Sonarr or Radarr picks it up as if it came from any other source. You decide who
-sees which library, how much they may request, and how long a file stays around
-if nobody collects it.
+Your friends browse the catalogue you chose to share and request a title. They
+do so either through their own Sonarr or Radarr, which picks it up as if it came
+from any other source, or directly in the web interface (both from 0.3.0). The
+files travel over Syncthing. You decide who sees which share, how much they may request and how long
+a file stays around if nobody collects it.
+
+Tesserarr is a Laravel 13 application (PHP 8.4) with a Svelte 5 interface served
+through Inertia and a PostgreSQL 17 database. It ships as one FrankenPHP-based
+image.
 
 ## Why the name
 
-A _tessera hospitalis_ was a small tablet that two befriended Roman households
+A *tessera hospitalis* was a small tablet that two befriended Roman households
 broke in half, each keeping one piece. Presenting the matching half proved the
 bond of guest-friendship — sometimes generations later. Two homelabs, one
 invitation, a private tie.
@@ -50,54 +55,112 @@ deletes it ──────────────────▶  transfer c
 Progress is measured, not guessed: Tesserarr reads it from its own Syncthing
 instance, per device and folder.
 
+One central instance holds the database, the interface and the rules. Optional
+satellites run on other machines, for example next to the media storage. They have
+no database: they pull jobs from the centre and create the hardlinks on the host
+that holds the media. When several people receive the same title, Tesserarr
+hardlinks it instead of copying it, so it occupies the disk once. An optional
+transfer instance, a Syncthing on a cloud VM, receives each title once and serves
+it from there, so you need not open your own Syncthing to your friends.
+
+Sonarr and Radarr report an import by removing the download from the download
+client's history ("Remove Completed"). Tesserarr treats that as the signal that
+the transfer was collected.
+
+## Features
+
+Each item says in which release it arrives.
+
+**Accounts and sign-in**
+
+- Invitation-only accounts with atomic redemption (0.1.0)
+- Password, passkeys and TOTP, with mandatory MFA for administrative rights (0.1.0)
+- OIDC with several providers in parallel, Plex sign-in and forward-auth header
+  sign-in (0.1.0)
+- Confirmation of security-relevant changes with a fresh second factor (0.1.0)
+- Optional email over SMTP or JMAP, with PGP per recipient; addresses are stored
+  encrypted (0.1.0)
+
+**Shares and catalogue**
+
+- Media shares with fail-closed path resolution and grant rules per user (0.1.0)
+- Browse, search and bulk actions over an incremental folder index (0.1.0)
+- Friend view with the list of shares and key figures (0.1.0)
+- User groups and quotas per media type (0.2.0 and 0.3.0)
+
+**Syncthing delivery**
+
+- Hardlink provisioning through satellites, with a copy fallback (0.2.0)
+- Managed Syncthing folders and devices per user, transfer history and views
+  (0.2.0)
+- Optional transfer instance and optional own Syncthing relay (0.2.0)
+- Pickup detection, grace period and clean-up (0.2.0)
+
+**Arr integration**
+
+- Read access to Sonarr, Radarr, Prowlarr, Syncthing and Plex connections (0.1.0)
+- Emulated Newznab indexer and SABnzbd download client for your friends' own arr
+  apps (0.3.0)
+- Requests straight from the catalogue for people without arr apps (0.3.0)
+
+**Operation**
+
+- Setup checklist with a guided wizard, settings in the interface and a
+  self-test (0.1.0)
+- Append-only audit log and live status updates (0.1.0)
+- Migrations that write a database backup first (0.1.0)
+- Notification centre with mail, Teams, Discord and Telegram (0.2.0)
+
+## Roadmap
+
+**[0.1.0][ms-1]: foundation**
+
+- Accounts, sign-in methods, roles and the audit log
+- Invitations, setup wizard and settings in the interface
+- Media shares, grant rules and the catalogue
+- Satellite skeleton with pull-based read-only jobs
+- Connections to Sonarr, Radarr, Prowlarr, Syncthing and Plex
+
+**[0.2.0][ms-2]: first media path**
+
+- Hardlink provisioning through satellites, with a copy fallback
+- Managed Syncthing folders and devices, pickup detection and clean-up
+- Transfer instance, own Syncthing relay and user groups
+- Notification centre with mail, Teams, Discord and Telegram
+
+**[0.3.0][ms-3]: arr integration**
+
+- Newznab and SABnzbd emulation for your friends' own arr apps
+- Requests straight from the catalogue
+- Quotas per media type with a soft limit
+- Warning system for conspicuous behaviour
+
+**Later** ([0.4.0][ms-4], [0.5.0][ms-5], [1.0.0][ms-6])
+
+- Instance pairing and import feedback
+- Jellyfin and Emby support
+- Operation with real participants, upgrade path and API stability commitment
+
+[ms-1]: https://github.com/strausmann/tesserarr/milestone/1
+[ms-2]: https://github.com/strausmann/tesserarr/milestone/2
+[ms-3]: https://github.com/strausmann/tesserarr/milestone/3
+[ms-4]: https://github.com/strausmann/tesserarr/milestone/4
+[ms-5]: https://github.com/strausmann/tesserarr/milestone/5
+[ms-6]: https://github.com/strausmann/tesserarr/milestone/6
+
 ## Status
 
-Early development. Nothing is usable yet. The architecture decisions are
-written down in [`docs/adr/`](docs/adr/) — start there if you want to know why
-things are built the way they are.
+Early development. Milestone [0.1.0][ms-1] is in progress and nothing is usable
+yet.
 
-## Roles
+## Requirements
 
-One image, two kinds of installation, chosen with `TESSERARR_ROLE`:
+Planned for the first release:
 
-| Role                | What it is                                                                   |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `central` (default) | Users, invitations, catalogue and the web interface, backed by PostgreSQL    |
-| `satellite`         | Runs jobs next to a media share; no database, no web interface besides `/up` |
-
-Any other value stops the start. Each container runs one process, given as the
-command:
-
-| Command     | Role      | Process                              |
-| ----------- | --------- | ------------------------------------ |
-| `web`       | central   | web server on port 8080 (FrankenPHP) |
-| `worker`    | central   | queue worker                         |
-| `scheduler` | central   | task scheduler                       |
-| `reverb`    | central   | WebSocket server for live updates    |
-| `satellite` | satellite | satellite server on port 8080        |
-| `artisan …` | either    | a console command                    |
-
-`/up` answers 200 when the instance is healthy; the central role also checks
-its database there.
-
-## Development
-
-Requires Docker; PHP, Composer and PostgreSQL run in containers.
-
-```sh
-cp .env.example .env
-docker compose -f compose.dev.yaml build
-docker compose -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show   # put the key into .env as APP_KEY
-docker compose -f compose.dev.yaml up
-```
-
-`up` first runs the one-off `migrate` service (`artisan migrate --force`);
-`web`, `worker` and `scheduler` start only after it has finished
-successfully. A satellite never runs migrations: it has no database.
-
-The web interface is then on <http://localhost:8080>. Tests run with Pest
-against PostgreSQL: `./vendor/bin/pest`, or `docker build -f docker/Dockerfile
---target test .` for the image's test stage.
+- Docker with Compose
+- PostgreSQL 17 (included in the Compose file)
+- A Syncthing instance that Tesserarr may control
+- Optional: Sonarr, Radarr, Prowlarr and Plex
 
 ## Documentation
 
