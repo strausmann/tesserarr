@@ -341,6 +341,12 @@ jobs:
         id: builddate
         run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # The base images are pinned in docker/base-images.env of the built
+      # commit (for a release: the tag), never in docker/Dockerfile.
+      - name: Base image pins
+        id: pins
+        run: python3 scripts/base_images.py github-output --name build-args
+
       # Push BY DIGEST: registry stores the blob and returns sha256:…,
       # but no tag is created yet. We capture the digest and hand it
       # off to the merge phase via an artifact.
@@ -360,6 +366,7 @@ jobs:
           # ref MUST be lowercase — see the `Compute image ref` step above.
           outputs: type=image,name=${{ steps.image.outputs.ref }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
+            ${{ steps.pins.outputs.build-args }}
             TESSERARR_VERSION=${{ steps.tag.outputs.tag }}
             REVISION=${{ steps.rev.outputs.sha }}
             BUILD_DATE=${{ steps.builddate.outputs.date }}

@@ -30,12 +30,15 @@
 /README.md              @strausmann
 /docs/dockerhub/        @strausmann
 
-# Dependency manifests and lockfiles have no code owner: Dependabot patch and
-# minor updates are approved and merged by dependabot-auto-merge.yml after CI
-# (including the licence gate) is green. Major updates are never merged
-# automatically. Updates to workflows (.github/) and the Docker base images
-# (docker/) stay owned.
-/composer.json
+# Files that hold nothing but dependency versions have no code owner, so a
+# Renovate update that changes only them merges after green CI (renovate.json,
+# automerge). The manifests composer.json and package.json stay owned: they
+# also carry scripts. An update that changes a manifest, a workflow, a GitHub
+# Action or docker/Dockerfile waits for the maintainer. docker/base-images.env
+# holds the base image pins of docker/Dockerfile and nothing else
+# (scripts/base_images.py checks that the Dockerfile declares no second pin).
 /composer.lock
-/package.json
 /package-lock.json
+/.github/release-tools/package-lock.json
+/renovate.json
+/docker/base-images.env

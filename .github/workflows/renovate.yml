@@ -1,0 +1,114 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Renovate
+
+# Self-hosted Renovate: reads renovate.json from main and opens dependency
+# pull requests against main and every milestone/** branch. It merges an
+# update by itself (automerge) once every check is green, and only where the
+# changed files have no code owner (lockfiles, docker/base-images.env); see
+# CONTRIBUTING.md, "Dependencies and licences".
+#
+# The token is a GitHub token of the identity Renovate acts as. It must not be
+# GITHUB_TOKEN: pull requests opened with that token start no workflows, so CI
+# would never run on them and nothing could be merged. It comes from either
+#   - the repository secret RENOVATE_TOKEN, or
+#   - Infisical: the repository secrets INFISICAL_CLIENT_ID and
+#     INFISICAL_CLIENT_SECRET (a machine identity with read access) and the
+#     secret RENOVATE_TOKEN at the root of the Infisical project named by the
+#     repository variable RENOVATE_INFISICAL_PROJECT (default fileee-server-ci,
+#     environment prod), as in the other repositories of the maintainer.
+# Without either the run ends with a notice, not with an error.
+
+on:
+  schedule:
+    - cron: '17 2 * * *'   # daily at 02:17 UTC, before the nightly release at 04:00
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: Renovate log level
+        type: choice
+        options: [info, debug]
+        default: info
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The token only ever runs from the default branch.
+    if: github.ref == 'refs/heads/main'
+    # Renovate works with its own token; this job's GITHUB_TOKEN reads nothing.
+    permissions: {}
+    steps:
+      - name: Find the token source
+        id: source
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+        run: |
+          set -eu
+          if [ -n "$RENOVATE_TOKEN" ]; then
+            echo "source=secret" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ]; then
+            echo "source=infisical" >> "$GITHUB_OUTPUT"
+          else
+            echo "source=none" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Renovate::No token: set the secret RENOVATE_TOKEN, or INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET. Renovate did not run."
+            {
+              echo "### Renovate did not run"
+              echo
+              echo "No token is configured; see the comment at the top of .github/workflows/renovate.yml."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Exports every secret at the root of the project as an environment
+      # variable of this job (masked in the log); Renovate's container only
+      # receives RENOVATE_* and LOG_LEVEL (renovatebot/github-action, env-regex).
+      - name: Fetch the token from Infisical
+        if: steps.source.outputs.source == 'infisical'
+        uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          project-slug: ${{ vars.RENOVATE_INFISICAL_PROJECT || 'fileee-server-ci' }}
+          env-slug: prod
+          secret-path: /
+          domain: https://secretsmanager.strausmann.cloud
+
+      - name: Check the token
+        id: token
+        if: steps.source.outputs.source != 'none'
+        env:
+          FROM_SECRET: ${{ secrets.RENOVATE_TOKEN }}
+          SOURCE: ${{ steps.source.outputs.source }}
+        run: |
+          set -eu
+          if [ "$SOURCE" = secret ]; then token="$FROM_SECRET"; else token="${RENOVATE_TOKEN:-}"; fi
+          if [ -z "$token" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Renovate::Infisical has no secret RENOVATE_TOKEN in the project root. Renovate did not run."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Renovate
+        if: steps.token.outputs.ready == 'true'
+        uses: renovatebot/github-action@ebcbb513d07ead4d9c0c2139064301db05e84a3e # v46.3.15
+        with:
+          token: ${{ secrets.RENOVATE_TOKEN || env.RENOVATE_TOKEN }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # renovate.json is in the repository; no onboarding pull request.
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_REQUIRE_CONFIG: required
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}

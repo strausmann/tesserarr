@@ -227,6 +227,13 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # The base images are pinned in docker/base-images.env only, never in
+      # docker/Dockerfile (scripts/base_images.py checks both).
+      - name: Base image pins
+        id: pins
+        if: steps.app.outputs.exists == 'true'
+        run: python3 scripts/base_images.py github-output --name build-args
+
       - name: Build the e2e image
         if: steps.app.outputs.exists == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -234,6 +241,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           target: e2e
+          build-args: ${{ steps.pins.outputs.build-args }}
           push: false
           load: true
           tags: ${{ env.IMAGE }}
@@ -292,6 +300,11 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m pytest scripts/ -q
 
+      # docker/base-images.env is well-formed, and docker/Dockerfile (where the
+      # branch has one) declares exactly these image ARGs, without a default.
+      - name: Base image pins
+        run: python3 scripts/base_images.py check
+
   docker-build:
     name: Docker — build smoke test
     runs-on: ubuntu-24.04
@@ -321,6 +334,11 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Base image pins
+        id: pins
+        if: steps.app.outputs.exists == 'true'
+        run: python3 scripts/base_images.py github-output --name build-args
+
       - name: Build the runtime stage (no push)
         if: steps.app.outputs.exists == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -328,6 +346,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           target: runtime
+          build-args: ${{ steps.pins.outputs.build-args }}
           push: false
           load: true
           tags: ${{ env.IMAGE }}
@@ -358,76 +377,14 @@ jobs:
       # A report, not a gate: findings never fail the job (--exit-code 0). The
       # counts per severity and the critical and high findings go to the job
       # summary. A hard gate for CRITICAL is a separate decision.
-      # The database is fetched first: up to three rounds over the OCI
-      # repositories in TRIVY_DB_REPOSITORIES (Trivy's own defaults, see the
-      # Trivy docs, "Database Locations"), one repository per call. Trivy itself
-      # falls back from one --db-repository to the next only on transient
-      # errors (429, 5xx), not when a registry cannot be resolved or reached.
-      # Only a failed database download counts as "database unavailable": Trivy
-      # exits 1 on a fatal error (cmd/trivy/main.go, log.Fatal) and names this
-      # one "failed to download vulnerability DB" (pkg/db/db.go). Anything else
-      # fails the step: the Trivy image is pulled first without a fallback, so
-      # a wrong pin, a pull limit or a Docker error (exit 125 and up) is red.
-      # When no round gets a database, the step reports "scan skipped: database
-      # unavailable" and succeeds: a missing database is no finding and no
-      # defect of the image. A failing scan with a database stays an error.
+      # scripts/trivy_report.py holds the Trivy pin and the database logic that
+      # the weekly rebuild (image-rebuild.yml) uses as well: up to three rounds
+      # over the database repositories, and only a failed database download
+      # counts as "database unavailable" (the step then reports "scan skipped:
+      # database unavailable" and succeeds). Any other failure is red.
       - name: Vulnerability report (Trivy)
         if: steps.app.outputs.exists == 'true'
-        env:
-          TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
-          TRIVY_DB_REPOSITORIES: mirror.gcr.io/aquasec/trivy-db:2 ghcr.io/aquasecurity/trivy-db:2
-        run: |
-          set -euo pipefail
-          cache="$RUNNER_TEMP/trivy-cache"
-          mkdir -p "$cache"
-          trivy() {
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$cache":/root/.cache/trivy \
-              "$TRIVY_IMAGE" "$@"
-          }
-          docker pull --quiet "$TRIVY_IMAGE"
-          db=false
-          for round in 1 2 3; do
-            for repo in $TRIVY_DB_REPOSITORIES; do
-              rc=0
-              out="$(trivy image --download-db-only --no-progress --db-repository "$repo" 2>&1)" || rc=$?
-              printf '%s\n' "$out"
-              if [ "$rc" = 0 ]; then
-                db=true
-                break 2
-              fi
-              if [ "$rc" != 1 ] || ! grep -q 'failed to download vulnerability DB' <<< "$out"; then
-                echo "::error title=Trivy::Trivy failed with exit code $rc, not on the database download"
-                exit "$rc"
-              fi
-              echo "Trivy database from $repo, round $round of 3: failed"
-            done
-            [ "$round" = 3 ] || sleep $((round * 20))
-          done
-          if [ "$db" != true ]; then
-            echo "::warning title=Trivy::scan skipped: database unavailable"
-            printf "### Trivy: \`%s\`\n\n**scan skipped: database unavailable** (%s)\n" \
-              "$IMAGE" "$TRIVY_DB_REPOSITORIES" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          trivy image --skip-db-update --scanners vuln --format json --quiet --exit-code 0 "$IMAGE" \
-            > "$RUNNER_TEMP/trivy.json"
-          {
-            echo "### Trivy: \`$IMAGE\`"
-            echo
-            echo "| Severity | Findings | With a fix | Unique CVEs |"
-            echo "|---|---|---|---|"
-            jq -r '[.Results[]?.Vulnerabilities[]?] as $v
-              | ["CRITICAL","HIGH","MEDIUM","LOW"][] as $s
-              | ($v | map(select(.Severity == $s))) as $f
-              | "| \($s) | \($f | length) | \($f | map(select((.FixedVersion // "") != "")) | length) | \($f | unique_by(.VulnerabilityID) | length) |"' \
-              "$RUNNER_TEMP/trivy.json"
-            echo
-            echo "| Severity | ID | Package | Installed | Fixed |"
-            echo "|---|---|---|---|---|"
-            jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")
-              | "| \(.Severity) | \(.VulnerabilityID) | \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "") |"' \
-              "$RUNNER_TEMP/trivy.json" | sort -u
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python3 scripts/trivy_report.py report "$IMAGE"
 
       - name: No-op (no Dockerfile on main yet)
         if: steps.app.outputs.exists != 'true'
