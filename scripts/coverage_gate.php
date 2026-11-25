@@ -269,4 +269,7 @@ function coverage_gate_main(array $argv): int
     return $result['failed'] ? 1 : 0;
 }
 
-exit(coverage_gate_main($argv));
+// $_SERVER['argv'] rather than $argv: PHP 8.5 reports register_argc_argv as
+// off, so static analysis treats the global $argv as possibly undefined. The
+// CLI fills $_SERVER['argv'] either way.
+exit(coverage_gate_main($_SERVER['argv']));

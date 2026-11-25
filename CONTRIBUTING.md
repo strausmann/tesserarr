@@ -60,7 +60,7 @@ cd tesserarr
 
 ### 2. Set up your environment
 
-Docker is the only requirement; PHP 8.4, Composer, Node and PostgreSQL run in containers.
+Docker is the only requirement; PHP 8.5, Composer, Node and PostgreSQL run in containers.
 
 ```bash
 cp .env.example .env
@@ -75,6 +75,10 @@ after it has finished successfully. When migrations are pending, `tesserarr:migr
 `TESSERARR_BACKUP_DIR` (in the dev stack `.dev/backups/`), keeps the newest five (`TESSERARR_BACKUP_KEEP`, 1 to 50)
 and stops without migrating when the backup fails or is empty. Nothing pending means no backup. A satellite never
 migrates: it has no database. The web interface is then on <http://localhost:8080>.
+
+The dev database is PostgreSQL 18; its data lives in `.dev/postgresql/`. A data directory of an older major version
+cannot be opened by PostgreSQL 18: a stack from before the switch starts with an empty database, and an old
+`.dev/postgres/` can be deleted.
 
 ### 3. Create a branch
 
@@ -238,7 +242,7 @@ input:
 
 ### Browser tests
 
-`e2e/` holds the Playwright suite. It runs against the built image, as it ships, with PostgreSQL 17 next to it, in the
+`e2e/` holds the Playwright suite. It runs against the built image, as it ships, with PostgreSQL 18 next to it, in the
 production environment. The only difference is the `e2e` stage of `docker/Dockerfile`: it adds `routes/testing.php` and
 `app/Testing/`, which sign a test in through `/_testing/login/{role}`, and creates the marker file `.e2e-image`. The
 route is registered only when the marker and the route file exist (`App\Runtime\E2eImage`). The published image contains

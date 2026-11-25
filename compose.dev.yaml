@@ -38,14 +38,16 @@ x-app: &app
 
 services:
     postgres:
-        image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+        image: postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
         pull_policy: missing
         environment:
             POSTGRES_DB: tesserarr
             POSTGRES_USER: tesserarr
             POSTGRES_PASSWORD: tesserarr
         volumes:
-            - ./.dev/postgres:/var/lib/postgresql/data
+            # PostgreSQL 18 keeps its data in /var/lib/postgresql/18/docker; the
+            # mount is the parent directory (see the postgres image docs, PGDATA).
+            - ./.dev/postgresql:/var/lib/postgresql
             - /etc/localtime:/etc/localtime:ro
         healthcheck:
             test: ['CMD', 'pg_isready', '-U', 'tesserarr', '-d', 'tesserarr']

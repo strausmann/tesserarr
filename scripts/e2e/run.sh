@@ -7,7 +7,7 @@
 #   npm ci
 #   scripts/e2e/run.sh [image] [playwright arguments …]
 #
-# Starts PostgreSQL 17 and the image (stage `e2e`) on a private Docker network,
+# Starts PostgreSQL 18 and the image (stage `e2e`) on a private Docker network,
 # migrates, waits for /up and runs the Playwright suite in the official
 # Playwright container. The repository and its node_modules are mounted, so the
 # @playwright/test of package-lock.json must match the container version.
@@ -19,7 +19,7 @@ image="${1:-tesserarr:e2e}"
 [ "$#" -gt 0 ] && shift
 
 PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
-POSTGRES_IMAGE=postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+POSTGRES_IMAGE=postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
 
 # The browsers come from the container, the test runner from node_modules:
 # both must be the same Playwright release, or the suite fails with a missing

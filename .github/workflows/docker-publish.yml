@@ -773,7 +773,7 @@ jobs:
           set -euo pipefail
           asset="${IMAGE_REF##*/}-${TAG}.cdx.json"
           "$SYFT" "${IMAGE_REF}:${TAG}" --platform linux/amd64 --select-catalogers +sbom-cataloger -o "cyclonedx-json=${asset}"
-          jq -e '.components | map(.name) | (any(. == "laravel/framework" or . == "framework") and index("tini") and index("postgresql-client-17"))' "$asset"
+          jq -e '.components | map(.name) | (any(. == "laravel/framework" or . == "framework") and index("tini") and index("postgresql-client-18"))' "$asset"
           echo "asset=${asset}" >> "$GITHUB_OUTPUT"
 
       - name: Upload the SBOM
