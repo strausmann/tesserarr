@@ -203,11 +203,6 @@ class ComposerTest(unittest.TestCase):
                 self.assertEqual(len(errors), 1)
                 self.assertIn("a/b", errors[0])
 
-    def test_a_path_package_inside_the_repository_passes_and_one_outside_fails(self) -> None:
-        inside = {"name": "x/y", "dist": {"type": "path", "url": "packages/laravel-jmap-client"}}
-        outside = {"name": "x/z", "dist": {"type": "path", "url": "../../etc"}}
-        self.assertEqual(ls.composer_errors(self.lock(inside), "composer.lock"), [])
-        self.assertEqual(len(ls.composer_errors(self.lock(outside), "composer.lock")), 1)
 
     def test_dist_and_source_must_be_the_same_repository_and_reference(self) -> None:
         cases = {
@@ -221,11 +216,37 @@ class ComposerTest(unittest.TestCase):
             with self.subTest(case=name):
                 self.assertEqual(len(ls.composer_errors(self.lock(pkg), "composer.lock")), 1)
 
-    def test_a_path_dist_does_not_end_the_check_of_its_source(self) -> None:
-        good = {"name": "x/y", "dist": {"type": "path", "url": "packages/y"}, "source": {"type": "git", "url": "https://github.com/x/y.git", "reference": REF}}
-        foreign = {**good, "source": {"type": "git", "url": "https://evil.example/x/y.git", "reference": REF}}
-        self.assertEqual(ls.composer_errors(self.lock(good), "composer.lock"), [])
-        self.assertEqual(len(ls.composer_errors(self.lock(foreign), "composer.lock")), 1)
+
+    def path_setup(self, tmp: str, declared: bool = True, local_name: str = "x/y") -> tuple[Path, dict[str, Any]]:
+        root = Path(tmp)
+        (root / "packages" / "y").mkdir(parents=True)
+        (root / "packages" / "y" / "composer.json").write_text(json.dumps({"name": local_name}))
+        manifest = {"repositories": [{"type": "path", "url": "packages/y"}]} if declared else {}
+        return root, manifest
+
+    def test_a_declared_path_package_with_its_own_name_passes(self) -> None:
+        local = {"name": "x/y", "dist": {"type": "path", "url": "packages/y"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root, manifest = self.path_setup(tmp)
+            self.assertEqual(ls.composer_errors(self.lock(local), "composer.lock", manifest, root), [])
+
+    def test_a_published_package_turned_into_a_path_package_is_refused(self) -> None:
+        # Codex: laravel/framework with dist {"type": "path", "url": "nonexistent"} and a foreign source.
+        cases = {
+            "undeclared path": ({"name": "x/y", "dist": {"type": "path", "url": "nonexistent-package-path"}}, True, "x/y"),
+            "path not in composer.json": ({"name": "x/y", "dist": {"type": "path", "url": "packages/y"}}, False, "x/y"),
+            "another package in the directory": ({"name": "laravel/framework", "dist": {"type": "path", "url": "packages/y"}}, True, "x/y"),
+            "path with a source": (
+                {"name": "x/y", "dist": {"type": "path", "url": "packages/y"}, "source": {"type": "git", "url": "https://github.com/evil/x.git", "reference": REF}},
+                True,
+                "x/y",
+            ),
+            "outside the repository": ({"name": "x/y", "dist": {"type": "path", "url": "../../etc"}}, True, "x/y"),
+        }
+        for case, (pkg, declared, local_name) in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root, manifest = self.path_setup(tmp, declared, local_name)
+                self.assertEqual(len(ls.composer_errors(self.lock(pkg), "composer.lock", manifest, root)), 1)
 
     def test_a_lock_without_packages_is_refused(self) -> None:
         self.assertEqual(len(ls.composer_errors(self.lock(), "composer.lock")), 1)
