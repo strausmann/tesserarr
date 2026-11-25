@@ -28,7 +28,8 @@
     },
     "lockFileMaintenance": {
         "enabled": true,
-        "schedule": ["before 6am on monday"]
+        "schedule": ["before 6am on monday"],
+        "minimumReleaseAge": "0 days"
     },
     "customManagers": [
         {
