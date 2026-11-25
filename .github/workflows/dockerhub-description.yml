@@ -69,9 +69,11 @@ jobs:
 
       # Labelyard's copy of this workflow failed with a bare "Forbidden" from the
       # PATCH of the description. This step checks login, read and write one by
-      # one and names the cause. Secrets reach curl only through stdin
-      # (`curl -K -`), never as an argument; the session token is masked and
-      # every response lands in RUNNER_TEMP and is removed.
+      # one and names the cause. Request bodies go to curl from stdin or from a
+      # 0600 file (`--data-binary`), never inside a curl config; the config read
+      # with `curl -K -` carries only the Authorization header. No secret is an
+      # argument of any process, the session token is masked, and every response
+      # and body file lands in RUNNER_TEMP and is removed.
       - name: Check the Docker Hub credentials and permissions
         env:
           DOCKERHUB_ADMIN_USERNAME: ${{ secrets.DOCKERHUB_ADMIN_USERNAME }}
@@ -84,15 +86,13 @@ jobs:
             exit 1
           fi
           out="$RUNNER_TEMP/dockerhub-check.json"
-          trap 'rm -f "$out"' EXIT
-          hub() { # reads a curl config from stdin, prints the HTTP status (000 on a network error)
-            curl -sS -o "$out" -w "%{http_code}" -K - || :
-          }
-          # 1. Login: identifier and secret go into the request body via stdin.
-          body=$(jq -nc '{identifier: env.DOCKERHUB_ADMIN_USERNAME, secret: env.DOCKERHUB_TOKEN_ADMIN}')
-          code=$(printf 'url = "https://hub.docker.com/v2/auth/token"\nrequest = "POST"\nheader = "Content-Type: application/json"\ndata = %s\n' \
-            "$(printf '%s' "$body" | jq -Rs .)" | hub)
-          unset body
+          patch="$RUNNER_TEMP/dockerhub-patch.json"
+          trap 'rm -f "$out" "$patch"' EXIT
+          # 1. Login: jq reads identifier and secret from the environment; the
+          #    body reaches curl on stdin.
+          code=$(jq -nc '{identifier: env.DOCKERHUB_ADMIN_USERNAME, secret: env.DOCKERHUB_TOKEN_ADMIN}' \
+            | curl -sS -o "$out" -w '%{http_code}' -H 'Content-Type: application/json' \
+                --data-binary @- https://hub.docker.com/v2/auth/token || :)
           if [ "$code" != "200" ]; then
             echo "::error::login rejected (HTTP $code): DOCKERHUB_ADMIN_USERNAME must be the personal account that owns the personal access token in DOCKERHUB_TOKEN_ADMIN, not the organization $DOCKERHUB_NAMESPACE. Check that the token is active and not expired."
             exit 1
@@ -104,8 +104,9 @@ jobs:
           fi
           echo "::add-mask::$token"
           echo "login: ok"
-          # 2. Read the repository.
-          code=$(printf 'url = "https://hub.docker.com/v2/repositories/%s/"\nheader = "Authorization: Bearer %s"\n' "$REPOSITORY" "$token" | hub)
+          # 2. Read the repository; the Authorization header comes from stdin.
+          code=$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+            | curl -sS -o "$out" -w '%{http_code}' -K - "https://hub.docker.com/v2/repositories/$REPOSITORY/" || :)
           case "$code" in
             200) echo "read: ok" ;;
             404)
@@ -118,10 +119,12 @@ jobs:
               echo "::error::reading $REPOSITORY failed (HTTP $code)"
               exit 1 ;;
           esac
-          current=$(jq -c '{description: (.description // "")}' "$out")
-          # 3. Write: a PATCH that sets the short description to its current value.
-          code=$(printf 'url = "https://hub.docker.com/v2/repositories/%s/"\nrequest = "PATCH"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = %s\n' \
-            "$REPOSITORY" "$token" "$(printf '%s' "$current" | jq -Rs .)" | hub)
+          # 3. Write: a PATCH that sets the short description to its current
+          #    value. The body is a 0600 file, stdin carries the header.
+          ( umask 077; jq -c '{description: (.description // "")}' "$out" > "$patch" )
+          code=$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+            | curl -sS -o "$out" -w '%{http_code}' -K - -X PATCH -H 'Content-Type: application/json' \
+                --data-binary @"$patch" "https://hub.docker.com/v2/repositories/$REPOSITORY/" || :)
           unset token
           case "$code" in
             200) echo "write: ok" ;;

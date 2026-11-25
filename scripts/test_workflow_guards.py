@@ -87,6 +87,57 @@ class FloatingTagsTest(unittest.TestCase):
                 self.assertIn(f"steps.floating.outputs.{key} == 'true'", lines[0])
 
 
+class DockerHubRequestTest(unittest.TestCase):
+    """Request bodies never travel inside a curl config (a 401 at login was traced there)."""
+
+    def step(self) -> str:
+        blocks = run_blocks((WORKFLOWS / "dockerhub-description.yml").read_text())
+        found = [b for b in blocks if "https://hub.docker.com/v2/auth/token" in b]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    def test_no_body_inside_a_curl_config(self) -> None:
+        self.assertNotRegex(self.step(), r"data\s*=")
+
+    def test_login_body_comes_from_stdin(self) -> None:
+        step = self.step()
+        self.assertIn("jq -nc '{identifier: env.DOCKERHUB_ADMIN_USERNAME, secret: env.DOCKERHUB_TOKEN_ADMIN}'", step)
+        self.assertIn("--data-binary @- https://hub.docker.com/v2/auth/token", step)
+
+    def test_patch_body_comes_from_a_private_file(self) -> None:
+        step = self.step()
+        self.assertIn("umask 077", step)
+        self.assertIn('--data-binary @"$patch"', step)
+
+    def test_no_secret_is_a_command_argument(self) -> None:
+        # Only the shell builtin `[ -z … ]` may expand the token; it starts no process.
+        for line in self.step().splitlines():
+            if re.search(r"\$\{?DOCKERHUB_TOKEN_ADMIN", line):
+                self.assertRegex(line, r'^if \[ -z "\$DOCKERHUB_ADMIN_USERNAME" \] \|\| \[ -z "\$DOCKERHUB_TOKEN_ADMIN" \]; then$')
+
+
+class CosignVerifyDocsTest(unittest.TestCase):
+    """cosign v2 cannot see the v3 signature bundles, so every documented verify says v3."""
+
+    DOCS = ["CONTRIBUTING.md", "SECURITY.md", "README.md", "docs/dockerhub/README.md"]
+
+    def test_every_documented_verify_names_cosign_v3_and_a_container_command(self) -> None:
+        checked = 0
+        for name in self.DOCS:
+            path = ROOT / name
+            if not path.exists():
+                continue
+            text = path.read_text()
+            if "cosign verify" not in text and "cosign/cosign:" not in text:
+                continue
+            checked += 1
+            with self.subTest(file=name):
+                self.assertIn("cosign v3 or newer", text)
+                self.assertRegex(text, r"docker run --rm ghcr\.io/sigstore/cosign/cosign:v3\.[0-9]+\.[0-9]+ verify ")
+                self.assertNotRegex(text, r"cosign/cosign:v[0-2]\.")
+        self.assertGreaterEqual(checked, 2, "no document with a cosign verify command found")
+
+
 class ScriptTestLayoutTest(unittest.TestCase):
     """`python scripts/test_x.py` and pytest must run the same tests."""
 
