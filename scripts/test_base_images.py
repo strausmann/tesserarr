@@ -86,6 +86,42 @@ class ParseTest(unittest.TestCase):
             bi.parse_pins("# only a comment\n\n")
 
 
+class AllowlistTest(unittest.TestCase):
+    """docker/base-images.env has no code owner; the image behind each pin must not change unreviewed."""
+
+    def test_the_test_pins_are_allowed(self) -> None:
+        self.assertEqual(bi.allowlist_errors(bi.parse_pins(PINS)), [])
+
+    def test_another_image_under_a_known_key_is_refused(self) -> None:
+        pins = bi.parse_pins(PINS.replace("dunglas/frankenphp:", "evil/frankenphp:"))
+        self.assertEqual(
+            bi.allowlist_errors(pins),
+            [
+                "docker/base-images.env: FRANKENPHP_IMAGE must be docker.io/dunglas/frankenphp, "
+                "not evil/frankenphp (the allowlist is in scripts/base_images.py)"
+            ],
+        )
+
+    def test_another_registry_with_the_same_name_is_refused(self) -> None:
+        pins = bi.parse_pins(PINS.replace("composer:2.10.3", "ghcr.io/x/composer:2.10.3"))
+        self.assertEqual(len(bi.allowlist_errors(pins)), 1)
+
+    def test_the_explicit_docker_hub_form_is_the_same_image(self) -> None:
+        pins = bi.parse_pins(PINS.replace("composer:2.10.3", "docker.io/library/composer:2.10.3"))
+        self.assertEqual(bi.allowlist_errors(pins), [])
+
+    def test_a_key_without_an_allowlist_entry_is_refused(self) -> None:
+        pins = bi.parse_pins(PINS + f"EXTRA_IMAGE=alpine:3@{DIGEST_A}\n")
+        self.assertEqual(
+            bi.allowlist_errors(pins),
+            ["docker/base-images.env: EXTRA_IMAGE has no entry in the allowlist of scripts/base_images.py"],
+        )
+
+    def test_check_includes_the_allowlist(self) -> None:
+        pins = bi.parse_pins(PINS.replace("dunglas/frankenphp:", "evil/frankenphp:"))
+        self.assertEqual(len(bi.check(pins, DOCKERFILE)), 1)
+
+
 class DockerfileCheckTest(unittest.TestCase):
     def test_pins_that_match_the_dockerfile_pass(self) -> None:
         self.assertEqual(bi.check(bi.parse_pins(PINS), DOCKERFILE), [])
@@ -191,6 +227,13 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("2 base image pins", out)
 
+    def test_a_changed_image_fails_without_a_dockerfile_too(self) -> None:
+        self.dockerfile.unlink()
+        self.pins.write_text(PINS.replace("dunglas/frankenphp:", "evil/frankenphp:"))
+        code, _, err = self.run_main("check")
+        self.assertEqual(code, 1)
+        self.assertIn("::error::docker/base-images.env: FRANKENPHP_IMAGE must be", err)
+
     def test_a_malformed_pin_file_fails(self) -> None:
         self.pins.write_text("A_IMAGE=composer:2\n")
         code, _, err = self.run_main("check")
@@ -202,6 +245,7 @@ class CliTest(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         pins = bi.parse_pins((root / "docker" / "base-images.env").read_text())
         self.assertIn("FRANKENPHP_IMAGE", pins)
+        self.assertEqual(bi.allowlist_errors(pins), [])
         dockerfile = root / "docker" / "Dockerfile"
         if dockerfile.exists():
             self.assertEqual(bi.check(pins, dockerfile.read_text()), [])

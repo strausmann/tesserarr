@@ -204,6 +204,7 @@ python3 scripts/base_images.py check           # base image pins match docker/Do
 | Image build and smoke tests         | `Docker — build smoke test`                |
 | Licences of every dependency        | `Licence gate (composer, npm)`             |
 | Self-tests of the scripts           | `Scripts — self-tests`                     |
+| Base image pins and their allowlist | `Base image pins`                          |
 | Version impact of a pull request    | `release-impact`                           |
 | Migrations from the last release    | `Upgrade — migrations from the last release` |
 | Static analysis for security bugs   | `Semgrep`                                  |
@@ -349,14 +350,15 @@ and reach a milestone with its sync pull request. Dependabot opens no version up
 - **Waiting time.** An update is offered once the release is three days old (npm, Composer, GitHub Actions) or two days
   (Docker images); a security fix comes at once.
 - **Automerge.** Renovate merges an update by itself once every check of the pull request is green, but only when it
-  changes nothing but files without a code owner (`.github/CODEOWNERS`): `composer.lock`, the `package-lock.json` files,
-  `docker/base-images.env` and `renovate.json`. That covers updates inside the declared range, lockfile maintenance
+  changes nothing but files without a code owner (`.github/CODEOWNERS`): `composer.lock`, the `package-lock.json` files
+  and `docker/base-images.env`. `renovate.json` stays owned, because it decides what merges without review. That covers updates inside the declared range, lockfile maintenance
   (Mondays) and patch, minor and digest updates of the base images. An update that changes `composer.json`,
   `package.json`, a workflow, a GitHub Action or `docker/Dockerfile` waits for the maintainer's review, as does every
   major update.
 - **Base images.** `docker/base-images.env` is the only place the base images are pinned (`NAME_IMAGE=repository:tag@sha256:<digest>`);
-  `docker/Dockerfile` declares them as `ARG` without a default, and `scripts/base_images.py check` fails when the two
-  differ.
+  `docker/Dockerfile` declares them as `ARG` without a default. The check `Base image pins` (`scripts/base_images.py
+  check`, a required check) fails when the two differ, and when a pin names an image that is not on the allowlist in
+  `scripts/base_images.py`: without a code owner on the pin file, only a tag or a digest may change unreviewed.
 
 ## Licence headers
 
