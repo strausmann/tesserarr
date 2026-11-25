@@ -336,4 +336,7 @@ function licence_gate_main(array $argv): int
     return 0;
 }
 
-exit(licence_gate_main($argv));
+// $_SERVER['argv'] rather than $argv: PHP 8.5 reports register_argc_argv as
+// off, so static analysis treats the global $argv as possibly undefined. The
+// CLI fills $_SERVER['argv'] either way.
+exit(licence_gate_main($_SERVER['argv']));
