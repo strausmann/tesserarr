@@ -8,8 +8,8 @@
 #   (put the key into .env as APP_KEY)
 #   docker compose -f compose.dev.yaml up --build
 #
-# The one-off "migrate" service creates the schema first; web, worker and
-# scheduler start only after it exited successfully.
+# The one-off "migrate" service backs up the database and creates the schema
+# first; web, worker and scheduler start only after it exited successfully.
 #
 # Data lives in bind mounts below .dev/ (git-ignored), never in named volumes.
 
@@ -54,11 +54,16 @@ services:
             retries: 20
 
     # Creates the schema before web, worker and scheduler start. Central role
-    # only: a satellite has no database and never migrates.
+    # only: a satellite has no database and never migrates. tesserarr:migrate
+    # writes a pg_dump backup to .dev/backups/ first when something is pending
+    # (the image runs as UID 10001: chown the directory, see CONTRIBUTING.md).
     migrate:
         <<: *app
-        command: ['artisan', 'migrate', '--force']
+        command: ['artisan', 'tesserarr:migrate']
         restart: 'no'
+        volumes:
+            - /etc/localtime:/etc/localtime:ro
+            - ./.dev/backups:/var/lib/tesserarr/backups
         depends_on:
             postgres:
                 condition: service_healthy

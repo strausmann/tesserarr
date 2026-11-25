@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/strausmann/tesserarr/blob/main/SECURITY.md
+    about: Report a security issue privately by e-mail (do not open a public issue)

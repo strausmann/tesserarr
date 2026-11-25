@@ -1,0 +1,785 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Docker — publish to GHCR + Docker Hub
+
+# =============================================================================
+# Two-phase build to keep arm64 off QEMU.
+#
+# Phase 0 (`detect`): main receives the workflows before the application
+#   (CONTRIBUTING.md, "Milestones, branches and releases"). A push to main
+#   without docker/Dockerfile ends here as a named no-op; a release or a
+#   preview without it fails.
+#
+# Phase 1 (`build`):  matrix = platform → 2 jobs. amd64 builds on
+#   ubuntu-24.04. arm64 builds on the native runner ubuntu-24.04-arm when the
+#   repository variable ARM64_NATIVE_RUNNER is "true"; otherwise it builds on
+#   ubuntu-24.04 under QEMU. GitHub offers the native arm64 runner for free in
+#   public repositories only; set the variable when the repository is public.
+#   Each job builds its single-platform image, pushes it BY DIGEST (no tag),
+#   and uploads the digest as an artifact for the merge phase.
+#
+# Phase 2 (`merge`): matrix = service → 1 job. Downloads all digests for
+#   its service, asks the registry to compose a multi-arch manifest index
+#   pointing at the per-platform digests, and applies every tag and the
+#   index-level annotations in one shot via `docker buildx imagetools
+#   create`. No re-build, no re-push of layers — just manifest assembly.
+#
+# Why: both legs run in parallel, so the run time is bounded by the slowest
+# single-platform build, not the sum of all platforms in series.
+# =============================================================================
+
+on:
+  push:
+    # Only main publishes (rolling `dev` tag). Feature branches are built
+    # without pushing by ci.yml on their pull request; branch tags in GHCR
+    # were never kept and only had to be cleaned up (registry-cleanup.yml).
+    branches: [main]
+    # Only rebuild when something that affects an image actually changes —
+    # avoids tying up runners on docs-only pushes.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'website/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - '.github/labels.yml'
+  # Called by release.yml once semantic-release has published a version.
+  # A release created with GITHUB_TOKEN never fires `release: published`
+  # (GitHub suppresses events caused by the workflow token), so the release
+  # workflow calls this one directly (#183).
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release version to build, e.g. 1.1.0 (a leading v is accepted)."
+        type: string
+        required: true
+      ref:
+        description: >-
+          Commit to build instead of the release tag. Used by preview-image.yml
+          for pre-release previews (e.g. 1.5.0-rc.1), which have no git tag.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (without v prefix), e.g. 0.1.0. Leave empty to build a dev/branch image instead."
+        required: false
+
+# The build legs push by digest and need no OIDC token. Only the merge job
+# signs, so only it asks for `id-token: write`. A caller (release.yml,
+# preview-image.yml) caps these grants and must grant at least the same.
+permissions:
+  contents: read
+  packages: write
+
+# Per-ref grouping: cancel an older in-progress run on the same branch when
+# a new push arrives. Release and manually-dispatched builds are NEVER
+# cancelled — losing a half-published release would leave the registry
+# in an inconsistent state. Release builds (a non-empty tag input, from the
+# release workflow or a dispatch) get their own group per version, so they
+# never queue behind or get cancelled by a dev push to main.
+concurrency:
+  group: docker-publish-${{ inputs.tag && format('release-{0}', inputs.tag) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' && !inputs.tag }}
+
+env:
+  REGISTRY_GHCR: ghcr.io
+  # The image name, written out: the GHCR address is ghcr.io/strausmann/tesserarr
+  # and the Docker Hub address docker.io/bstrausmann/tesserarr. Neither is
+  # derived from github.repository, which changes when the repository is renamed.
+  IMAGE_NAME: tesserarr
+  # The Docker Hub namespace (the organization) is an identity, not a secret: it is
+  # written out here. DOCKERHUB_USERNAME is only the login of the organization token.
+  DOCKERHUB_NAMESPACE: bstrausmann
+  # Annotate both per-platform manifests AND the index. GHCR's package UI
+  # reads the package description from the index annotation; without this
+  # the page shows "No description provided".
+  DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Phase 0: is there an image to build on this ref?
+  # ---------------------------------------------------------------------------
+  detect:
+    name: Detect Dockerfile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      exists: ${{ steps.app.outputs.exists }}
+    steps:
+      - name: Validate release tag input
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          semver='^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [ -n "$INPUT_TAG" ] && ! [[ "$INPUT_TAG" =~ $semver ]]; then
+            echo "::error::Invalid release tag input: not a semantic version"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || (inputs.tag && (startsWith(inputs.tag, 'v') && format('refs/tags/{0}', inputs.tag) || format('refs/tags/v{0}', inputs.tag))) || '' }}
+          sparse-checkout: docker
+          persist-credentials: false
+
+      # A release or preview image (non-empty tag) goes to both registries and
+      # must be signed; the signing step signs only main and milestone/x.y.0 or
+      # milestone/x.y.x. Refuse every other ref before anything is pushed.
+      - name: Refuse an unsigned release or preview
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          signed_refs='^refs/(heads/main|heads/milestone/[0-9]+\.[0-9]+\.(0|x))$'
+          if [ -n "$INPUT_TAG" ] && ! [[ "$REF" =~ $signed_refs ]]; then
+            echo "::error::Release and preview images are published from main or a milestone branch only, where they are signed"
+            exit 1
+          fi
+
+      - name: Detect docker/Dockerfile
+        id: app
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        run: |
+          set -eu
+          if [ -f docker/Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$INPUT_TAG" ] && [ "$REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No docker/Dockerfile on main yet; the dev image is published after the milestone merge." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::docker/Dockerfile is missing. Only a dev build on main may run without the application."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Phase 1: build each platform leg.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: detect
+    if: needs.detect.outputs.exists == 'true'
+    # arm64 on the native runner only when ARM64_NATIVE_RUNNER is "true"
+    # (public repository); otherwise every leg runs on ubuntu-24.04.
+    runs-on: ${{ (matrix.arch == 'arm64' && vars.ARM64_NATIVE_RUNNER == 'true') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
+    steps:
+      # Fail fast on a malformed release tag, before it is used anywhere
+      # (the checkout ref below, labels, image tags).
+      - name: Validate release tag input
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          # A whole-string match: `printf | grep` checks each line on its own and
+          # would accept a value with an embedded newline.
+          semver='^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [ -n "$INPUT_TAG" ] && ! [[ "$INPUT_TAG" =~ $semver ]]; then
+            echo "::error::Invalid release tag input: not a semantic version"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Release builds check out the tag itself, so the image is built
+          # from the released commit rather than whatever the calling
+          # workflow ran on. Empty = the event's default ref.
+          ref: ${{ inputs.ref || (inputs.tag && (startsWith(inputs.tag, 'v') && format('refs/tags/{0}', inputs.tag) || format('refs/tags/v{0}', inputs.tag))) || '' }}
+          persist-credentials: false
+
+      # The commit that is actually built. For a release this is the tag's
+      # commit, never `github.sha` (which is the caller's commit).
+      - name: Resolve built revision
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Dockerfile exists
+        run: test -f docker/Dockerfile
+
+      # The GHCR image ref, used for the digest push here and by the merge
+      # job. The name is fixed (and already lowercase, as OCI refs must be)
+      # instead of derived from github.repository: the repository is renamed
+      # after the milestone merge, and the image address must not move with it.
+      # The ref is never exposed as a job output: GitHub drops any output whose
+      # value contains a secret, and DOCKERHUB_USERNAME equals the Docker Hub namespace.
+      # The sbom job computes its own copy.
+      - name: Compute image ref
+        id: image
+        run: echo "ref=${{ env.REGISTRY_GHCR }}/strausmann/${{ env.IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      # Emulation for the arm64 leg when it runs on an amd64 runner.
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64' && vars.ARM64_NATIVE_RUNNER != 'true'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Log in to GHCR
+        env:
+          REGISTRY_HOST: ${{ env.REGISTRY_GHCR }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # A slow auth endpoint must not drop a release image: up to 4
+          # attempts, 10 s / 20 s / 30 s apart. The secret goes in over stdin,
+          # never as an argument, and docker prints only its own status.
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" --username "$REGISTRY_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "::warning::Registry login failed (attempt $attempt of 4), retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Registry login failed after 4 attempts"
+          exit 1
+
+      # `secrets.*` is not allowed in step-level `if:` expressions — we
+      # surface the value into the step env first, then condition on env.*.
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        # Same bounded retry as the GHCR login.
+        run: |
+          set -eu
+          # A slow auth endpoint must not drop a release image: up to 4
+          # attempts, 10 s / 20 s / 30 s apart. The secret goes in over stdin,
+          # never as an argument, and docker prints only its own status.
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "::warning::Registry login failed (attempt $attempt of 4), retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Registry login failed after 4 attempts"
+          exit 1
+
+      # Classify what we're building AND derive a version-like value for
+      # labels/build-args. Three flavors:
+      #   release  a non-empty `tag` input (called by the release workflow
+      #            or dispatched by hand) — image is tagged {{version}},
+      #            {{major.minor}}, {{major}} and latest. Pre-releases
+      #            (a `-` in the version, e.g. previews x.y.z-rc.N) get only
+      #            the exact tag, on both registries.
+      #   dev      push to the default branch — image is tagged "dev".
+      #   branch   push to any other branch — image is tagged with the
+      #            sanitised branch slug ('/' replaced with '-').
+      - name: Determine flavor and tag
+        id: tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          if [ -n "$INPUT_TAG" ]; then
+            flavor=release
+            tag="${INPUT_TAG#v}"
+          elif [ "$REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            flavor=dev
+            tag=dev
+          else
+            flavor=branch
+            # Slashes are illegal in OCI tags — mirror metadata-action's slug.
+            tag="${REF_NAME//\//-}"
+          fi
+          echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # The build phase only needs labels (per-platform metadata). Tags
+      # and index-level annotations are applied in the merge phase.
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: |
+            ${{ steps.image.outputs.ref }}
+          # Same title, description and source as the LABELs in docker/Dockerfile.
+          labels: |
+            org.opencontainers.image.title=Tesserarr
+            org.opencontainers.image.description=Share parts of your media library with friends over an existing Syncthing link
+            org.opencontainers.image.url=https://github.com/strausmann/tesserarr
+            org.opencontainers.image.documentation=https://github.com/strausmann/tesserarr
+            org.opencontainers.image.source=https://github.com/strausmann/tesserarr
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.version=${{ steps.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+
+      - name: Compute build date
+        id: builddate
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Push BY DIGEST: registry stores the blob and returns sha256:…,
+      # but no tag is created yet. We capture the digest and hand it
+      # off to the merge phase via an artifact.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          # Repo root as context: the image builds the PHP app and the web assets.
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # `push-by-digest=true` skips the tag write and returns digest in
+          # `steps.build.outputs.digest`. `name-canonical=true` makes the
+          # registry reference the image by its canonical name. The image
+          # ref MUST be lowercase — see the `Compute image ref` step above.
+          outputs: type=image,name=${{ steps.image.outputs.ref }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            TESSERARR_VERSION=${{ steps.tag.outputs.tag }}
+            REVISION=${{ steps.rev.outputs.sha }}
+            BUILD_DATE=${{ steps.builddate.outputs.date }}
+          # Cache scope is per arch so amd64 and arm64 builds don't trash
+          # each other's caches (and stay apart from the CI smoke build).
+          cache-from: type=gha,scope=publish-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=publish-${{ matrix.arch }}
+          provenance: mode=max
+          sbom: true
+
+      # Each leg writes its digest into a per-leg file (no name collisions),
+      # then uploads it as an artifact. The merge phase downloads all of
+      # them at once.
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          # Strip the "sha256:" prefix — buildx imagetools wants just the hex.
+          # Filename is the bare digest; we don't need the arch in the name
+          # because the digest is already unique.
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 2: compose the multi-arch manifest index for each service.
+  # ---------------------------------------------------------------------------
+  merge:
+    name: Merge manifest
+    runs-on: ubuntu-24.04
+    needs: build
+    # A job-level block replaces the workflow default, so all three are listed.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # keyless cosign signature (Sigstore with the job's OIDC token)
+    # Read by the sbom job (one matrix entry today). The tag is the validated,
+    # v-stripped release version. The image ref is deliberately not an output
+    # (it contains the owner name, which equals a repo secret, so GitHub would
+    # drop it: "Skip output since it may contain secret").
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      # Fail fast on a malformed release tag, before it is used anywhere
+      # (the checkout ref below, labels, image tags).
+      - name: Validate release tag input
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          # A whole-string match: `printf | grep` checks each line on its own and
+          # would accept a value with an embedded newline.
+          semver='^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [ -n "$INPUT_TAG" ] && ! [[ "$INPUT_TAG" =~ $semver ]]; then
+            echo "::error::Invalid release tag input: not a semantic version"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Release builds check out the tag itself, so the image is built
+          # from the released commit rather than whatever the calling
+          # workflow ran on. Empty = the event's default ref.
+          ref: ${{ inputs.ref || (inputs.tag && (startsWith(inputs.tag, 'v') && format('refs/tags/{0}', inputs.tag) || format('refs/tags/v{0}', inputs.tag))) || '' }}
+          # Every tag: scripts/floating_tags.py compares the build with all releases.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The commit that is actually built. For a release this is the tag's
+      # commit, never `github.sha` (which is the caller's commit).
+      - name: Resolve built revision
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          # Wildcard merges artifacts from every arch leg.
+          pattern: digests-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      # Mirror of the build-phase step (see the comment there): a fixed name,
+      # never github.repository.
+      - name: Compute image ref
+        id: image
+        run: echo "ref=${{ env.REGISTRY_GHCR }}/strausmann/${{ env.IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Log in to GHCR
+        env:
+          REGISTRY_HOST: ${{ env.REGISTRY_GHCR }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # A slow auth endpoint must not drop a release image: up to 4
+          # attempts, 10 s / 20 s / 30 s apart. The secret goes in over stdin,
+          # never as an argument, and docker prints only its own status.
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" --username "$REGISTRY_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "::warning::Registry login failed (attempt $attempt of 4), retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Registry login failed after 4 attempts"
+          exit 1
+
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        # Same bounded retry as the GHCR login.
+        run: |
+          set -eu
+          # A slow auth endpoint must not drop a release image: up to 4
+          # attempts, 10 s / 20 s / 30 s apart. The secret goes in over stdin,
+          # never as an argument, and docker prints only its own status.
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "::warning::Registry login failed (attempt $attempt of 4), retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Registry login failed after 4 attempts"
+          exit 1
+
+      # Classify what we're building AND derive a version-like value for
+      # labels/build-args. Three flavors:
+      #   release  a non-empty `tag` input (called by the release workflow
+      #            or dispatched by hand) — image is tagged {{version}},
+      #            {{major.minor}}, {{major}} and latest. Pre-releases
+      #            (a `-` in the version, e.g. previews x.y.z-rc.N) get only
+      #            the exact tag, on both registries.
+      #   dev      push to the default branch — image is tagged "dev".
+      #   branch   push to any other branch — image is tagged with the
+      #            sanitised branch slug ('/' replaced with '-').
+      - name: Determine flavor and tag
+        id: tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          if [ -n "$INPUT_TAG" ]; then
+            flavor=release
+            tag="${INPUT_TAG#v}"
+          elif [ "$REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            flavor=dev
+            tag=dev
+          else
+            flavor=branch
+            # Slashes are illegal in OCI tags — mirror metadata-action's slug.
+            tag="${REF_NAME//\//-}"
+          fi
+          echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # x.y, x and latest move only when this build is the highest stable
+      # version of their scope (scripts/floating_tags.py): a rerun of an older
+      # release after a newer one must not take them back. Previews and dev
+      # builds never move them.
+      - name: Floating tags
+        id: floating
+        env:
+          FLAVOR: ${{ steps.tag.outputs.flavor }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$FLAVOR" = release ]; then
+            python3 scripts/floating_tags.py --version "$TAG" | tee -a "$GITHUB_OUTPUT"
+          else
+            printf 'latest=false\nmajor=false\nminor=false\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
+      # Metadata again — the merge job needs the tag list and the
+      # index-level annotations. Labels are NOT applied here (they live
+      # on each per-platform manifest from the build phase).
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          # GHCR is always a target. Docker Hub receives exactly the tags GHCR
+          # receives (releases, previews, dev) whenever the Docker Hub secrets are
+          # set; only a manual branch build stays off it. Both secrets are required,
+          # as for the login step: a username without a token would push unauthenticated.
+          images: |
+            ${{ steps.image.outputs.ref }}
+            ${{ (steps.tag.outputs.flavor != 'branch' && secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN) && format('docker.io/{0}/{1}', env.DOCKERHUB_NAMESPACE, env.IMAGE_NAME) || '' }}
+          # Tag scheme by flavor (identical on GHCR and Docker Hub):
+          #   branch   <branch-slug>                       manual dispatch, GHCR only
+          #   dev      dev                                 main-branch push
+          #   release  {{version}}, {{major.minor}},       semver release
+          #            {{major}}, latest (stable only)
+          tags: |
+            type=ref,event=branch,enable=${{ steps.tag.outputs.flavor == 'branch' }}
+            type=raw,value=dev,enable=${{ steps.tag.outputs.flavor == 'dev' }}
+            type=semver,pattern={{version}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.minor == 'true' }}
+            type=semver,pattern={{major}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.major == 'true' }}
+            type=raw,value=latest,enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.latest == 'true' }}
+          # Annotations are emitted at both manifest and index level (see env
+          # at workflow root). For a manifest-list-create operation only the
+          # index level applies — the merge step filters them.
+          annotations: |
+            org.opencontainers.image.title=Tesserarr
+            org.opencontainers.image.description=Share parts of your media library with friends over an existing Syncthing link
+            org.opencontainers.image.url=https://github.com/strausmann/tesserarr
+            org.opencontainers.image.documentation=https://github.com/strausmann/tesserarr
+            org.opencontainers.image.source=https://github.com/strausmann/tesserarr
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.version=${{ steps.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+
+      # `docker buildx imagetools create` composes a manifest list from
+      # source digests and pushes it to the registry under one or more tags.
+      # Annotations passed with `--annotation index:KEY=VAL` land on the
+      # multi-arch index (the only place a list-create can write to).
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        env:
+          DIGEST_REPO: ${{ steps.image.outputs.ref }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            tag_args+=( -t "$tag" )
+          done <<< "$TAGS"
+
+          # Forward only `index:` annotations — `manifest:` annotations
+          # come from the per-platform build phase and are already baked
+          # into each leg's manifest.
+          ann_args=()
+          while IFS= read -r ann; do
+            case "$ann" in
+              index:*) ann_args+=( --annotation "$ann" ) ;;
+            esac
+          done <<< "$ANNOTATIONS"
+
+          # Source manifest references: REPO@sha256:DIGEST for each digest
+          # file present (filenames are the bare hex digests).
+          src_args=()
+          for d in *; do
+            src_args+=( "${DIGEST_REPO}@sha256:${d}" )
+          done
+
+          # The metadata file records the digest of the pushed index; the signing
+          # step reads it from there instead of resolving a tag that can move.
+          docker buildx imagetools create --metadata-file "$RUNNER_TEMP/index-meta.json" \
+            "${tag_args[@]}" "${ann_args[@]}" "${src_args[@]}"
+
+      - name: Verify multi-arch manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Inspecting $tag …"
+            archs=$(docker buildx imagetools inspect "$tag" --raw \
+              | jq -r '.manifests[].platform | "\(.os)/\(.architecture)"' \
+              | sort -u)
+            echo "  architectures: $(echo "$archs" | tr '\n' ' ')"
+            if ! echo "$archs" | grep -q "linux/amd64"; then
+              echo "::error::Missing linux/amd64 in $tag"
+              fail=1
+            fi
+            if ! echo "$archs" | grep -q "linux/arm64"; then
+              echo "::error::Missing linux/arm64 in $tag"
+              fail=1
+            fi
+          done <<< "$TAGS"
+          exit "$fail"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      # Keyless signature (#311): Sigstore with this job's GitHub OIDC token
+      # (`id-token: write`), no key and no secret. The certificate names this
+      # workflow file as the identity. Signed is the index digest, once per
+      # repository the index was pushed to (GHCR, and Docker Hub when its tags are
+      # in the list); the index carries the platform images and their attestations.
+      #
+      # Runs after the multi-arch check, so a defective index is never signed.
+      # Only refs the project publishes from are signed, the same list as the
+      # identity in CONTRIBUTING.md ("Releases"): main (dev, releases, previews) and
+      # milestone/x.y.0 or milestone/x.y.x (previews); both are protected by
+      # the branch ruleset. Tags are not a publishing ref: releases are built
+      # on main. A called workflow sees the caller's ref, and Fulcio writes that
+      # ref into the certificate. A build from any other ref is published
+      # unsigned, so no certificate for it can match the identity.
+      - name: Sign the index by digest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          signed_refs='^refs/(heads/main|heads/milestone/[0-9]+\.[0-9]+\.(0|x))$'
+          if ! [[ "$REF" =~ $signed_refs ]]; then
+            echo "::notice::Not signed: images from this ref are not signed"
+            exit 0
+          fi
+          DIGEST=$(jq -r '."containerimage.descriptor".digest' "$RUNNER_TEMP/index-meta.json")
+          if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::No valid index digest in the imagetools metadata file"
+            exit 1
+          fi
+          # Repositories from the tag list: strip `:<tag>`, keep each once.
+          repos=()
+          while IFS= read -r ref; do
+            [ -z "$ref" ] && continue
+            repo="${ref%:*}"
+            case " ${repos[*]-} " in
+              *" $repo "*) ;;
+              *) repos+=( "$repo" ) ;;
+            esac
+          done <<< "$TAGS"
+          if [ "${#repos[@]}" -eq 0 ]; then
+            echo "::error::No repository to sign"
+            exit 1
+          fi
+          for repo in "${repos[@]}"; do
+            echo "Signing ${repo}@${DIGEST}"
+            cosign sign --yes "${repo}@${DIGEST}"
+          done
+
+  # ---------------------------------------------------------------------------
+  # Phase 3: a CycloneDX SBOM of the published image, handed to release.yml.
+  # Read-only: this workflow never writes to a release (release.yml attaches
+  # the asset). Previews run it too, so the live check does not need a release.
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-24.04
+    needs: merge
+    if: inputs.tag != ''
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      asset: ${{ steps.sbom.outputs.asset }}
+    steps:
+      # A new package may still be private, so the read goes through a login.
+      - name: Log in to GHCR
+        env:
+          REGISTRY_HOST: ${{ env.REGISTRY_GHCR }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # A slow auth endpoint must not drop a release image: up to 4
+          # attempts, 10 s / 20 s / 30 s apart. The secret goes in over stdin,
+          # never as an argument, and docker prints only its own status.
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" --username "$REGISTRY_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "::warning::Registry login failed (attempt $attempt of 4), retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Registry login failed after 4 attempts"
+          exit 1
+
+      # Same fixed name as the build and merge jobs (never github.repository).
+      # Computed here, not passed as a merge job output: see the comment on
+      # merge.outputs.
+      - name: Compute image ref
+        id: image
+        run: echo "ref=${REGISTRY_GHCR}/strausmann/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.55.0
+
+      # The embedded CycloneDX document is only read with the SBOM cataloger.
+      # The asset is useless without the PHP and OS packages, so the job fails
+      # when Laravel, tini or the PostgreSQL client is missing.
+      - name: Generate the CycloneDX SBOM
+        id: sbom
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          TAG: ${{ needs.merge.outputs.tag }}
+        run: |
+          set -euo pipefail
+          asset="${IMAGE_REF##*/}-${TAG}.cdx.json"
+          "$SYFT" "${IMAGE_REF}:${TAG}" --platform linux/amd64 --select-catalogers +sbom-cataloger -o "cyclonedx-json=${asset}"
+          jq -e '.components | map(.name) | (any(. == "laravel/framework" or . == "framework") and index("tini") and index("postgresql-client-17"))' "$asset"
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-sbom
+          path: ${{ steps.sbom.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 30

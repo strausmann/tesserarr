@@ -17,7 +17,7 @@ it('runs the migrations once in the central role before the app services', funct
     $migrate = devCompose()['services']['migrate'] ?? null;
 
     expect($migrate)->not->toBeNull()
-        ->and($migrate['command'])->toBe(['artisan', 'migrate', '--force'])
+        ->and($migrate['command'])->toBe(['artisan', 'tesserarr:migrate'])
         ->and($migrate['environment']['TESSERARR_ROLE'])->toBe('central')
         ->and($migrate['restart'])->toBe('no')
         ->and($migrate['depends_on']['postgres']['condition'])->toBe('service_healthy');
@@ -27,3 +27,16 @@ it('starts web, worker and scheduler only after the migrations succeeded', funct
     expect(devCompose()['services'][$service]['depends_on']['migrate']['condition'] ?? null)
         ->toBe('service_completed_successfully');
 })->with(['web', 'worker', 'scheduler']);
+
+it('keeps the backups of tesserarr:migrate in a bind mount', function () {
+    $migrate = devCompose()['services']['migrate'];
+
+    expect($migrate['volumes'])->toContain('./.dev/backups:/var/lib/tesserarr/backups')
+        ->and(devCompose())->not->toHaveKey('volumes');
+});
+
+it('declares a pull policy for every service', function () {
+    foreach (devCompose()['services'] as $name => $service) {
+        expect($service)->toHaveKey('pull_policy', message: "service {$name} has no pull_policy");
+    }
+});

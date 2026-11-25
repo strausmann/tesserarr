@@ -107,14 +107,24 @@ LABEL org.opencontainers.image.title="Tesserarr" \
       org.opencontainers.image.source="https://github.com/strausmann/tesserarr" \
       org.opencontainers.image.authors="Björn Strausmann <projects@strausmann.ch>" \
       org.opencontainers.image.vendor="strausmann" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.version="${TESSERARR_VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.base.name="docker.io/dunglas/frankenphp:1.13.4-php8.4-bookworm"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends tini \
+# pg_dump for `artisan tesserarr:migrate` comes from postgresql-client-17, the
+# major version of the database: Debian bookworm only ships 15, so the package
+# comes from the PostgreSQL apt repository (apt.postgresql.org). Its signing
+# key is pinned by checksum (key B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC 4CF8).
+ARG PGDG_ASC_SHA256=0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76
+RUN curl --fail --silent --show-error --location --output /usr/share/keyrings/pgdg.asc \
+        https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "${PGDG_ASC_SHA256}  /usr/share/keyrings/pgdg.asc" | sha256sum --check --strict \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends tini postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 
 # Production php.ini plus our overrides. zend.exception_ignore_args keeps
@@ -127,7 +137,8 @@ COPY docker/php.ini "$PHP_INI_DIR/conf.d/zz-tesserarr.ini"
 RUN groupadd --system --gid 10001 tesserarr \
     && useradd --system --uid 10001 --gid tesserarr --home-dir /app --no-create-home tesserarr \
     && setcap -r /usr/local/bin/frankenphp \
-    && chown -R tesserarr:tesserarr /data/caddy /config/caddy
+    && chown -R tesserarr:tesserarr /data/caddy /config/caddy \
+    && install -d -o tesserarr -g tesserarr -m 0700 /var/lib/tesserarr/backups
 
 # Code belongs to root and is read-only for the runtime user; only storage/
 # and bootstrap/cache/ are writable.
