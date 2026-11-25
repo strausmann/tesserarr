@@ -51,23 +51,33 @@ dependency: Tesserarr works fine without any of them.
 
 ## How it works
 
-```
-FRIEND                             YOU
-Prowlarr  ── search ──────────▶  indexer
-Sonarr    ── grab ────────────▶  download client
-          ◀─ progress, done ──      │
-                                    ▼
-                            hardlink into outgoing/
-                                    │
-                              Syncthing carries it
-                                    │
-income/ ◀───────────────────────────┘
-Sonarr imports and renames
-        │
-deletes it ──────────────────▶  transfer counts as collected
+```mermaid
+sequenceDiagram
+  box At your friend
+    participant A as Prowlarr, Sonarr, Radarr
+    participant I as incoming/ folder
+  end
+  box Your homelab
+    participant T as Tesserarr
+    participant S as Satellite
+    participant Y as Syncthing
+  end
+  A->>T: search (Newznab indexer)
+  A->>T: grab (SABnzbd download client)
+  T->>T: check share and quota
+  T->>S: job: hardlink into outgoing/
+  S->>Y: title is ready
+  Y->>I: transfer (direct, relay or transfer instance)
+  A->>I: import and rename
+  A->>T: Remove Completed
+  T->>T: transfer counts as collected
+  Note over A,T: Without arr (0.3.0): the friend requests a title in the catalogue
 ```
 
+
+
 Progress is measured, not guessed: Tesserarr reads it from its own Syncthing instance, per device and folder.
+The note at the end is the way without arr apps: a friend requests a title in the catalogue (0.3.0).
 
 - **One centre, optional satellites.** The central instance holds the database, the interface and the rules.
   Satellites run on other machines, for example next to the media storage. They have no database: they pull jobs from
@@ -132,9 +142,7 @@ These are drafts. They are replaced by real screenshots as soon as the interface
 
 ### Dashboard
 
-<!-- ![The dashboard](docs/images/mockups/dashboard.png) -->
-
-Mockups follow.
+![The operator dashboard with status, open invitations and the audit log](docs/images/mockups/dashboard.png)
 
 ### Catalog
 
@@ -150,9 +158,7 @@ Mockups follow.
 
 ### Connections
 
-<!-- ![Connections to Sonarr, Radarr, Prowlarr, Syncthing and Plex](docs/images/mockups/connections.png) -->
-
-Mockups follow.
+![Connections to Plex, Sonarr, Radarr, Prowlarr and Syncthing, grouped by kind](docs/images/mockups/connections.png)
 
 ### Users
 
@@ -168,10 +174,11 @@ Mockups follow.
 
 ### On a phone
 
-<!-- ![The dashboard on a phone](docs/images/mockups/dashboard-phone.png) -->
+![The dashboard on a phone with the setup checklist and the attention list](docs/images/mockups/dashboard-phone.png)
+
 <!-- ![The catalogue on a phone](docs/images/mockups/catalog-phone.png) -->
 
-Mockups follow.
+The catalogue on a phone follows.
 
 ## Roadmap
 
