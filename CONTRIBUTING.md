@@ -183,8 +183,8 @@ The CI jobs run the same commands. All of them are hard gates; none is warn-only
 
 ```bash
 composer validate --strict
-./vendor/bin/pint --test                       # formatting (Laravel preset)
-./vendor/bin/phpstan analyse                   # Larastan, level 8, no baseline
+./vendor/bin/pint --test                       # formatting (Laravel preset, strict types)
+./vendor/bin/phpstan analyse                   # Larastan, level 8, no baseline, worker-safe code
 composer audit --locked --abandoned=fail
 ./vendor/bin/pest --coverage --min=80 --coverage-clover=clover.xml
 php scripts/coverage_gate.php clover.xml       # per-directory minimums, as listed in .github/workflows/ci.yml
@@ -227,6 +227,79 @@ directory that exists but has no lines in the report fails.
 
 **Mutation tests** run nightly (`pest --mutate --min=70`) on the directories that carry authorisation, invitations,
 second factors, execution and the catalogue.
+
+### Worker-safe code
+
+Tesserarr will run in FrankenPHP worker mode with Laravel Octane. A worker boots the application once and serves many
+requests, of different users, from the same memory. Whatever one request leaves behind, the next request of another user
+sees. For Tesserarr that is a data leak between friends. Code is written for worker mode now, before Octane arrives.
+
+Rules:
+
+- **No state in `static`.** No static property, no `static` variable in a function, no `global`. That covers caches too:
+  a static cache keyed by anything less than the full request context serves the first user's answer to the next.
+- **`scoped()`, not `singleton()`, for anything that depends on the request.** A singleton must not be built from the
+  request, the auth guard or the signed-in user, the session, the configuration or the locale. That holds for its
+  constructor and for the closure that builds it. Read such values per call, or bind the service with `scoped()`.
+- **No public property that anyone can write** on a service, a singleton, a controller or a middleware. Use `readonly`
+  or a private property. Eloquent models and queued jobs are exempt: each is one object per row or job.
+- **No runtime writes to the configuration**: no `config([...])`, `Config::set()` or `config()->set()` in request code.
+  Pass the value to the code that needs it.
+- **No `App::setLocale()` outside a middleware.** A middleware sets the locale for each request, and Octane resets it
+  after the request.
+- **No `View::share()` and no Inertia shared props from a boot method.** Shared Inertia props are built per request in
+  `HandleInertiaRequests::share()`.
+- **Global scopes read their value inside the closure.** `booted()` runs once per worker, so a value captured there is
+  the first request's value.
+- **The rate limiter never uses the `array` cache store.** Octane empties it between requests, and the limits of the
+  sign-in would count nothing.
+- **No `exit` or `die`, no `register_shutdown_function()`**, and no calls that change the process for every later
+  request (`setlocale()`, `umask()`, `chdir()`, `putenv()`, `ini_set()`, `date_default_timezone_set()`,
+  `set_error_handler()`, `set_exception_handler()`, writes to `$_ENV`).
+
+```php
+// Leaks: the first user's shares are served to everyone after them.
+final class ShareList
+{
+    private static array $cache = [];
+
+    public function for(User $user): array
+    {
+        return self::$cache['shares'] ??= $user->shares()->get()->all();
+    }
+}
+
+// Leaks: the guard of the first request stays in the singleton.
+$this->app->singleton(ShareList::class, fn ($app) => new ShareList($app->make(Guard::class)));
+
+// Safe: built per request, and the user is passed per call.
+$this->app->scoped(ShareList::class);
+```
+
+**How it is checked.** `phpstan analyse` enforces the rules above in `app/` and `routes/`, with the rules in
+`tests/PHPStan/worker-safety.neon` (own rules in `tests/PHPStan/Rules/Worker/` and
+[spaze/phpstan-disallowed-calls](https://github.com/spaze/phpstan-disallowed-calls)). Each rule has a test against a
+fixture in `tests/PHPStan/Fixtures/`. `tests/Feature/Runtime/RateLimiterStoreTest.php` checks the rate limiter store.
+
+**Exceptions.** An exception needs a reason in the code. For the own rules, a comment that starts with
+`worker-safe:` and says why the value holds no request data. For a disallowed call,
+`// @phpstan-ignore <identifier> (<reason>)`; PHPStan refuses an ignore without a reason. A bare marker is not enough.
+
+**The two-user test.** Every page and controller that loads user-specific data gets a case with
+`assertNoStateLeakBetweenUsers()` (`tests/Pest.php`, cases in `tests/Worker/UserPagesTest.php`). It sends a request as
+user A, then as user B, then as a guest through one Octane worker, without booting in between, and the same with B
+first. It fails when A's response does not show A's data, because then the test proves nothing. It fails when B or the
+guest sees anything of A. The helper wraps Octane's test worker (`tests/Support/Worker/OneWorker.php`), which Octane does
+not document, so an Octane update breaks it in one place.
+
+```php
+it('shows each user only their own shares', function () {
+    assertNoStateLeakBetweenUsers(
+        fn () => UserRequest::as(workerUser('Alice'), Request::create('/shares'), 'Alice', 'Movies of Alice'),
+        fn () => UserRequest::as(workerUser('Bob'), Request::create('/shares'), 'Bob', 'Series of Bob'),
+    );
+});
+```
 
 ### Web UI: the on-screen keyboard and inputs
 
@@ -405,7 +478,12 @@ Put them at the top, after `<?php`, a shebang (`#!`) or a `<!doctype html>` line
 
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+declare(strict_types=1);
 ```
+
+Every PHP file declares strict types, after the SPDX lines where it has them. Pint enforces it (`declare_strict_types`
+in `pint.json`).
 
 ```yaml
 # SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
