@@ -315,6 +315,11 @@ class PackagistTest(unittest.TestCase):
         errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(published))
         self.assertEqual(errors, ["composer.lock: a/b v1.2.0 autoload differs from Packagist"])
 
+    def test_a_licence_that_packagist_does_not_publish_is_refused(self) -> None:
+        # The licence gate reads licences from the lock (composer licenses --locked).
+        errors = ls.packagist_errors({"packages": [{**self.PKG, "license": ["MIT"]}]}, "composer.lock", self.fetch_from(self.metadata(license=["GPL-2.0-only"])))
+        self.assertEqual(errors, ["composer.lock: a/b v1.2.0 license differs from Packagist"])
+
     def test_a_foreign_notification_url_is_refused(self) -> None:
         forged = {**self.PKG, "notification-url": "https://evil.invalid/collect"}
         errors = ls.packagist_errors({"packages": [forged]}, "composer.lock", self.fetch_from(self.metadata()))
