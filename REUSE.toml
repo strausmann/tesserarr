@@ -212,3 +212,11 @@ path = "packages/laravel-jmap-client/composer.json"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
 SPDX-License-Identifier = "MIT"
+
+# Interface mockups shown in the README (docs/images/mockups). Images carry no
+# inline header.
+[[annotations]]
+path = "docs/images/mockups/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"

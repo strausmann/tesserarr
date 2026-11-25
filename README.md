@@ -132,9 +132,7 @@ These are drafts. They are replaced by real screenshots as soon as the interface
 
 ### Dashboard
 
-<!-- ![The dashboard](docs/images/mockups/dashboard.png) -->
-
-Mockups follow.
+![The operator dashboard with status, open invitations and the audit log](docs/images/mockups/dashboard.png)
 
 ### Catalog
 
@@ -150,9 +148,7 @@ Mockups follow.
 
 ### Connections
 
-<!-- ![Connections to Sonarr, Radarr, Prowlarr, Syncthing and Plex](docs/images/mockups/connections.png) -->
-
-Mockups follow.
+![Connections to Plex, Sonarr, Radarr, Prowlarr and Syncthing, grouped by kind](docs/images/mockups/connections.png)
 
 ### Users
 
@@ -168,10 +164,11 @@ Mockups follow.
 
 ### On a phone
 
-<!-- ![The dashboard on a phone](docs/images/mockups/dashboard-phone.png) -->
+![The dashboard on a phone with the setup checklist and the attention list](docs/images/mockups/dashboard-phone.png)
+
 <!-- ![The catalogue on a phone](docs/images/mockups/catalog-phone.png) -->
 
-Mockups follow.
+The catalogue on a phone follows.
 
 ## Roadmap
 
