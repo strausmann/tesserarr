@@ -41,7 +41,7 @@ concurrency:
 jobs:
   renovate:
     name: Renovate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     # The token only ever runs from the default branch.
     if: github.ref == 'refs/heads/main'

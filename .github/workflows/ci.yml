@@ -29,7 +29,7 @@ concurrency:
 jobs:
   php:
     name: PHP — lint, static analysis, test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     services:
       postgres:
@@ -184,7 +184,7 @@ jobs:
 
   web:
     name: Web — typecheck, lint, test, build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     env:
       IMAGE: tesserarr:e2e
@@ -326,7 +326,7 @@ jobs:
 
   scripts:
     name: Scripts — self-tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -363,7 +363,7 @@ jobs:
   # ARGs, without a default. A required check of the rulesets.
   base-images:
     name: Base image pins
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -389,7 +389,7 @@ jobs:
   # and Packagist, so it fails when they cannot be reached.
   lockfile-sources:
     name: Lockfile sources
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -410,7 +410,7 @@ jobs:
 
   docker-build:
     name: Docker — build smoke test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       IMAGE: tesserarr:ci
@@ -500,7 +500,7 @@ jobs:
   # tag on the initial commit and holds no application.
   upgrade:
     name: Upgrade — migrations from the last release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     services:
       postgres:
@@ -605,7 +605,7 @@ jobs:
 
   privacy-scan:
     name: Privacy / secret scan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -692,7 +692,7 @@ jobs:
 
   reuse:
     name: REUSE — licensing of every file
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
