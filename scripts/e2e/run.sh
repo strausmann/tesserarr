@@ -24,7 +24,7 @@ set -euo pipefail
 image="${1:-tesserarr:e2e}"
 [ "$#" -gt 0 ] && shift
 
-PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
 POSTGRES_IMAGE=postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
 
 # The browsers come from the container, the test runner from node_modules:
