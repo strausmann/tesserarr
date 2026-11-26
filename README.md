@@ -234,6 +234,7 @@ GitHub Container Registry copy is private.
 | `latest`     | most recent release | You are fine with anything new                                  |
 | `dev`        | built from `main`   | Testing only; changes with every merge                          |
 | `x.y.z-rc.N` | `0.1.0-rc.1`        | Preview of an upcoming release; removed once the release exists |
+| `x.y.z-preview` | `0.1.0-preview`  | The newest preview of that release; moves with every merge into its milestone; removed once the release exists |
 
 Previews never get `latest`, `x.y` or `x`, so a preview can never become the default.
 
