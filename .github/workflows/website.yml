@@ -1,0 +1,130 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: website
+
+# Builds the documentation website (website/, Astro Starlight) and checks it.
+# The built site is uploaded as an artifact for review. Only a push to main (or
+# a manual run on main) deploys it to GitHub Pages; milestone pushes and pull
+# requests build and check, never deploy. The site is public even while the
+# repository is private, so every page goes through the real-data scan.
+#
+# The committed API document (website/openapi/openapi.json) and the command line
+# page are compared with the code in ci.yml ("API spec is up to date", "CLI
+# reference is up to date"): both need PHP and Composer.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "website/**"
+      - "scripts/privacy_scan.py"
+      - ".github/workflows/website.yml"
+  push:
+    branches: [main, "milestone/**"]
+    paths:
+      - "website/**"
+      - "scripts/privacy_scan.py"
+      - ".github/workflows/website.yml"
+
+permissions: {}
+
+jobs:
+  parity:
+    name: locale parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: website/.nvmrc
+      - name: Unit tests of the parity gate
+        run: node --test 'website/scripts/*.test.mjs'
+      - name: Every page in English and German
+        run: node website/scripts/check-locale-parity.mjs
+
+  # No private address, host name of an installation or personal e-mail address
+  # on a public page (CONTRIBUTING.md, "No environment details, ever").
+  real-data:
+    name: real-data scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pages, assets and the API document
+        run: python3 scripts/privacy_scan.py website/src website/public website/openapi website/astro.config.mjs
+
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: website/.nvmrc
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Install
+        run: npm --prefix website ci --no-audit --no-fund
+      # starlight-links-validator fails the build on a broken internal link or anchor.
+      - name: Build
+        run: |
+          set -o pipefail
+          npm --prefix website run build 2>&1 | tee website-build.log
+      # A build that never reaches the validator (a hook that crashed after the
+      # pages were written) can still exit 0; only the validator's own success
+      # line proves it ran.
+      - name: The links validator ran
+        run: grep -q "All internal links are valid" website-build.log
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: website-dist
+          path: website/dist
+          retention-days: 7
+
+      # The Pages artifact is built on main only. The base path is fixed in
+      # astro.config.mjs (/tesserarr until a domain is chosen), so there is no
+      # configure-pages step.
+      - name: Upload the Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/dist
+
+  # Deploys from main only. Pages must be switched on with the source "GitHub
+  # Actions" (repository settings); the environment `github-pages` additionally
+  # allows main only.
+  deploy:
+    name: deploy
+    needs: [parity, real-data, build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
