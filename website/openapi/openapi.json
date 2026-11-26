@@ -1,0 +1,23 @@
+{
+    "openapi": "3.1.2",
+    "info": {
+        "title": "Tesserarr API",
+        "version": "1",
+        "description": "The token API of Tesserarr. Every request carries an API token as a bearer token; an operation lists the permission the token needs as the scope of `apiToken`. The web interface uses its own session API, which is not part of this document."
+    },
+    "servers": [
+        {
+            "url": "/api/v1",
+            "description": "This installation"
+        }
+    ],
+    "components": {
+        "securitySchemes": {
+            "apiToken": {
+                "type": "http",
+                "description": "An API token of a user (Settings > API tokens). The scopes of an operation name the permission the token must carry; the owner must hold it as well.",
+                "scheme": "bearer"
+            }
+        }
+    }
+}

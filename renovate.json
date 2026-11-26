@@ -113,6 +113,11 @@
             "groupName": "release tools"
         },
         {
+            "description": "The documentation website (website/) is published to GitHub Pages, not part of the image: one group, chore(deps).",
+            "matchFileNames": ["website/package.json"],
+            "groupName": "website"
+        },
+        {
             "description": "conventional-changelog-conventionalcommits 10 empties the changelog with release-notes-generator 14 unless conventional-changelog-writer is overridden.",
             "matchPackageNames": ["conventional-changelog-conventionalcommits"],
             "matchUpdateTypes": ["major"],
@@ -177,7 +182,8 @@
             "matchFileNames": [
                 "composer.json",
                 "package.json",
-                ".github/release-tools/package.json"
+                ".github/release-tools/package.json",
+                "website/package.json"
             ],
             "matchJsonata": ["isLockfileUpdate = true"],
             "automerge": true
@@ -199,7 +205,8 @@
                 ".github/**",
                 "docker/base-images.env",
                 "scripts/*.py",
-                "renovate.json"
+                "renovate.json",
+                "website/**"
             ],
             "enabled": false
         }
