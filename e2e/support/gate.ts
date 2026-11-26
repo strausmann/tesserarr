@@ -41,9 +41,10 @@ async function walkFocus(
     page: Page,
 ): Promise<{ tabbable: number; stops: FocusStop[]; complete: boolean }> {
     // A group of radio buttons is one tab stop (the checked one, or the
-    // first while none is checked); the arrow keys move inside it (HTML).
+    // first while none is checked); the arrow keys move inside it (HTML). A
+    // group is the name within its form (or outside any form).
     const tabbable = await page.evaluate(() => {
-        const groups = new Set<string>();
+        const groups = new Map<HTMLFormElement | null, Set<string>>();
 
         return [
             ...document.querySelectorAll<HTMLElement>(
@@ -63,11 +64,12 @@ async function walkFocus(
                 el.type === 'radio' &&
                 el.name !== ''
             ) {
-                const group = `${el.form?.id ?? ''}|${el.name}`;
-                if (groups.has(group)) {
+                const names = groups.get(el.form) ?? new Set<string>();
+                if (names.has(el.name)) {
                     return false;
                 }
-                groups.add(group);
+                names.add(el.name);
+                groups.set(el.form, names);
             }
 
             return true;
