@@ -38,6 +38,7 @@ final class SingletonRequestStateRuleTest extends WorkerRuleTestCase
             [sprintf(self::MESSAGE, 'App\\Fixtures\\Singletons\GreetsTheRequest', 'constructor parameter $request: Illuminate\Http\Request'), 83],
             [sprintf(self::MESSAGE, 'App\Fixtures\Singletons\KeepsTheContainer', 'constructor parameter $container: Illuminate\Contracts\Container\Container'), 91],
             [sprintf(self::MESSAGE, 'App\Fixtures\Singletons\TakesAString', 'request()'), 93],
+            [sprintf(self::MESSAGE, 'App\Fixtures\Singletons\TakesAString', '$app[\'request\']'), 100],
         ]);
     }
 }

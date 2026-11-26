@@ -11,6 +11,7 @@ use PhpParser\Node;
 use PHPStan\Analyser\Scope;
 use PHPStan\Reflection\ClassReflection;
 use PHPStan\Reflection\ReflectionProvider;
+use PHPStan\Type\ObjectType;
 
 /**
  * What a singleton must not be built from: the request, the signed-in user
@@ -203,7 +204,7 @@ final class RequestState
 
         if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
             $method = $node->name->toString();
-            if (in_array($method, self::MAKE_METHODS, true)) {
+            if (in_array($method, self::MAKE_METHODS, true) && $this->mayBeContainer($node->var, $scope)) {
                 $target = $this->resolvedTarget($node->getArgs()[0] ?? null, $scope);
 
                 return $target === null ? null : 'make('.$target.')';
@@ -215,11 +216,24 @@ final class RequestState
 
         if ($node instanceof Node\Expr\ArrayDimFetch && $node->dim instanceof Node\Scalar\String_
             && in_array($node->dim->value, self::ALIASES, true) && $node->var instanceof Node\Expr\Variable
-            && is_string($node->var->name)) {
+            && is_string($node->var->name) && $this->mayBeContainer($node->var, $scope)) {
             return sprintf("\$%s['%s']", $node->var->name, $node->dim->value);
         }
 
         return null;
+    }
+
+    /**
+     * Whether a lookup receiver can be the container: a container type, or a
+     * value whose type is unknown (an untyped `$app`). A local array or another
+     * object is not, so `$values['config']` and `$settings->get('config')`
+     * read no request state.
+     */
+    private function mayBeContainer(Node\Expr $receiver, Scope $scope): bool
+    {
+        return ! (new ObjectType('Illuminate\Contracts\Container\Container'))
+            ->isSuperTypeOf($scope->getType($receiver))
+            ->no();
     }
 
     /**

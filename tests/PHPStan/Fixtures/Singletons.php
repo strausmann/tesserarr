@@ -91,6 +91,13 @@ final class Bindings extends ServiceProvider
         $this->app->singleton(KeepsTheContainer::class);
         $this->app->singleton(TakesACallback::class, fn () => new TakesACallback(fn () => request()->user()));
         $this->app->singleton(TakesAString::class, fn () => new TakesAString((fn () => (string) request()->ip())()));
+        $this->app->singleton(TakesAString::class, function () {
+            $values = ['config' => 'fixed'];
+
+            return new TakesAString($values['config']);
+        });
+        $this->app->singleton(TakesAString::class, fn () => new TakesAString((new FixedValues)->get('config')));
+        $this->app->singleton(TakesAString::class, fn ($app) => new TakesAString((string) $app['request']->ip()));
     }
 }
 
@@ -100,4 +107,12 @@ final class TakesACallback
      * @param  \Closure(): mixed  $resolve  called per use, never at construction
      */
     public function __construct(private readonly \Closure $resolve) {}
+}
+
+final class FixedValues
+{
+    public function get(string $key): string
+    {
+        return $key;
+    }
 }
