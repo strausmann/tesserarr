@@ -22,3 +22,13 @@ tesserarr:migrate [--lock-timeout [LOCK-TIMEOUT]]
 | Option | Description | Default |
 | --- | --- | --- |
 | `--lock-timeout` | seconds to wait for another tesserarr:migrate | `300` |
+
+## `tesserarr:release-check`
+
+Look up the newest release of Tesserarr on GitHub and remember it
+
+### Usage
+
+```text
+tesserarr:release-check
+```

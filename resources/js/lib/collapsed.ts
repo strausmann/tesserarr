@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { appFetch } from './updates.svelte';
+
 /**
  * `ui.collapsed`: which sections the user collapsed, kept on the server per
  * user so it holds on every device (App\Http\Controllers\Ui\
@@ -39,7 +41,7 @@ export function xsrfToken(cookie: string = document.cookie): string | null {
 export async function saveCollapsed(
     key: string,
     collapsed: boolean,
-    send: typeof fetch = fetch,
+    send: typeof fetch = (input, init) => appFetch(input, init),
 ): Promise<boolean> {
     const token = xsrfToken();
     try {

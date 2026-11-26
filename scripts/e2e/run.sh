@@ -7,6 +7,12 @@
 #   npm ci
 #   scripts/e2e/run.sh [image] [playwright arguments …]
 #
+# With E2E_NEXT_IMAGE set (a second build of the same commit with another
+# TESSERARR_VERSION, see CONTRIBUTING.md), a second instance of that image runs
+# next to the first, on the same database and with the same APP_KEY, and the
+# suite gets its address as E2E_NEXT_URL. e2e/update-notice.spec.ts sends the
+# requests of an open page there: a server restarted with a new version.
+#
 # Starts PostgreSQL 18 and the image (stage `e2e`) on a private Docker network,
 # migrates, waits for /up and runs the Playwright suite in the official
 # Playwright container. The repository and its node_modules are mounted, so the
@@ -41,9 +47,11 @@ run_id="tesserarr-e2e-$$"
 net="$run_id"
 db="$run_id-db"
 app="$run_id-app"
+next_app="$run_id-next"
+next_image="${E2E_NEXT_IMAGE:-}"
 
 cleanup() {
-    docker rm -f "$app" "$db" >/dev/null 2>&1 || true
+    docker rm -f "$app" "$next_app" "$db" >/dev/null 2>&1 || true
     docker network rm "$net" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -80,15 +88,35 @@ if ! docker exec "$app" curl -sf -o /dev/null http://127.0.0.1:8080/up; then
     exit 1
 fi
 
+next_url=""
+if [ -n "$next_image" ]; then
+    # Same APP_URL: the pages it renders name the address the browser uses.
+    docker run -d --name "$next_app" --network "$net" "${app_env[@]}" "$next_image" >/dev/null
+    for _ in $(seq 1 60); do
+        docker exec "$next_app" curl -sf -o /dev/null http://127.0.0.1:8080/up && break
+        sleep 1
+    done
+    if ! docker exec "$next_app" curl -sf -o /dev/null http://127.0.0.1:8080/up; then
+        docker logs "$next_app" >&2
+        echo "e2e: the second image ($next_image) did not answer /up" >&2
+        exit 1
+    fi
+    next_url="http://$next_app:8080"
+fi
+
 status=0
 docker run --rm --network "$net" --ipc=host \
     --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e CI="${CI:-}" -e E2E_BASE_URL="http://$app:8080" \
+    -e CI="${CI:-}" -e E2E_BASE_URL="http://$app:8080" -e E2E_NEXT_URL="$next_url" \
     -v "$PWD":/work -w /work \
     "$PLAYWRIGHT_IMAGE" npx playwright test "$@" || status=$?
 
 if [ "$status" -ne 0 ]; then
     echo "e2e: application log" >&2
     docker logs --tail 200 "$app" >&2
+    if [ -n "$next_image" ]; then
+        echo "e2e: log of the second image" >&2
+        docker logs --tail 100 "$next_app" >&2
+    fi
 fi
 exit "$status"

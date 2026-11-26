@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\AccessLog;
+use App\Http\Middleware\AddVersionHeader;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\LimitRequestBody;
@@ -29,6 +30,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // First, so it also logs responses that later middleware short-circuits.
         $middleware->prepend(AccessLog::class);
         $middleware->append(LimitRequestBody::class);
+        // On every answer of the application: pages, Inertia, /api/v1/app and
+        // /api/v1 (lib/updates.svelte.ts compares it with the bundle).
+        $middleware->append(AddVersionHeader::class);
 
         $middleware->alias([LimitRequestBody::ALIAS => LimitRequestBody::class]);
 

@@ -7,7 +7,8 @@ description: Navigation on a wide screen and on a phone, the language, collapsed
 
 On a screen at least 1024 pixels wide the navigation is a fixed sidebar on the left. On a narrower screen, such as a
 phone, a bar at the top shows the menu button, the logo and the title of the page. The menu button opens the whole
-navigation as a drawer: your account, sign-out and the running version are at its foot. Escape, a tap beside the drawer
+navigation as a drawer: your account, sign-out and the running version are at its foot. The version opens **About
+Tesserarr** and, after an update, the navigation offers a reload (see [version and updates](/tesserarr/using/updates/)). Escape, a tap beside the drawer
 or a link inside it closes it again.
 
 A friend sees the catalogue, their tokens and their account. The operator also sees status, media, operations and

@@ -1,4 +1,18 @@
 {
+    "about.fonts": "Fonts",
+    "about.fonts.licence": "Licence text",
+    "about.fonts.name": "Atkinson Hyperlegible, SIL Open Font License 1.1.",
+    "about.licence": "Licence",
+    "about.licence.name": "GNU Affero General Public License v3.0 or later.",
+    "about.release": "Newer release",
+    "about.release.checking": "Checking …",
+    "about.release.current": "This is the newest release.",
+    "about.release.newer": "Version :version has been released.",
+    "about.release.notes": "Release notes",
+    "about.release.unknown": "Not known: the check is switched off or has not reached GitHub yet.",
+    "about.source": "Source code",
+    "about.title": "About Tesserarr",
+    "about.version": "Version",
     "app.about": "Tesserarr :version · About and licences",
     "app.main": "Main content",
     "app.skip": "Skip to content",
@@ -62,5 +76,12 @@
     "settings.language.de": "Deutsch",
     "settings.language.description": "The language of the interface on every device you sign in on.",
     "settings.language.en": "English",
-    "settings.language.title": "Language"
+    "settings.language.title": "Language",
+    "update.available": "New version available",
+    "update.later": "Later",
+    "update.ready": "Version :version is ready",
+    "update.ready_hint": "Reload to use it.",
+    "update.region": "New version",
+    "update.reload": "Reload",
+    "update.version": "Version :version"
 }

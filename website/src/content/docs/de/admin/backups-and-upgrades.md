@@ -16,3 +16,10 @@ geht es über die Sicherung, eingespielt mit dem Image der Version, die sie gesc
 [Konfiguration](/tesserarr/de/install/configuration/).
 
 Leg das Sicherungsverzeichnis auf ein Volume, das deine eigene Sicherung erfasst: Die Dumps enthalten die ganze Datenbank.
+
+## Offene Tabs
+
+Ein Tab, der während einer Aktualisierung offen ist, behält die Oberfläche der alten Version. Er bemerkt die neue Version
+an der nächsten Antwort des Servers und zeigt **Neue Version verfügbar**, ohne von selbst neu zu laden, damit nichts
+verloren geht, was gerade eingegeben wird. Die nächste Seite, die jemand öffnet, lädt die neue Version ohnehin. Siehe
+[Version und Aktualisierungen](/tesserarr/de/using/updates/).

@@ -80,6 +80,9 @@ COPY --from=vendor /app/resources/js/actions resources/js/actions
 COPY --from=vendor /app/resources/js/routes resources/js/routes
 COPY --from=vendor /app/resources/js/wayfinder resources/js/wayfinder
 ENV WAYFINDER_COMMAND=true
+# The version the bundle is built for (vite.config.ts): the same build
+# argument the server reads in the app stage, so both report one version.
+ARG TESSERARR_VERSION=0.0.0-dev
 RUN npm run build
 
 # -----------------------------------------------------------------------------
@@ -106,7 +109,6 @@ CMD ["./vendor/bin/pest"]
 # -----------------------------------------------------------------------------
 FROM php-base AS app
 
-ARG TESSERARR_VERSION=0.0.0-dev
 ARG REVISION=unknown
 ARG BUILD_DATE=1970-01-01T00:00:00Z
 
@@ -117,7 +119,6 @@ LABEL org.opencontainers.image.title="Tesserarr" \
       org.opencontainers.image.authors="Björn Strausmann <projects@strausmann.ch>" \
       org.opencontainers.image.vendor="strausmann" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
-      org.opencontainers.image.version="${TESSERARR_VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.base.name="docker.io/dunglas/frankenphp:1.14.0-php8.5-trixie"
@@ -182,6 +183,11 @@ COPY --from=assets /app/public/build /app/public/build
 RUN chown -R tesserarr:tesserarr /app/storage /app/bootstrap/cache
 COPY docker/Caddyfile /etc/frankenphp/Caddyfile
 COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint
+
+# Declared this late so that a build for another version (the second image of
+# the browser tests, scripts/e2e/run.sh) reuses every layer above.
+ARG TESSERARR_VERSION=0.0.0-dev
+LABEL org.opencontainers.image.version="${TESSERARR_VERSION}"
 
 ENV TESSERARR_VERSION="${TESSERARR_VERSION}" \
     SERVER_NAME=":8080" \

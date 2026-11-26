@@ -47,7 +47,16 @@ function scalarApiReference(): Plugin {
     };
 }
 
+// The version this bundle is built for: TESSERARR_VERSION, the same value
+// the image passes to the server (docker/Dockerfile), default 0.0.0-dev on
+// both sides. lib/updates.svelte.ts compares it with the X-Tesserarr-Version
+// header of every answer.
+const buildVersion = process.env.TESSERARR_VERSION || '0.0.0-dev';
+
 export default defineConfig({
+    define: {
+        __TESSERARR_BUILD_VERSION__: JSON.stringify(buildVersion),
+    },
     plugins: lazyPlugins(() => [
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.ts'],

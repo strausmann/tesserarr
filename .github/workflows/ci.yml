@@ -188,6 +188,7 @@ jobs:
     timeout-minutes: 40
     env:
       IMAGE: tesserarr:e2e
+      NEXT_IMAGE: tesserarr:e2e-next
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -283,8 +284,28 @@ jobs:
           cache-from: type=gha,scope=e2e
           cache-to: type=gha,scope=e2e,mode=max
 
-      - name: Playwright (UI gate, artboards, on-screen keyboard)
+      # The same commit built for another version: the update notice is
+      # checked against two real builds (e2e/update-notice.spec.ts). Only the
+      # bundle and the last layers differ, the rest comes from the cache.
+      - name: Build the e2e image for a second version
         if: steps.app.outputs.exists == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: e2e
+          build-args: |
+            ${{ steps.pins.outputs.build-args }}
+            TESSERARR_VERSION=0.0.1-e2e
+          push: false
+          load: true
+          tags: ${{ env.NEXT_IMAGE }}
+          cache-from: type=gha,scope=e2e
+
+      - name: Playwright (UI gate, artboards, on-screen keyboard, update notice)
+        if: steps.app.outputs.exists == 'true'
+        env:
+          E2E_NEXT_IMAGE: ${{ env.NEXT_IMAGE }}
         run: scripts/e2e/run.sh "$IMAGE"
 
       # Screenshots and traces to look at; nothing is compared against them.
