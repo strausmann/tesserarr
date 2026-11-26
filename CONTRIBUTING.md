@@ -555,28 +555,28 @@ AGPL-3.0), as is anything non-free.
 `.github/release-tools/`), GitHub Actions (pinned by SHA), the base images in `docker/base-images.env` and the images
 pinned by digest in the workflows and scripts (PostgreSQL, Playwright, Trivy). It runs self-hosted twice a day, at
 02:17 and 14:17 UTC (`.github/workflows/renovate.yml`; a merge happens in the run after the checks finished), as its own
-GitHub App, reads `renovate.json`
+GitHub App, which is no bypass actor of the rulesets, reads `renovate.json`
 from `main` and opens pull requests against `main` and every `milestone/**` branch. Files shared with `main` (workflows, scripts, `docker/base-images.env`) are updated on `main` only
 and reach a milestone with its sync pull request. Dependabot opens no version updates; Dependabot alerts stay on.
 
 - **Commit messages** follow Conventional Commits: `chore(deps):` for updates that do not ship (development
   dependencies, lockfile updates, base images), `fix(deps):` for a security fix of a dependency in the image, which
   releases a patch, and `ci(deps):` for GitHub Actions and the release toolchain.
+- **Weekly groups.** Patch, minor and digest updates of what is pinned inside the workflows come once a week (Monday
+  morning) in one pull request, as do patch and minor updates of development and optional dependencies, so that the
+  maintainer approves two pull requests instead of one per package. Majors stay single pull requests. Workflows hold
+  the release and registry secrets and build tools make the shipped bundle, so none of these merges by itself.
+  `conventional-changelog-writer` is an override of the release toolchain, pinned to 9.2.0 on purpose (#123), and
+  Renovate does not touch it. vite, vite-plus, vitest and `@vitest/coverage-v8` move as one group, because vite-plus
+  pins vitest and the vite core exactly.
 - **Waiting time.** An update is offered once the release is three days old (npm, Composer, GitHub Actions) or two days
   (Docker images); a security fix comes at once. A release without a timestamp is never treated as old enough. Docker Hub
   dates every tag by its last push, so a re-pushed tag starts the wait again for its digest update. GHCR and MCR give no
   timestamps; their updates are offered without a wait, but they only sit in owned files and never merge by themselves.
-- **Automerge.** Renovate merges an update by itself once every check of the pull request is green, and only these:
-  files without a code owner (`.github/CODEOWNERS`: `composer.lock`, the `package-lock.json` files and
-  `docker/base-images.env`: updates inside the declared range, patch, minor and digest updates of the base images),
-  patch, minor, digest and pin updates inside `.github/workflows/`, and patch and minor updates of development and
-  optional dependencies (`devDependencies`, `require-dev`, `optionalDependencies`). Never a major, never the release
-  toolchain (`.github/release-tools/`, apart from its lockfile), and `renovate.json`, `CODEOWNERS` and
-  `.releaserc.json` are not touched by Renovate at all. The app is a bypass actor, for pull requests only, of the
-  ruleset "main + milestones: pull request and code owners", so it merges without the code owner's approval. The
-  required checks (including `PR metadata`) sit in two other rulesets, where the app is no bypass actor: a rule is
-  bypassed only in the ruleset that lists the actor, and the rules of all rulesets on a branch add up. A pull request
-  with a red or missing required check does not merge. Lockfile maintenance
+- **Automerge.** Renovate merges an update by itself once every check of the pull request is green, but only when it
+  changes nothing but files without a code owner (`.github/CODEOWNERS`): `composer.lock`, the `package-lock.json` files
+  and `docker/base-images.env`. `renovate.json` stays owned, because it decides what merges without review. That covers
+  updates inside the declared range and patch, minor and digest updates of the base images. Lockfile maintenance
   (Mondays) refreshes the transitive versions and is merged by the maintainer: it has no release timestamps, so the
   waiting time cannot hold its new versions back. The required check `Lockfile sources` (`scripts/lockfile_sources.py`) keeps every locked download on its
   expected host: `https://registry.npmjs.org/` with a sha512 integrity for npm, GitHub or Packagist over https for

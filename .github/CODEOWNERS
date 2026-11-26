@@ -32,10 +32,7 @@
 
 # Files that hold nothing but dependency versions have no code owner, so a
 # Renovate update that changes only them merges after green CI (renovate.json,
-# automerge). The app is also a bypass actor of the code owner rule for pull
-# requests, which lets workflow and development-dependency patch/minor updates
-# merge the same way; majors, renovate.json, this file and .releaserc.json do
-# not (renovate.json, "Automerge"). The manifests composer.json and package.json stay owned: they
+# automerge). The manifests composer.json and package.json stay owned: they
 # also carry scripts. renovate.json stays owned too: it decides what merges
 # without review. An update that changes a manifest, a workflow, a GitHub
 # Action or docker/Dockerfile waits for the maintainer. docker/base-images.env
