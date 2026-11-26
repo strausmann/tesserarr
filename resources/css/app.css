@@ -511,6 +511,10 @@
         padding: var(--tr-space-4) 20px 20px;
     }
 
+    .tr-dialog-body[data-below-close='true'] {
+        padding-top: calc(12px + var(--tr-icon-button-hit) + var(--tr-space-2));
+    }
+
     .tr-dialog-footer {
         display: flex;
         flex-wrap: wrap;
@@ -547,6 +551,11 @@
 
     .tr-dialog-layer[data-variant='drawer'] .tr-dialog-close {
         top: 16px;
+    }
+
+    /* In the drawer the logo sits beside the close button, not under it. */
+    .tr-dialog-layer[data-variant='drawer'] .tr-nav-brand {
+        margin-right: calc(12px + var(--tr-icon-button-hit));
     }
 
     @media (prefers-reduced-motion: reduce) {

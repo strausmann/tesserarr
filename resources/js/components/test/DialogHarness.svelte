@@ -10,7 +10,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     let {
         variant = 'center',
         listOpen = false,
-    }: { variant?: 'center' | 'drawer'; listOpen?: boolean } = $props();
+        title = 'Add share',
+    }: {
+        variant?: 'center' | 'drawer';
+        listOpen?: boolean;
+        title?: string;
+    } = $props();
 
     let open = $state(false);
     // svelte-ignore state_referenced_locally
@@ -24,7 +29,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 <Dialog
     bind:open
-    title="Add share"
+    {title}
+    label="Add share"
     {variant}
     onclose={() => closed++}
 >

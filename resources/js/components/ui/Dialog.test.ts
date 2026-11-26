@@ -92,6 +92,15 @@ describe('Dialog', () => {
         expect($('[role=dialog]')).not.toBeNull();
     });
 
+    it('keeps the content of a dialog without heading clear of the close button', async () => {
+        await openDialog();
+        expect($('.tr-dialog-body')!.dataset.belowClose).toBeUndefined();
+        void unmount(app);
+        document.body.innerHTML = '';
+        await openDialog({ title: '' });
+        expect($('.tr-dialog-body')!.dataset.belowClose).toBe('true');
+    });
+
     it('locks the page scroll while open', async () => {
         await openDialog();
         expect(document.documentElement.style.overflow).toBe('hidden');

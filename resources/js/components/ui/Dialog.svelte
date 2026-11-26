@@ -194,7 +194,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             {#if title}
                 <h2 id="{id}-title" class="tr-dialog-title">{title}</h2>
             {/if}
-            <div class="tr-dialog-body">
+            <!-- Without a heading, the body starts below the close button
+                 instead of running under it. -->
+            <div
+                class="tr-dialog-body"
+                data-below-close={showClose && !title && variant === 'center'
+                    ? 'true'
+                    : undefined}
+            >
                 {@render children?.()}
             </div>
             {#if footer}
