@@ -1,0 +1,133 @@
+/*
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+
+/*
+ * Design tokens of the web interface, taken from the artboard "Stil & Logo"
+ * (Main.dc.html) of the 0.1.0 mockup canvas (docs/designs/0.1.0/README.md).
+ * The values are the Labelyard tokens unchanged: one design line across
+ * Labelyard, BambuBridge and Tesserarr (ADR-0012), amber stays the accent.
+ *
+ * Three layers:
+ *   1. primitives  --tr-paper-50 …  raw values, never used by a component
+ *   2. semantic    --tr-bg …        roles; light in :root, dark in .dark
+ *   3. component   --tr-control-* … sizes of controls, built from the roles
+ *
+ * Every name carries the prefix --tr- so the roles cannot collide with the
+ * variables of the starter-kit components (--accent, --border …), which
+ * app.css maps onto these roles. The website (website/src/styles/tesserarr.css)
+ * uses the same names and values.
+ *
+ * Dark mode follows the class `dark` on <html> (resources/js/lib/theme.svelte.ts
+ * sets it, also for the appearance "system"), the same switch as the
+ * `dark:` variant in app.css.
+ *
+ * Three values are darker (lighter in dark mode) than in the canvas and in
+ * Labelyard, to reach WCAG AA (docs/designs/0.1.0/README.md, "Contrast"):
+ * --tr-ok and --tr-warn as text (4.5:1) and --tr-line-strong, the border of
+ * fields and buttons (3:1, WCAG 1.4.11). Hue unchanged, only lightness.
+ *
+ * resources/js/lib/tokens.test.ts pins every value below and checks the
+ * contrast of every text and border pair.
+ */
+
+:root {
+    color-scheme: light;
+
+    /* 1. primitives */
+    --tr-paper-50: #f6f4ef;
+    --tr-paper-100: #efebe3;
+    --tr-paper-200: #e3ded3;
+    --tr-paper-500: #8d8678;
+    --tr-paper-0: #fdfcf9;
+    --tr-ink-900: #1f1d1a;
+    --tr-ink-700: #4a463f;
+    --tr-ink-500: #6b655a;
+    --tr-amber-500: #d4912a;
+    --tr-amber-950: #2b1d06;
+    --tr-amber-100: #f6e6c8;
+    --tr-stamp-600: #2f4e8f;
+    --tr-green-700: #2d784d;
+    --tr-orange-700: #9f5918;
+    --tr-red-600: #b0352b;
+
+    /* 2. semantic roles, light */
+    --tr-bg: var(--tr-paper-50);
+    --tr-surface: var(--tr-paper-0);
+    --tr-sunken: var(--tr-paper-100);
+    --tr-line: var(--tr-paper-200);
+    --tr-line-strong: var(--tr-paper-500);
+    --tr-ink: var(--tr-ink-900);
+    --tr-ink-2: var(--tr-ink-700);
+    --tr-ink-3: var(--tr-ink-500);
+    --tr-accent: var(--tr-amber-500);
+    --tr-accent-ink: var(--tr-amber-950);
+    --tr-accent-soft: var(--tr-amber-100);
+    --tr-link: var(--tr-stamp-600);
+    --tr-ok: var(--tr-green-700);
+    --tr-warn: var(--tr-orange-700);
+    --tr-bad: var(--tr-red-600);
+
+    /* type: Atkinson Hyperlegible, scale title 28/700, section 20/700,
+       body 15/400, small 13/400, code 15/600 (mono) */
+    --tr-font-sans: 'Atkinson Hyperlegible', system-ui, sans-serif;
+    --tr-font-mono: 'Atkinson Hyperlegible Mono', ui-monospace, monospace;
+    --tr-text-title: 28px;
+    --tr-text-section: 20px;
+    --tr-text-body: 15px;
+    --tr-text-small: 13px;
+    --tr-text-code: 15px;
+    --tr-leading-title: 1.2;
+    --tr-leading-body: 1.5;
+    --tr-weight-regular: 400;
+    --tr-weight-bold: 700;
+    --tr-weight-code: 600;
+
+    /* spacing: a 4 px grid; the canvas shows the steps 4 to 48 */
+    --tr-space-unit: 4px;
+    --tr-space-1: 4px;
+    --tr-space-2: 8px;
+    --tr-space-3: 12px;
+    --tr-space-4: 16px;
+    --tr-space-6: 24px;
+    --tr-space-8: 32px;
+    --tr-space-12: 48px;
+
+    /* radii */
+    --tr-r-1: 6px;
+    --tr-r-2: 10px;
+    --tr-r-3: 14px;
+
+    /* focus ring: 3 px in the link colour, 2 px away from the element */
+    --tr-focus-ring: 3px solid var(--tr-link);
+    --tr-focus-offset: 2px;
+
+    /* 3. component sizes */
+    --tr-control-height: 44px; /* buttons and fields */
+    --tr-control-radius: var(--tr-r-2);
+    --tr-icon-button-hit: 44px; /* hit area, no frame, no fill */
+    --tr-icon-button-box: 32px; /* the visible box */
+    --tr-icon-button-icon: 18px;
+    --tr-card-radius: var(--tr-r-3);
+}
+
+.dark {
+    color-scheme: dark;
+
+    --tr-bg: #171614;
+    --tr-surface: #201e1b;
+    --tr-sunken: #29261f;
+    --tr-line: #35312a;
+    --tr-line-strong: #756f65;
+    --tr-ink: #f1eee7;
+    --tr-ink-2: #c4beb2;
+    --tr-ink-3: #958e81;
+    --tr-accent: #e2a445;
+    --tr-accent-ink: #241703;
+    --tr-accent-soft: #3a2d16;
+    --tr-link: #8faee6;
+    --tr-ok: #6cc58f;
+    --tr-warn: #e39a4f;
+    --tr-bad: #ee8579;
+}

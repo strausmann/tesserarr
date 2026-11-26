@@ -24,12 +24,26 @@ export type ArtboardExpectation = {
     states: ArtboardState[];
 };
 
+/**
+ * What only some states of an artboard show (the list when there is content,
+ * the hint when there is none), keyed by state. `assertArtboardStates` checks
+ * these in their state only; `ArtboardExpectation` holds what every state
+ * shows. A key must be one of the view's `states`.
+ */
+export type ArtboardStateElements = Partial<
+    Record<
+        ArtboardState,
+        { headings?: string[]; controls?: string[]; texts?: string[] }
+    >
+>;
+
 export type GatedView = {
     name: string;
     path: string;
     as: Role;
     artboard: string;
     expect: ArtboardExpectation;
+    inState?: ArtboardStateElements;
 };
 
 // The two views of the starter kit stand for a guest and a signed-in page

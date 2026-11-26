@@ -3,7 +3,11 @@
 
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import type { ArtboardExpectation, ArtboardState } from './views';
+import type {
+    ArtboardExpectation,
+    ArtboardState,
+    ArtboardStateElements,
+} from './views';
 
 /**
  * Puts a freshly opened view into one state of its artboard and asserts what
@@ -88,11 +92,68 @@ export async function assertArtboard(
     }
 }
 
-/** Puts the view into each state of its artboard in turn; a state without a fixture fails. */
+/**
+ * Asserts what only this state of the artboard shows: every heading and
+ * control exactly once and visible, every text visible.
+ */
+export async function assertStateElements(
+    page: Page,
+    state: ArtboardState,
+    elements: ArtboardStateElements[ArtboardState],
+): Promise<void> {
+    for (const heading of elements?.headings ?? []) {
+        await expect(
+            page.getByRole('heading', { name: heading, exact: true }),
+            `state "${state}" shows the heading "${heading}"`,
+        ).toHaveCount(1);
+    }
+    for (const spec of elements?.controls ?? []) {
+        const found = control(page, spec);
+        await expect(
+            found,
+            `state "${state}" shows the control "${spec}"`,
+        ).toHaveCount(1);
+        await expect(
+            found,
+            `state "${state}" shows the control "${spec}" visibly`,
+        ).toBeVisible();
+    }
+    for (const text of elements?.texts ?? []) {
+        await expect(
+            page.getByText(text, { exact: true }),
+            `state "${state}" shows the text "${text}"`,
+        ).toBeVisible();
+    }
+}
+
+/** States of `inState` that the view never enters (not in `expect.states`). */
+export function unreachableStates(view: {
+    expect: ArtboardExpectation;
+    inState?: ArtboardStateElements;
+}): string[] {
+    return Object.keys(view.inState ?? {}).filter(
+        (state) => !view.expect.states.includes(state as ArtboardState),
+    );
+}
+
+/**
+ * Puts the view into each state of its artboard in turn; a state without a
+ * fixture fails. In each state the whole expectation holds, plus what only
+ * that state shows (`inState`).
+ */
 export async function assertArtboardStates(
     page: Page,
-    view: { name: string; path: string; expect: ArtboardExpectation },
+    view: {
+        name: string;
+        path: string;
+        expect: ArtboardExpectation;
+        inState?: ArtboardStateElements;
+    },
 ): Promise<void> {
+    expect(
+        unreachableStates(view),
+        `view "${view.name}" lists only its own states in inState`,
+    ).toEqual([]);
     for (const state of view.expect.states) {
         const fixture = stateFixtures[view.name]?.[state];
         expect(
@@ -103,5 +164,6 @@ export async function assertArtboardStates(
         await fixture!(page);
         // The artboard holds in every state, not only on the first render.
         await assertArtboard(page, view.expect);
+        await assertStateElements(page, state, view.inState?.[state]);
     }
 }

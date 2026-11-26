@@ -125,6 +125,67 @@ test.describe('the gate itself', () => {
         );
     });
 
+    // inState: what only one state shows is checked in that state.
+    const stateView = (inState: GatedView['inState']) => ({
+        ...fixtureView('state-breaks-artboard.html'),
+        expect: {
+            headings: ['Gate fixture'],
+            controls: [],
+            states: ['filled' as const],
+        },
+        inState,
+    });
+    const fillState = (name: string) => {
+        stateFixtures[name] = {
+            filled: async (p) => {
+                await p.getByRole('button', { name: 'Continue' }).click();
+                await expect(p.getByText('Done')).toBeVisible();
+            },
+        };
+    };
+
+    test('passes when a state shows what inState lists for it', async ({
+        page,
+    }) => {
+        const view = stateView({ filled: { texts: ['Done'] } });
+        fillState(view.name);
+
+        await assertArtboardStates(page, view);
+    });
+
+    test('fails when a state misses a control of its inState', async ({
+        page,
+    }) => {
+        const view = stateView({ filled: { controls: ['button:Continue'] } });
+        fillState(view.name);
+
+        await expect(assertArtboardStates(page, view)).rejects.toThrow(
+            /state "filled" shows the control "button:Continue"/,
+        );
+    });
+
+    test('fails when a state misses a text of its inState', async ({
+        page,
+    }) => {
+        const view = stateView({ filled: { texts: ['Saved'] } });
+        fillState(view.name);
+
+        await expect(assertArtboardStates(page, view)).rejects.toThrow(
+            /state "filled" shows the text "Saved"/,
+        );
+    });
+
+    test('fails when inState names a state the view never enters', async ({
+        page,
+    }) => {
+        const view = stateView({ error: { texts: ['Done'] } });
+        fillState(view.name);
+
+        await expect(assertArtboardStates(page, view)).rejects.toThrow(
+            /lists only its own states in inState/,
+        );
+    });
+
     test('fails when an artboard control is missing', async ({ page }) => {
         const login = gatedViews.find((v) => v.name === 'Login')!;
         await page.goto(login.path);

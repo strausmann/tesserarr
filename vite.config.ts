@@ -53,8 +53,12 @@ export default defineConfig({
             input: ['resources/css/app.css', 'resources/js/app.ts'],
             refresh: true,
             fonts: [
-                bunny('Instrument Sans', {
-                    weights: [400, 500, 600],
+                // The type of the mockup canvas (resources/css/tokens.css).
+                bunny('Atkinson Hyperlegible', {
+                    weights: [400, 700],
+                }),
+                bunny('Atkinson Hyperlegible Mono', {
+                    weights: [400, 600],
                 }),
             ],
         }),
