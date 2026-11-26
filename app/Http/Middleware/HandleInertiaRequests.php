@@ -82,6 +82,8 @@ class HandleInertiaRequests extends Middleware
                 ? app(ReleaseCheck::class)->latest()
                 : null),
             'ui' => [
+                // The operator's default theme (general settings); the client follows it until the person chooses.
+                'themeDefault' => app(SettingsRegistry::class)->value(SettingKey::DefaultTheme),
                 'collapsed' => $user !== null ? CollapsibleSection::known($user->ui_collapsed ?? []) : [],
             ],
         ];

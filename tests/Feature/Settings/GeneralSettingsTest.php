@@ -177,6 +177,15 @@ it('shows the display name, the time zone and the default theme where they are u
     expect(app(SettingsRegistry::class)->value(SettingKey::DefaultTheme))->toBe('dark');
 });
 
+it('hands the default theme to the page, so a saved change reaches open tabs', function () {
+    $operator = User::factory()->operator()->create();
+    $this->actingAs($operator)->get('/dashboard')->assertInertia(fn (Assert $page) => $page->where('ui.themeDefault', 'system'));
+
+    $this->put('/settings/general', generalForm(['ui_theme_default' => 'dark']))->assertSessionHasNoErrors();
+
+    $this->get('/dashboard')->assertInertia(fn (Assert $page) => $page->where('ui.themeDefault', 'dark'));
+});
+
 it('uses the default language when the profile and the browser name none', function () {
     $user = User::factory()->operator()->create(['locale' => null]);
     app(SettingsRegistry::class)->update(['locale_default' => 'de'], Actor::cli('ops'));

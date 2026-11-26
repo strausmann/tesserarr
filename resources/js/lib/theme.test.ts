@@ -79,6 +79,47 @@ describe('initializeTheme', () => {
         delete document.documentElement.dataset.themeDefault;
     });
 
+    it('follows a new default of the instance while nobody has chosen', async () => {
+        stubMatchMedia(false);
+        document.documentElement.dataset.themeDefault = 'light';
+        const { initializeTheme, setDefaultAppearance, themeState } =
+            await theme();
+        initializeTheme();
+
+        setDefaultAppearance('dark');
+
+        expect(themeState().appearance.value).toBe('dark');
+        expect(document.documentElement.dataset.themeDefault).toBe('dark');
+        expect(document.documentElement.classList.contains('dark')).toBe(true);
+        delete document.documentElement.dataset.themeDefault;
+    });
+
+    it('keeps the own choice when the default of the instance changes', async () => {
+        stubMatchMedia(false);
+        localStorage.setItem('appearance', 'light');
+        const { initializeTheme, setDefaultAppearance, themeState } =
+            await theme();
+        initializeTheme();
+
+        setDefaultAppearance('dark');
+
+        expect(themeState().appearance.value).toBe('light');
+        expect(document.documentElement.classList.contains('dark')).toBe(false);
+        delete document.documentElement.dataset.themeDefault;
+    });
+
+    it('ignores a default it does not know when it changes', async () => {
+        stubMatchMedia(false);
+        const { initializeTheme, setDefaultAppearance, themeState } =
+            await theme();
+        initializeTheme();
+
+        setDefaultAppearance('purple');
+        setDefaultAppearance(undefined);
+
+        expect(themeState().appearance.value).toBe('system');
+    });
+
     it('prefers the stored choice to the default of the instance', async () => {
         stubMatchMedia(false);
         document.documentElement.dataset.themeDefault = 'dark';

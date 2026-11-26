@@ -120,6 +120,23 @@ export function initializeTheme(): () => void {
     return detachThemeChangeListener;
 }
 
+/**
+ * The operator changed the default theme (general settings): a visit hands
+ * over the new value. It becomes the theme of everybody who has not chosen
+ * their own; a stored choice stays. A value that is no theme is ignored.
+ */
+export function setDefaultAppearance(value: unknown): void {
+    if (typeof document === 'undefined' || !isAppearance(value)) {
+        return;
+    }
+
+    document.documentElement.dataset.themeDefault = value;
+    if (!localStorage.getItem('appearance')) {
+        appearance.value = value;
+        applyTheme(value);
+    }
+}
+
 export function updateAppearance(value: Appearance): void {
     appearance.value = value;
 
