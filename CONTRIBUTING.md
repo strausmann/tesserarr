@@ -227,7 +227,7 @@ python3 scripts/lockfile_sources.py            # locked downloads only from the 
 php artisan scramble:export                    # then `git status website/openapi`: nothing may change
 python3 scripts/openapi_quality.py             # every exported operation documented (see "API documentation")
 php artisan list --format=json > /tmp/artisan-list.json && python3 scripts/cli_reference.py /tmp/artisan-list.json
-npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 22)
+npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 26)
 node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
 python3 scripts/privacy_scan.py website/src website/public website/openapi
 python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
@@ -520,8 +520,8 @@ still available as the artifact `website-dist`.
 - The `real-data scan` job (`scripts/privacy_scan.py`) fails on private IPv4 addresses (the carrier-grade NAT range of Tailscale included), host
   names of an installation and personal e-mail addresses in `website/src`, `website/public` and `website/openapi`; the
   `build` job runs it again over the pages and the sitemap of the built site in `website/dist`.
-- The website needs Node 22.23.4 or newer (Astro's minimum), pinned in `website/.nvmrc`. The `NODE_IMAGE` of
-  `docker/base-images.env` builds the app's assets only and may be older.
+- The website needs Node 22.23.4 or newer (Astro's minimum); `website/.nvmrc` pins the Node 26 line that CI uses. The
+  `NODE_IMAGE` of `docker/base-images.env` builds the app's assets with the same Node 26 line.
 
 ## API documentation
 
@@ -612,14 +612,22 @@ AGPL-3.0), as is anything non-free.
 
 [Renovate](https://docs.renovatebot.com/) keeps the dependencies current: Composer, npm (also the release toolchain in
 `.github/release-tools/`), GitHub Actions (pinned by SHA), the base images in `docker/base-images.env` and the images
-pinned by digest in the workflows and scripts (PostgreSQL, Playwright, Trivy). It runs self-hosted every night
-(`.github/workflows/renovate.yml`) as its own GitHub App, which is no bypass actor of the rulesets, reads `renovate.json`
+pinned by digest in the workflows and scripts (PostgreSQL, Playwright, Trivy). It runs self-hosted twice a day, at
+02:17 and 14:17 UTC (`.github/workflows/renovate.yml`; a merge happens in the run after the checks finished), as its own
+GitHub App, which is no bypass actor of the rulesets, reads `renovate.json`
 from `main` and opens pull requests against `main` and every `milestone/**` branch. Files shared with `main` (workflows, scripts, `docker/base-images.env`) are updated on `main` only
 and reach a milestone with its sync pull request. Dependabot opens no version updates; Dependabot alerts stay on.
 
 - **Commit messages** follow Conventional Commits: `chore(deps):` for updates that do not ship (development
   dependencies, lockfile updates, base images), `fix(deps):` for a security fix of a dependency in the image, which
   releases a patch, and `ci(deps):` for GitHub Actions and the release toolchain.
+- **Weekly groups.** Patch, minor and digest updates of what is pinned inside the workflows come once a week (Monday
+  morning) in one pull request, as do patch and minor updates of development and optional dependencies, so that the
+  maintainer approves two pull requests instead of one per package. Majors stay single pull requests. Workflows hold
+  the release and registry secrets and build tools make the shipped bundle, so none of these merges by itself.
+  `conventional-changelog-writer` is an override of the release toolchain, pinned to 9.2.0 on purpose (#123), and
+  Renovate does not touch it. vite, vite-plus, vitest and `@vitest/coverage-v8` move as one group, because vite-plus
+  pins vitest and the vite core exactly.
 - **Waiting time.** An update is offered once the release is three days old (npm, Composer, GitHub Actions) or two days
   (Docker images); a security fix comes at once. A release without a timestamp is never treated as old enough. Docker Hub
   dates every tag by its last push, so a re-pushed tag starts the wait again for its digest update. GHCR and MCR give no

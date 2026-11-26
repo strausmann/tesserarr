@@ -20,7 +20,7 @@ sie nur.
   (`scripts/privacy_scan.py`) schlägt bei privaten Adressen, Rechnernamen einer Installation und persönlichen
   E-Mail-Adressen fehl.
 
-Lokal bauen und prüfen (Node 22.23.4 oder neuer, siehe `website/.nvmrc`):
+Lokal bauen und prüfen (Node 22.23.4 oder neuer; `website/.nvmrc` pinnt Node 26):
 
 ```bash
 npm --prefix website ci
