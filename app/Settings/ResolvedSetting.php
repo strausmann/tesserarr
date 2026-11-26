@@ -16,7 +16,18 @@ final readonly class ResolvedSetting
         public SettingSource $source,
         /** The environment variable holds something this setting does not accept: it is ignored. */
         public bool $envInvalid = false,
+        /** The stored value does not pass the rules (an old or hand-edited row): it is not in force. */
+        public bool $storedInvalid = false,
     ) {}
+
+    /**
+     * The invalid environment value is not merely ignored: tesserarr:migrate
+     * reads TESSERARR_BACKUP_KEEP strictly and refuses to run on it.
+     */
+    public function envRefusesMigrate(): bool
+    {
+        return $this->envInvalid && $this->key === SettingKey::BackupsKeep;
+    }
 
     public function overridden(): bool
     {

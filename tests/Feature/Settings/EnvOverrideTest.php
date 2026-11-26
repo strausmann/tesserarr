@@ -173,3 +173,32 @@ it('keeps the override reader free of state between requests', function () {
     expect($first)->toBe('100')
         ->and(app(EnvOverride::class)->raw(SettingKey::PageSize))->toBeNull();
 });
+
+it('says that tesserarr:migrate refuses to run when TESSERARR_BACKUP_KEEP is invalid, not that it is ignored', function () {
+    overrideWith('TESSERARR_BACKUP_KEEP', '99');
+
+    $this->actingAs(User::factory()->operator()->create())->get('/settings/general')
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('settings.backups_keep.env_invalid', true)
+            ->where('settings.backups_keep.env_refuses_migrate', true)
+            ->where('settings.ui_page_size.env_refuses_migrate', false));
+
+    $this->artisan('tesserarr:settings:get', ['key' => 'backups.keep'])
+        ->expectsOutputToContain('tesserarr:migrate refuses to run')
+        ->doesntExpectOutputToContain('ignored')
+        ->assertSuccessful();
+    // The other settings keep the old wording.
+    overrideWith('TESSERARR_BACKUP_KEEP', null);
+    overrideWith('TESSERARR_PAGE_SIZE', '17');
+    $this->artisan('tesserarr:settings:get', ['key' => 'ui.page_size'])
+        ->expectsOutputToContain('it is ignored')->assertSuccessful();
+});
+
+it('words the refusal in both languages', function () {
+    $en = json_decode((string) file_get_contents(lang_path('en.json')), true);
+    $de = json_decode((string) file_get_contents(lang_path('de.json')), true);
+
+    expect($en['general.env_invalid_backups'])->toContain('tesserarr:migrate refuses to run')->not->toContain('ignored')
+        ->and($de['general.env_invalid_backups'])->toContain('tesserarr:migrate')->toContain('verweigert')
+        ->and($en['general.env_invalid'])->toContain('ignored');
+});

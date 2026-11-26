@@ -56,6 +56,7 @@ final class GeneralSettingsController extends Controller
                     'source' => $setting->source->value,
                     'env' => $setting->key->env(),
                     'env_invalid' => $setting->envInvalid,
+                    'env_refuses_migrate' => $setting->envRefusesMigrate(),
                     'default' => $setting->key->default(),
                 ],
             ])->all(),

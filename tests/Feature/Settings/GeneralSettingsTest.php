@@ -14,10 +14,12 @@ use App\Models\User;
 use App\Settings\SettingKey;
 use App\Settings\Settings;
 use App\Settings\SettingsRegistry;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 
 use function Tests\Support\generalForm;
+use function Tests\Support\protectedRoutes;
 use function Tests\Support\settingField as field;
 
 it('stores and reads each general setting with its default', function (SettingKey $key, string|int $default, string|int $changed) {
@@ -241,4 +243,49 @@ it('refuses an unknown key and an invalid value from the cli and changes nothing
 
     expect(AuditEntry::query()->count())->toBe(0)
         ->and(app(Settings::class)->get('ui.page_size'))->toBeNull();
+});
+
+it('overwrites a stored value that is invalid when the default is saved', function () {
+    // A row an older version or a hand edit left behind: not a page size.
+    DB::table('app_settings')->insert(['key' => 'ui.page_size', 'value' => json_encode(17), 'updated_at' => now()]);
+    $registry = app(SettingsRegistry::class);
+    expect($registry->value(SettingKey::PageSize))->toBe(50);
+
+    // 50 is what is in force, but the stored 17 is what the next fixed default would meet.
+    $changed = $registry->update(['ui_page_size' => 50], Actor::cli('ops'));
+
+    expect($changed)->toBe([SettingKey::PageSize])
+        ->and(app(Settings::class)->get('ui.page_size'))->toBe(50);
+});
+
+it('reads the settings with one query per request', function () {
+    $operator = User::factory()->operator()->create();
+    app(SettingsRegistry::class)->update(['ui_theme_default' => 'dark', 'locale_default' => 'de'], Actor::cli('ops'));
+    $this->actingAs($operator);
+
+    DB::enableQueryLog();
+    $this->get('/dashboard')->assertOk();
+    $reads = collect(DB::getQueryLog())->filter(fn (array $q) => str_contains($q['query'], '"app_settings"'))->count();
+    DB::disableQueryLog();
+
+    expect($reads)->toBe(1);
+});
+
+it('does not keep a setting from one request to the next', function () {
+    $operator = User::factory()->operator()->create();
+    $registry = app(SettingsRegistry::class);
+    $this->actingAs($operator);
+
+    $this->get('/dashboard')->assertInertia(fn (Assert $page) => $page->where('name', 'Tesserarr'));
+    $registry->update(['instance_display_name' => 'Home base'], Actor::cli('ops'));
+    $this->get('/dashboard')->assertInertia(fn (Assert $page) => $page->where('name', 'Home base'));
+    // Changed behind the registry's back (another process): the next request still sees it.
+    DB::table('app_settings')->where('key', 'instance.display_name')->update(['value' => json_encode('Elsewhere')]);
+    $this->get('/dashboard')->assertInertia(fn (Assert $page) => $page->where('name', 'Elsewhere'));
+});
+
+it('has both routes of the page among the routes the Authorizer coverage test enumerates', function () {
+    $covered = collect(protectedRoutes())->map(fn ($route) => implode('|', array_diff($route->methods(), ['HEAD'])).' '.$route->uri())->all();
+
+    expect($covered)->toContain('GET settings/general')->toContain('PUT settings/general');
 });

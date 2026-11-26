@@ -29,6 +29,9 @@ use Illuminate\Validation\ValidationException;
  */
 final class SettingsRegistry
 {
+    /** Request attribute that holds the stored values read in this request. */
+    private const MEMO = 'tesserarr.settings.stored';
+
     public function __construct(
         private readonly Settings $settings,
         private readonly EnvOverride $env,
@@ -61,7 +64,7 @@ final class SettingsRegistry
      */
     public function resolveMany(array $keys): array
     {
-        $stored = $this->settings->many(array_map(fn (SettingKey $key) => $key->value, $keys));
+        $stored = $this->storedValues();
 
         $resolved = [];
         foreach ($keys as $key) {
@@ -112,6 +115,9 @@ final class SettingsRegistry
      */
     public function update(array $input, Actor $actor): array
     {
+        // What was read earlier in this request is not what is stored now.
+        $this->forgetStored();
+
         $wanted = [];
         foreach ($input as $field => $raw) {
             $key = SettingKey::fromField((string) $field);
@@ -146,12 +152,18 @@ final class SettingsRegistry
         $changed = [];
         $this->db->transaction(function () use ($valid, $inForce, $actor, &$changed): void {
             foreach ($valid as [$key, $value]) {
-                if ($value !== ($inForce[$key->value] ?? null)?->value) {
+                $current = $inForce[$key->value] ?? null;
+                // Compared with what is stored: a stored value that is invalid
+                // (so the default is in force) is overwritten by saving that
+                // default; nothing stored and the same value is not a change.
+                if ($value !== $current?->value || $current->storedInvalid) {
                     $this->settings->set($key->value, $value, $actor);
                     $changed[] = $key;
                 }
             }
         });
+
+        $this->forgetStored();
 
         return $changed;
     }
@@ -168,14 +180,43 @@ final class SettingsRegistry
             $envInvalid = true;
         }
 
+        $storedInvalid = false;
         if ($stored !== null) {
             $checked = $this->check($key, $stored);
             if (! $checked instanceof ValidationException) {
                 return new ResolvedSetting($key, $checked, SettingSource::Stored, $envInvalid);
             }
+            $storedInvalid = true;
         }
 
-        return new ResolvedSetting($key, $key->default(), SettingSource::Default, $envInvalid);
+        return new ResolvedSetting($key, $key->default(), SettingSource::Default, $envInvalid, $storedInvalid);
+    }
+
+    /**
+     * The stored values of all general settings, read once per request: kept
+     * on the request object (Octane gives every request its own, so nothing
+     * outlives it), never in a static. Middleware, the page and the controller
+     * of one request share one read.
+     *
+     * @return array<string, mixed>
+     */
+    private function storedValues(): array
+    {
+        $attributes = app('request')->attributes;
+        $memo = $attributes->get(self::MEMO);
+        if (is_array($memo)) {
+            return $memo;
+        }
+
+        $values = $this->settings->many(array_map(fn (SettingKey $key) => $key->value, SettingKey::cases()));
+        $attributes->set(self::MEMO, $values);
+
+        return $values;
+    }
+
+    private function forgetStored(): void
+    {
+        app('request')->attributes->remove(self::MEMO);
     }
 
     /** The value as it is stored, or the exception that names what is wrong with it. */

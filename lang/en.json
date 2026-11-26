@@ -94,6 +94,7 @@
     "general.env.set": "set",
     "general.env.title": "Set through the environment",
     "general.env_invalid": ":env holds a value this setting does not accept. It is ignored.",
+    "general.env_invalid_backups": ":env holds a value this setting does not accept. tesserarr:migrate refuses to run until it is fixed or removed.",
     "general.hint.audit_days": "Default 365, from 30 to 3650.",
     "general.hint.backups_keep": "Default 5, from 1 to 50. tesserarr:migrate keeps this many.",
     "general.hint.display_name": "Shown in the header and on the sign-in page.",

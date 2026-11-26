@@ -94,6 +94,7 @@
     "general.env.set": "gesetzt",
     "general.env.title": "Über die Umgebung gesetzt",
     "general.env_invalid": ":env enthält einen Wert, den diese Einstellung nicht annimmt. Er wird ignoriert.",
+    "general.env_invalid_backups": ":env enthält einen Wert, den diese Einstellung nicht annimmt. tesserarr:migrate verweigert den Lauf, bis er korrigiert oder entfernt ist.",
     "general.hint.audit_days": "Vorgabe 365, von 30 bis 3650.",
     "general.hint.backups_keep": "Vorgabe 5, von 1 bis 50. tesserarr:migrate behält so viele.",
     "general.hint.display_name": "Erscheint in der Kopfzeile und auf der Anmeldeseite.",

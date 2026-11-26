@@ -47,7 +47,9 @@ final class SettingsGet extends Command
         };
         $this->line(sprintf('%s = %s (%s)', $setting->key->value, TerminalText::safe((string) $setting->value), $source));
         if ($setting->envInvalid) {
-            $this->warn(sprintf('%s holds a value this setting does not accept; it is ignored.', $setting->key->env()));
+            $this->warn($setting->envRefusesMigrate()
+                ? sprintf('%s holds a value this setting does not accept; tesserarr:migrate refuses to run until it is fixed or removed.', $setting->key->env())
+                : sprintf('%s holds a value this setting does not accept; it is ignored.', $setting->key->env()));
         }
 
         return self::SUCCESS;

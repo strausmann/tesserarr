@@ -27,6 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         source: 'environment' | 'stored' | 'default';
         env: string;
         env_invalid: boolean;
+        env_refuses_migrate: boolean;
         default: string | number;
     };
     type Settings = Record<string, Setting>;
@@ -138,7 +139,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         </p>
     {:else if settings[f].env_invalid}
         <p class="tr-settings-locked" id="lock-{f}">
-            <span>{t('general.env_invalid', { env: settings[f].env })}</span>
+            <span>
+                {t(
+                    settings[f].env_refuses_migrate ? 'general.env_invalid_backups' : 'general.env_invalid',
+                    { env: settings[f].env },
+                )}
+            </span>
         </p>
     {/if}
 {/snippet}
@@ -298,14 +304,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 <div class="tr-env-row">
                     <span class="font-bold">{t(`general.env.row.${row.env}`)} <code class="tr-code">{row.env}</code></span>
                     {#if row.env !== 'TESSERARR_ROLE'}
-                    <button
-                        type="button"
-                        class="tr-icon-button"
-                        aria-label={t('general.copy', { name: t(`general.env.row.${row.env}`) })}
-                        onclick={() => copy(row.env, row.value)}
-                    >
-                        {#if copied === row.env}<Check class="size-[18px]" aria-hidden="true" />{:else}<Copy class="size-[18px]" aria-hidden="true" />{/if}
-                    </button>
+                        <button
+                            type="button"
+                            class="tr-icon-button"
+                            aria-label={t('general.copy', { name: t(`general.env.row.${row.env}`) })}
+                            onclick={() => copy(row.env, row.value)}
+                        >
+                            {#if copied === row.env}<Check class="size-[18px]" aria-hidden="true" />{:else}<Copy class="size-[18px]" aria-hidden="true" />{/if}
+                        </button>
                     {/if}
                     <code class="tr-code">{row.value === '' ? t('general.env.none') : row.value}</code>
                 </div>

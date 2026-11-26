@@ -27,7 +27,14 @@ function setting(
     source: Source = 'default',
     env = 'X',
 ) {
-    return { value, source, env, env_invalid: false, default: value };
+    return {
+        value,
+        source,
+        env,
+        env_invalid: false,
+        env_refuses_migrate: false,
+        default: value,
+    };
 }
 
 const baseSettings = () => ({
@@ -179,6 +186,22 @@ describe('General settings page', () => {
         expect(
             document.querySelector<HTMLButtonElement>('#page-size-0')!.disabled,
         ).toBe(false);
+    });
+
+    it('says that migrate refuses to run when the backup variable is invalid', async () => {
+        const settings = baseSettings();
+        settings.backups_keep = {
+            ...setting(5, 'default', 'TESSERARR_BACKUP_KEEP'),
+            env_invalid: true,
+            env_refuses_migrate: true,
+        };
+        settings.ui_page_size = { ...setting(50), env_invalid: true };
+        await render(props(settings));
+
+        const text = document.body.textContent ?? '';
+        expect(text).toContain('general.env_invalid_backups');
+        // The other invalid variable keeps the plain wording.
+        expect(text.match(/general\.env_invalid(?!_)/g)).toHaveLength(1);
     });
 
     it('keeps digits only in a number field and at most four of them', async () => {
