@@ -143,6 +143,41 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         run: php scripts/coverage_gate.php clover.xml
 
+      # The OpenAPI document of the token API is committed
+      # (website/openapi/openapi.json; the website and the API reference in the
+      # app render it). A changed /api/v1 route without a new export fails here,
+      # a deleted or new file as well (git status, not only git diff).
+      # CONTRIBUTING.md, "API documentation".
+      - name: API spec is up to date
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          php artisan scramble:export
+          if [ -n "$(git status --porcelain -- website/openapi)" ]; then
+            git status --short -- website/openapi
+            git diff -- website/openapi
+            echo "::error::website/openapi/openapi.json is not the export of the code. Run php artisan scramble:export and commit the file."
+            exit 1
+          fi
+
+      # Every operation of the exported document: operationId, summary and
+      # description, examples, error responses, the token ability.
+      - name: API quality gate
+        if: steps.app.outputs.exists == 'true'
+        run: python3 scripts/openapi_quality.py website/openapi/openapi.json
+
+      # The command line page of the website is generated from artisan.
+      - name: CLI reference is up to date
+        if: steps.app.outputs.exists == 'true'
+        run: |
+          php artisan list --format=json > "$RUNNER_TEMP/artisan-list.json"
+          python3 scripts/cli_reference.py "$RUNNER_TEMP/artisan-list.json"
+          pages=(website/src/content/docs/reference/cli.md website/src/content/docs/de/reference/cli.md)
+          if [ -n "$(git status --porcelain -- "${pages[@]}")" ]; then
+            git diff -- "${pages[@]}"
+            echo "::error::The CLI reference is not the one artisan describes. Run php artisan list --format=json and scripts/cli_reference.py, then commit both pages."
+            exit 1
+          fi
+
       - name: No-op (no PHP application on main yet)
         if: steps.app.outputs.exists != 'true'
         run: echo "No composer.json on main yet; the PHP checks run on the milestone branch and after its merge."
@@ -559,7 +594,9 @@ jobs:
 
       # Real data of an installation never belongs in the repository
       # (CONTRIBUTING.md, "No environment details, ever"). IP patterns use PCRE
-      # lookarounds so that version strings do not match. Tests use the
+      # lookarounds so that version strings do not match; an address that ends a
+      # sentence still does (scripts/privacy_scan.py, the website's copy of these
+      # patterns, uses the same). Tests use the
       # documentation ranges 192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24.
       - name: Scan for private network artefacts
         run: |
@@ -575,20 +612,22 @@ jobs:
             fi
           }
           ip_patterns=(
-            '(?<![0-9.])10\.[0-9]+\.[0-9]+\.[0-9]+(?![0-9.])'
-            '(?<![0-9.])172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+(?![0-9.])'
-            '(?<![0-9.])192\.168\.[0-9]+\.[0-9]+(?![0-9.])'
-            '(?<![0-9.])100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+(?![0-9.])'
+            '(?<![0-9.])10\.[0-9]+\.[0-9]+\.[0-9]+(?![0-9]|\.[0-9])'
+            '(?<![0-9.])172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+(?![0-9]|\.[0-9])'
+            '(?<![0-9.])192\.168\.[0-9]+\.[0-9]+(?![0-9]|\.[0-9])'
+            '(?<![0-9.])100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+(?![0-9]|\.[0-9])'
           )
           str_patterns=(
             'hhdocker'
             'hhplex'
             'strausmann\.(cloud|de|net)'
           )
-          # This file lists the patterns; lockfiles carry the e-mail addresses of
-          # package authors.
+          # This file and the website's scan (with its tests) list the patterns;
+          # lockfiles carry the e-mail addresses of package authors.
           exempt=(
             ':!.github/workflows/ci.yml'
+            ':!scripts/privacy_scan.py'
+            ':!scripts/test_privacy_scan.py'
             ':!composer.lock'
             ':!package-lock.json'
           )
