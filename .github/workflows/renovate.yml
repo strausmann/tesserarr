@@ -22,7 +22,8 @@ name: Renovate
 
 on:
   schedule:
-    - cron: '17 2 * * *'   # daily at 02:17 UTC, before the nightly release at 04:00
+    - cron: '17 2 * * *'    # 02:17 UTC, before the nightly release at 04:00
+    - cron: '17 14 * * *'   # 14:17 UTC: merges what the checks of the night run cleared, and picks up new releases
   workflow_dispatch:
     inputs:
       log_level:

@@ -2,8 +2,8 @@
     "$schema": "https://docs.renovatebot.com/renovate-schema.json",
     "description": [
         "Self-hosted Renovate (.github/workflows/renovate.yml). See CONTRIBUTING.md, 'Dependencies and licences'.",
-        "Automerge only touches files without a code owner (.github/CODEOWNERS): lockfiles, docker/base-images.env (whose images the required check 'Base image pins' keeps on an allowlist). renovate.json itself is owned. Everything else waits for the maintainer.",
-        "Renovate merges by itself once every check is green (platformAutomerge is off: the rulesets do not require every check)."
+        "Automerge only touches files without a code owner (.github/CODEOWNERS): lockfiles, docker/base-images.env (whose images the required check 'Base image pins' keeps on an allowlist). renovate.json itself is owned. Everything else waits for the maintainer: workflow pins and development dependencies come once a week in one pull request each (groups below), majors one by one.",
+        "Renovate merges by itself once every check is green (platformAutomerge is off: the rulesets do not require every check). Two runs a day (renovate.yml): a merge happens in the run after the checks finished."
     ],
     "extends": [
         "config:recommended",
@@ -107,6 +107,21 @@
             "semanticCommitType": "ci"
         },
         {
+            "description": "Workflow pins (GitHub Actions, images and tools pinned inside .github/workflows): patch, minor and digest updates once a week in one pull request, merged by the maintainer. Workflows hold secrets, so nothing here merges by itself. Majors stay single pull requests (a later rule).",
+            "matchFileNames": [".github/workflows/**"],
+            "matchUpdateTypes": ["patch", "minor", "digest", "pin", "pinDigest"],
+            "groupName": "workflow pins",
+            "schedule": ["before 6am on monday"]
+        },
+        {
+            "description": "Development and optional dependencies (build tools make the shipped bundle): patch and minor updates once a week in one pull request, merged by the maintainer. Specific groups below (playwright, vite-plus, website, release tools) keep their own names.",
+            "matchManagers": ["composer", "npm"],
+            "matchDepTypes": ["devDependencies", "require-dev", "optionalDependencies"],
+            "matchUpdateTypes": ["patch", "minor"],
+            "groupName": "development dependencies",
+            "schedule": ["before 6am on monday"]
+        },
+        {
             "description": "The semantic-release toolchain of release.yml is CI tooling, not part of the image.",
             "matchFileNames": [".github/release-tools/package.json"],
             "semanticCommitType": "ci",
@@ -135,11 +150,13 @@
             "groupName": "playwright"
         },
         {
-            "description": "vite is an override onto vite-plus-core; both move together.",
+            "description": "vite is an override onto vite-plus-core, and vite-plus pins vitest exactly (1.7.0 needs vitest 5.1.0, core 8.3.8000): they move together with the vitest packages.",
             "matchPackageNames": [
                 "vite",
                 "vite-plus",
-                "@voidzero-dev/vite-plus-core"
+                "@voidzero-dev/vite-plus-core",
+                "vitest",
+                "@vitest/coverage-v8"
             ],
             "groupName": "vite-plus"
         },
@@ -187,6 +204,11 @@
             ],
             "matchJsonata": ["isLockfileUpdate = true"],
             "automerge": true
+        },
+        {
+            "description": "conventional-changelog-writer is an override of .github/release-tools/package.json, pinned to 9.2.0 on purpose: conventional-changelog-conventionalcommits 10 empties the changelog with release-notes-generator 14 otherwise (semantic-release/release-notes-generator#1021, merged in #123). Renovate sees the override as a dependency and offered 9.3.0 (#159). Lift this when the issue is fixed upstream.",
+            "matchPackageNames": ["conventional-changelog-writer"],
+            "enabled": false
         },
         {
             "description": "Lock file maintenance is merged by hand: it has no release timestamps, so the wait cannot hold it back (Renovate docs, key-concepts/minimum-release-age, 'lockFileMaintenance updates'), and with timestamp-required its renovate/stability-days check stays pending.",
