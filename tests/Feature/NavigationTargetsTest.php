@@ -22,7 +22,6 @@ const NAVIGATION_PENDING = [
     '/connections' => 'task 19 (connections)',
     '/media-shares' => 'task 17 (media shares)',
     '/satellites' => 'task 18 (satellites)',
-    '/settings/general' => 'task 8b (general settings)',
     '/settings/sign-in' => 'task 13 (sign-in methods)',
     '/status' => 'task 23 (status)',
     '/tokens' => 'task 9 (API tokens)',

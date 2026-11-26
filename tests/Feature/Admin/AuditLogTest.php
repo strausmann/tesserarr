@@ -11,6 +11,7 @@ use App\Audit\AuditEntry;
 use App\Audit\AuditLogger;
 use App\Authorization\Roles;
 use App\Models\User;
+use App\Settings\SettingsRegistry;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -23,25 +24,26 @@ function logEntries(int $count, Actor $actor, ?User $subject = null): void
     }
 }
 
-it('lists the newest entries first, ten per page, with links to older and newer ones', function () {
+it('lists the newest entries first, a page as long as ui.page_size, with links to older and newer ones', function () {
     $operator = User::factory()->operator()->create(['username' => 'alice', 'display_name' => 'Alice']);
-    logEntries(23, Actor::user($operator));
+    logEntries(53, Actor::user($operator));
+    app(SettingsRegistry::class)->update(['ui_page_size' => 25], Actor::cli('ops'));
 
-    $first = $this->actingAs($operator)->get('/audit')->assertOk();
+    $first = $this->actingAs($operator)->get('/audit?source=ui')->assertOk();
     $first->assertInertia(fn (Assert $page) => $page
         ->component('admin/Audit')
-        ->has('entries', 10)
-        ->where('entries.0.context.n', 23)
+        ->has('entries', 25)
+        ->where('entries.0.context.n', 53)
         ->where('entries.0.who', 'Alice')
         ->where('entries.0.source', 'ui')
-        ->where('total', 23)
+        ->where('total', 53)
         ->where('newer', null)
         ->where('older', fn ($url) => is_string($url) && str_contains($url, 'before=')));
 
     $older = $first->viewData('page')['props']['older'];
     $this->get($older)->assertInertia(fn (Assert $page) => $page
-        ->has('entries', 10)
-        ->where('entries.0.context.n', 13)
+        ->has('entries', 25)
+        ->where('entries.0.context.n', 28)
         ->where('newer', fn ($url) => is_string($url) && str_contains($url, 'after=')));
 });
 

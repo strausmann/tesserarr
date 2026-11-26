@@ -5,12 +5,14 @@
 
 declare(strict_types=1);
 
+use App\Audit\Actor;
 use App\Database\Backup\BackupFailed;
 use App\Database\Backup\DatabaseDumper;
 use App\Database\Backup\PreMigrateBackups;
 use App\Database\MigrationLock;
 use App\Database\PostgresMigrationLock;
 use App\Models\User;
+use App\Settings\SettingsRegistry;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Carbon;
@@ -318,12 +320,41 @@ it('reports the original failure when releasing the lock fails', function () {
         ->and($log)->toContain('"error":"RuntimeException"');
 });
 
-it('keeps five backups unless configured otherwise', function () {
-    expect(config('tesserarr.backups.keep'))->toBe(5);
+it('keeps five backups unless the setting says otherwise', function () {
+    expect(app(SettingsRegistry::class)->backupKeep())->toBe(5);
+});
+
+it('keeps the number of backups the setting backups.keep says', function () {
+    app(SettingsRegistry::class)->update(['backups_keep' => 2], Actor::cli('ops'));
+    File::ensureDirectoryExists($this->backupDir);
+    foreach (range(1, 5) as $day) {
+        file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day), 'old');
+    }
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'new'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    expect(dumpNames($this->backupDir))->toHaveCount(2);
+});
+
+it('lets TESSERARR_BACKUP_KEEP override the setting', function () {
+    app(SettingsRegistry::class)->update(['backups_keep' => 2], Actor::cli('ops'));
+    config(['tesserarr.setting_env.TESSERARR_BACKUP_KEEP' => '4']);
+    File::ensureDirectoryExists($this->backupDir);
+    foreach (range(1, 5) as $day) {
+        file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day), 'old');
+    }
+    pendingProbeMigration($this->migrationDir);
+    useDumper(fn (string $path) => file_put_contents($path, 'new'));
+
+    $this->artisan('tesserarr:migrate')->assertExitCode(0);
+
+    expect(dumpNames($this->backupDir))->toHaveCount(4);
 });
 
 it('keeps the configured number of backups, from 1 to 50', function (int $keep) {
-    config(['tesserarr.backups.keep' => $keep]);
+    config(['tesserarr.setting_env.TESSERARR_BACKUP_KEEP' => $keep]);
     File::ensureDirectoryExists($this->backupDir);
     foreach (range(1, 9) as $day) {
         file_put_contents($this->backupDir.sprintf('/pre-migrate-202601%02dT000000.000000Z-0000000%d-0.0.%d.dump', $day, $day, $day), 'old');
@@ -337,7 +368,7 @@ it('keeps the configured number of backups, from 1 to 50', function (int $keep) 
 })->with([1, 2, 50]);
 
 it('refuses an invalid number of backups to keep before doing anything', function (mixed $keep) {
-    config(['tesserarr.backups.keep' => $keep]);
+    config(['tesserarr.setting_env.TESSERARR_BACKUP_KEEP' => $keep]);
     pendingProbeMigration($this->migrationDir);
     $dumper = useDumper(fn (string $path) => file_put_contents($path, 'dump'));
 
@@ -347,7 +378,7 @@ it('refuses an invalid number of backups to keep before doing anything', functio
 
     expect($dumper->calls)->toBe(0)
         ->and(Schema::hasTable('t4_probe'))->toBeFalse();
-})->with([0, 51, -1, 'abc', '2.5', '', null]);
+})->with([0, 51, -1, 'abc', '2.5']);
 
 it('removes partial backups left by a killed run and logs their names', function () {
     File::ensureDirectoryExists($this->backupDir);
@@ -461,7 +492,7 @@ it('rotates and cleans up when the backup directory is given with a trailing sla
     }
     $stale = $this->backupDir.'/pre-migrate-20261101T000000.000000Z-0a1b2c3d-0.0.0-dev.dump.partial';
     file_put_contents($stale, 'half');
-    config(['tesserarr.backup.dir' => $this->backupDir.'/', 'tesserarr.backups.keep' => 1]);
+    config(['tesserarr.backup.dir' => $this->backupDir.'/', 'tesserarr.setting_env.TESSERARR_BACKUP_KEEP' => '1']);
     pendingProbeMigration($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, 'new'));
 
@@ -484,7 +515,7 @@ it('leaves foreign files alone on rotation and clean-up', function () {
     foreach ($foreign as $name) {
         file_put_contents($this->backupDir.'/'.$name, 'foreign');
     }
-    config(['tesserarr.backups.keep' => 1]);
+    config(['tesserarr.setting_env.TESSERARR_BACKUP_KEEP' => '1']);
     pendingProbeMigration($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, 'new'));
 

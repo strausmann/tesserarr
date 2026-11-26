@@ -30,14 +30,24 @@ return [
     ],
 
     /*
-    | How many of these backups tesserarr:migrate keeps (1 to 50; anything else
-    | stops the command with an error). Task 8b turns this into the setting
-    | backups.keep of the interface; the environment variable stays as an
-    | emergency override.
+    | The emergency override of the general settings (task 8b): one environment
+    | variable per setting, named in App\Settings\SettingKey::env(). A variable
+    | that is set wins over what the operator stored and locks the field in the
+    | interface; empty means not set. Read here, once, so cached configuration
+    | keeps the values (the variable names must match SettingKey::env(); a test
+    | checks it). backups.keep is the number of backups tesserarr:migrate keeps
+    | (1 to 50).
     */
 
-    'backups' => [
-        'keep' => env('TESSERARR_BACKUP_KEEP', 5),
+    'setting_env' => [
+        'TESSERARR_DISPLAY_NAME' => env('TESSERARR_DISPLAY_NAME'),
+        'TESSERARR_DEFAULT_LOCALE' => env('TESSERARR_DEFAULT_LOCALE'),
+        'TZ' => env('TZ'),
+        'TESSERARR_PAGE_SIZE' => env('TESSERARR_PAGE_SIZE'),
+        'TESSERARR_THEME_DEFAULT' => env('TESSERARR_THEME_DEFAULT'),
+        'TESSERARR_INVITATION_DAYS' => env('TESSERARR_INVITATION_DAYS'),
+        'TESSERARR_AUDIT_RETENTION_DAYS' => env('TESSERARR_AUDIT_RETENTION_DAYS'),
+        'TESSERARR_BACKUP_KEEP' => env('TESSERARR_BACKUP_KEEP'),
     ],
 
     /*

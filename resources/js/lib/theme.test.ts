@@ -52,15 +52,54 @@ afterEach(() => {
 });
 
 describe('initializeTheme', () => {
-    it('stores "system" in localStorage and the cookie on the first visit', async () => {
+    it('follows the system on the first visit and stores no choice', async () => {
         stubMatchMedia(false);
-        const { initializeTheme } = await theme();
+        const { initializeTheme, themeState } = await theme();
 
         initializeTheme();
 
-        expect(localStorage.getItem('appearance')).toBe('system');
-        expect(cookie('appearance')).toBe('system');
+        expect(themeState().appearance.value).toBe('system');
+        expect(localStorage.getItem('appearance')).toBeNull();
+        expect(cookie('appearance')).toBeUndefined();
         expect(document.documentElement.classList.contains('dark')).toBe(false);
+    });
+
+    it('uses the default theme of the instance until the person chooses', async () => {
+        stubMatchMedia(false);
+        document.documentElement.dataset.themeDefault = 'dark';
+        const { initializeTheme, themeState } = await theme();
+
+        initializeTheme();
+
+        expect(themeState().appearance.value).toBe('dark');
+        expect(document.documentElement.classList.contains('dark')).toBe(true);
+        // A default is not a choice: nothing is stored, so a changed default reaches the person.
+        expect(localStorage.getItem('appearance')).toBeNull();
+        expect(cookie('appearance')).toBeUndefined();
+        delete document.documentElement.dataset.themeDefault;
+    });
+
+    it('prefers the stored choice to the default of the instance', async () => {
+        stubMatchMedia(false);
+        document.documentElement.dataset.themeDefault = 'dark';
+        localStorage.setItem('appearance', 'light');
+        const { initializeTheme, themeState } = await theme();
+
+        initializeTheme();
+
+        expect(themeState().appearance.value).toBe('light');
+        delete document.documentElement.dataset.themeDefault;
+    });
+
+    it('ignores a default it does not know', async () => {
+        stubMatchMedia(false);
+        document.documentElement.dataset.themeDefault = 'purple';
+        const { initializeTheme, themeState } = await theme();
+
+        initializeTheme();
+
+        expect(themeState().appearance.value).toBe('system');
+        delete document.documentElement.dataset.themeDefault;
     });
 
     it('applies a stored "dark" and keeps it', async () => {

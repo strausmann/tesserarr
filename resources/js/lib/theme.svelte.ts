@@ -65,6 +65,20 @@ export function applyThemeColor(isDark: boolean): void {
         .forEach((meta) => meta.setAttribute('content', color));
 }
 
+const isAppearance = (value: unknown): value is Appearance =>
+    value === 'light' || value === 'dark' || value === 'system';
+
+/**
+ * What the instance's operator chose as the default theme (general settings,
+ * ui.theme_default): the server writes it on the html element. Used until the
+ * person chooses their own in "My account".
+ */
+const getDefaultAppearance = (): Appearance => {
+    const value = document.documentElement.dataset.themeDefault;
+
+    return isAppearance(value) ? value : 'system';
+};
+
 const getStoredAppearance = (): Appearance => {
     if (typeof window === 'undefined') {
         return 'system';
@@ -72,9 +86,7 @@ const getStoredAppearance = (): Appearance => {
 
     const stored = localStorage.getItem('appearance');
 
-    return stored === 'light' || stored === 'dark' || stored === 'system'
-        ? stored
-        : 'system';
+    return isAppearance(stored) ? stored : getDefaultAppearance();
 };
 
 const handleSystemThemeChange = (): void => {
@@ -96,11 +108,6 @@ const detachThemeChangeListener = (): void => {
 export function initializeTheme(): () => void {
     if (typeof window === 'undefined') {
         return () => {};
-    }
-
-    if (!localStorage.getItem('appearance')) {
-        localStorage.setItem('appearance', 'system');
-        setCookie('appearance', 'system');
     }
 
     appearance.value = getStoredAppearance();

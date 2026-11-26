@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\GeneralSettingsController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\DashboardController;
@@ -37,6 +38,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('roles/{role}', [RoleController::class, 'destroy'])->middleware('can:roles.manage')->name('roles.destroy');
 
     Route::get('audit', AuditLogController::class)->middleware('can:audit.view')->name('audit.index');
+
+    // General settings (Settings-General.dc.html).
+    Route::get('settings/general', [GeneralSettingsController::class, 'edit'])->middleware('can:settings.manage')->name('settings.general.edit');
+    Route::put('settings/general', [GeneralSettingsController::class, 'update'])->middleware('can:settings.manage')->name('settings.general.update');
 });
 
 // The interactive API reference (Scalar) and the OpenAPI document it reads,

@@ -76,7 +76,7 @@ arguments: Compose reads them with `--env-file docker/base-images.env`, `docker 
 
 `up` first runs the one-off `migrate` service (`artisan tesserarr:migrate`); `web`, `worker` and `scheduler` start only
 after it has finished successfully. When migrations are pending, `tesserarr:migrate` first writes a `pg_dump` backup to
-`TESSERARR_BACKUP_DIR` (in the dev stack `.dev/backups/`), keeps the newest five (`TESSERARR_BACKUP_KEEP`, 1 to 50)
+`TESSERARR_BACKUP_DIR` (in the dev stack `.dev/backups/`), keeps the newest five (the setting `backups.keep`, 1 to 50; `TESSERARR_BACKUP_KEEP` overrides it)
 and stops without migrating when the backup fails or is empty. Nothing pending means no backup. A satellite never
 migrates: it has no database. The web interface is then on <http://localhost:8080>.
 

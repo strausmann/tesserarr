@@ -8,6 +8,8 @@ use App\Authorization\Permission;
 use App\Http\Ui\Audience;
 use App\Http\Ui\CollapsibleSection;
 use App\Models\User;
+use App\Settings\SettingKey;
+use App\Settings\SettingsRegistry;
 use App\Updates\ReleaseCheck;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
@@ -56,9 +58,13 @@ class HandleInertiaRequests extends Middleware
         $granted = $user === null ? [] : Audience::granted($user);
         $audience = $user === null ? Audience::Guest : Audience::fromGranted($granted);
 
+        $instance = app(SettingsRegistry::class)->resolveMany([SettingKey::DisplayName, SettingKey::TimeZone]);
+
         return [
             ...parent::share($request),
-            'name' => config('app.name'),
+            // The display name and time zone the operator set (general settings).
+            'name' => $instance[SettingKey::DisplayName->value]->value,
+            'timeZone' => $instance[SettingKey::TimeZone->value]->value,
             'auth' => [
                 'user' => $request->user(),
             ],

@@ -50,6 +50,39 @@ tesserarr:role:assign <username> <role>
 | `username` | yes | the account, by username (never an e-mail address) |
 | `role` | yes | operator, user or the name of an own role |
 
+## `tesserarr:settings:get`
+
+Show a general setting, its value in force and where the value comes from
+
+### Usage
+
+```text
+tesserarr:settings:get [<key>]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `key` | no | a general setting such as ui.page_size; without it, all of them |
+
+## `tesserarr:settings:set`
+
+Change a general setting without the interface; logged with the console as origin
+
+### Usage
+
+```text
+tesserarr:settings:set <key> <value>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `key` | yes | a general setting such as ui.page_size |
+| `value` | yes | the new value |
+
 ## `tesserarr:user:lock`
 
 Lock an account: it is signed out and cannot sign in or use its tokens; keeps at least one active operator

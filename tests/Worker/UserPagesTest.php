@@ -39,6 +39,8 @@ it('shows each user only their own data', function (string $path) {
     // The user list and the audit log name every account by design, so they
     // cannot be checked with "Bob sees nothing of Alice"; the roles page can.
     'roles' => '/roles',
+    // Shows how the request of the signed-in user reached the instance.
+    'general settings' => '/settings/general',
     'profile settings' => '/settings/profile',
     'appearance settings' => '/settings/appearance',
 ]);

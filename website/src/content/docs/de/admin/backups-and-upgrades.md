@@ -7,7 +7,8 @@ Eine Aktualisierung ist ein neuer Image-Tag. Beim Start führt der einmalige Con
 `artisan tesserarr:migrate` aus:
 
 1. Stehen Migrationen an, schreibt er zuerst eine Sicherung mit `pg_dump` nach `TESSERARR_BACKUP_DIR` und behält die
-   neuesten `TESSERARR_BACKUP_KEEP` (standardmäßig fünf).
+   neuesten, so viele wie unter den [allgemeinen Einstellungen](/tesserarr/de/admin/settings/) steht (standardmäßig fünf;
+   `TESSERARR_BACKUP_KEEP` überschreibt es).
 2. Schlägt die Sicherung fehl oder ist sie leer, hört er auf, ohne zu migrieren.
 3. Erst dann migriert er. Steht nichts an, gibt es keine Sicherung.
 

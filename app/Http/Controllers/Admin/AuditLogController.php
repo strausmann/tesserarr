@@ -11,6 +11,8 @@ use App\Audit\Actor;
 use App\Audit\AuditEntry;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Settings\SettingKey;
+use App\Settings\SettingsRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -19,7 +21,8 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * The audit log page (Audit.dc.html): newest first, ten per page, with
+ * The audit log page (Audit.dc.html): newest first, as many per page as the
+ * general setting ui.page_size says (50 until it is set), with
  * links to newer and older entries (keyset on the id, stable while entries
  * arrive), filtered by period, person, action and origin. People are named
  * by their current username or display name, looked up by id; the log itself
@@ -27,8 +30,6 @@ use Inertia\Response;
  */
 final class AuditLogController extends Controller
 {
-    public const PER_PAGE = 10;
-
     private const PERIODS = ['24h' => 1, '7d' => 7, '30d' => 30];
 
     private const SOURCES = [
@@ -37,8 +38,11 @@ final class AuditLogController extends Controller
         'api' => [Actor::TOKEN, Actor::SATELLITE],
     ];
 
+    public function __construct(private readonly SettingsRegistry $settings) {}
+
     public function __invoke(Request $request): Response
     {
+        $perPage = (int) $this->settings->value(SettingKey::PageSize);
         $filters = $request->validate([
             'period' => ['sometimes', 'string', 'in:'.implode(',', array_keys(self::PERIODS))],
             'source' => ['sometimes', 'string', 'in:all,'.implode(',', array_keys(self::SOURCES))],
@@ -55,10 +59,10 @@ final class AuditLogController extends Controller
         $filtered = fn (): Builder => $this->filtered($period, $source, $who, $q);
 
         if (isset($filters['after'])) {
-            $page = $filtered()->where('id', '>', (int) $filters['after'])->orderBy('id')->limit(self::PER_PAGE)->get()->reverse()->values();
+            $page = $filtered()->where('id', '>', (int) $filters['after'])->orderBy('id')->limit($perPage)->get()->reverse()->values();
         } else {
             $page = $filtered()->when(isset($filters['before']), fn (Builder $b) => $b->where('id', '<', (int) $filters['before']))
-                ->orderByDesc('id')->limit(self::PER_PAGE)->get();
+                ->orderByDesc('id')->limit($perPage)->get();
         }
 
         $query = array_filter(['period' => $period, 'source' => $source, 'who' => $who, 'q' => $q], fn ($v) => $v !== null && $v !== '');

@@ -32,6 +32,7 @@ pest()->extend(ConcurrencyTestCase::class)
     ->in('Concurrency');
 
 require_once __DIR__.'/Support/Routes.php';
+require_once __DIR__.'/Support/GeneralSettings.php';
 
 /*
 |--------------------------------------------------------------------------

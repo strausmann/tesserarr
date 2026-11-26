@@ -6,7 +6,7 @@ description: The backup before every migration, and how an upgrade runs.
 An upgrade is a new image tag. On start, the one-off `migrate` container runs `artisan tesserarr:migrate`:
 
 1. When migrations are pending, it writes a `pg_dump` backup to `TESSERARR_BACKUP_DIR` first and keeps the newest
-   `TESSERARR_BACKUP_KEEP` (five by default).
+   the number set under [general settings](/tesserarr/admin/settings/) (five by default; `TESSERARR_BACKUP_KEEP` overrides it).
 2. When the backup fails or is empty, it stops without migrating.
 3. Only then it migrates. With nothing pending there is no backup.
 

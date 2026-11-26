@@ -76,6 +76,14 @@ export const stateFixtures: Record<
             ).toBeVisible();
         },
     },
+    // The settings of a fresh instance: every field shows its default.
+    'General settings': {
+        filled: async (page) => {
+            await expect(page.getByLabel('Anzeigename')).toHaveValue(
+                'Tesserarr',
+            );
+        },
+    },
     // A friend nothing has been shared with yet.
     'Friend home': {
         empty: async (page) => {

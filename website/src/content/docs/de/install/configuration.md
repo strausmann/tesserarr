@@ -3,8 +3,9 @@ title: Konfiguration
 description: Jede Umgebungsvariable von Tesserarr, ihr Standardwert und was sie bewirkt.
 ---
 
-Tesserarr liest seine Einstellungen aus der Umgebung. Einstellungen, die in die Weboberfläche gehören (Anmeldewege, die
-MFA-Regel, Mail), setzt du dort, nicht hier. Jede Version ergänzt die Variablen ihrer Funktionen auf dieser Seite.
+Tesserarr liest seine Konfiguration aus der Umgebung. Einstellungen, die in die Weboberfläche gehören (Anmeldewege, die
+MFA-Regel, Mail und die [allgemeinen Einstellungen](/tesserarr/de/admin/settings/) wie Name, Sprache und Zeitzone),
+setzt du dort, nicht hier. Jede Version ergänzt die Variablen ihrer Funktionen auf dieser Seite.
 
 ## Pflichtangaben
 
@@ -26,9 +27,24 @@ MFA-Regel, Mail), setzt du dort, nicht hier. Jede Version ergänzt die Variablen
 | Variable | Standard | Bedeutung |
 | --- | --- | --- |
 | `TESSERARR_BACKUP_DIR` | `/var/lib/tesserarr/backups` | Wohin `tesserarr:migrate` vor dem Migrieren die Sicherung mit `pg_dump` schreibt. Häng hier ein Volume ein. |
-| `TESSERARR_BACKUP_KEEP` | `5` | Wie viele Sicherungen bleiben, 1 bis 50. |
+| `TESSERARR_BACKUP_KEEP` | `5` | Wie viele Sicherungen bleiben, 1 bis 50. Die Einstellung *Sicherungen behalten* der Oberfläche; die Variable überschreibt sie, nur für den Notfall. |
 | `TESSERARR_PG_DUMP` | `pg_dump` | Das Programm `pg_dump` für die Sicherung. |
 | `TESSERARR_ACCESS_LOG` | `php://stdout` | Wohin das Zugriffsprotokoll geht (Format „combined“). |
+
+## Notfall-Überschreibungen der allgemeinen Einstellungen
+
+Diese Variablen überschreiben die [allgemeinen Einstellungen](/tesserarr/de/admin/settings/) der Oberfläche. Lass sie im
+Normalbetrieb ungesetzt: Eine gesetzte Variable sperrt ihr Feld in der Oberfläche.
+
+| Variable | Überschreibt |
+| --- | --- |
+| `TESSERARR_DISPLAY_NAME` | Anzeigename |
+| `TESSERARR_DEFAULT_LOCALE` | Standardsprache, `de` oder `en` |
+| `TZ` | Zeitzone, ein IANA-Name |
+| `TESSERARR_PAGE_SIZE` | Listengröße, `25`, `50` oder `100` |
+| `TESSERARR_THEME_DEFAULT` | Standard-Thema, `system`, `light` oder `dark` |
+| `TESSERARR_INVITATION_DAYS` | Gültigkeit neuer Einladungen, 1 bis 90 |
+| `TESSERARR_AUDIT_RETENTION_DAYS` | Aufbewahrung des Protokolls, 30 bis 3650 |
 
 ## Aktualisierungen
 

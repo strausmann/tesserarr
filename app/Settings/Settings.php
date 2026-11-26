@@ -41,6 +41,27 @@ final class Settings
         return is_string($value) ? json_decode($value, true, 512, JSON_THROW_ON_ERROR) : $default;
     }
 
+    /**
+     * The stored values of several keys with one query. A key nobody has set
+     * is not in the answer.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, mixed>
+     */
+    public function many(array $keys): array
+    {
+        $rows = $this->db->table('app_settings')->whereIn('key', $keys)->pluck('value', 'key');
+
+        $values = [];
+        foreach ($rows as $key => $value) {
+            if (is_string($value)) {
+                $values[(string) $key] = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            }
+        }
+
+        return $values;
+    }
+
     /** @throws UnknownSetting */
     public function set(string $key, mixed $value, Actor $actor): void
     {
