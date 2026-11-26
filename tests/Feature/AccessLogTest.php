@@ -83,3 +83,15 @@ it('logs only scheme, host and path of the referer', function () {
         ->not->toContain('s3cr3t')
         ->not->toContain('frag');
 });
+
+it('redacts the token of a confirmation link in the request target and the referer', function () {
+    $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])
+        ->withHeader('Referer', 'https://example.invalid/email/confirm/r3f3r3rT0k3n')
+        ->get('/email/confirm/s3cr3tT0k3n');
+
+    expect(accessLogLines($this->logFile)[0])
+        ->toContain('"GET /email/confirm/[redacted] HTTP/1.1"')
+        ->toContain(' "https://example.invalid/email/confirm/[redacted]" ')
+        ->not->toContain('s3cr3tT0k3n')
+        ->not->toContain('r3f3r3rT0k3n');
+});

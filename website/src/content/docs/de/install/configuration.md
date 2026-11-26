@@ -36,6 +36,7 @@ setzt du dort, nicht hier. Jede Version ergänzt die Variablen ihrer Funktionen 
 | --- | --- | --- |
 | `TESSERARR_ROLE` | `central` | `central` oder `satellite`. Jeder andere Wert beendet den Start. |
 | `TESSERARR_TRUSTED_PROXIES` | leer | Reverse Proxies, deren Kopfzeile `X-Forwarded-For` vertraut wird, kommagetrennte Adressen oder Bereiche, zum Beispiel `192.0.2.10`. Leer vertraut keinem. |
+| `TESSERARR_TRUSTED_HOSTS` | leer | Hostnamen, auf die die Instanz neben dem Host von `APP_URL` antwortet, durch Komma getrennt. Anfragen mit einem anderen `Host`-Kopf werden abgelehnt; `localhost` und `127.0.0.1` bleiben für den Gesundheitscheck erlaubt. Links in Mails entstehen immer aus `APP_URL`. |
 
 ## Sicherungen und Protokolle
 

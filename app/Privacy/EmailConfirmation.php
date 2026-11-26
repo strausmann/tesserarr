@@ -50,8 +50,9 @@ use Illuminate\Support\Facades\Mail;
  * addresses an hour.
  *
  * A fresh second factor for changing the own address arrives with
- * ConfirmationProof in task 11 (pre-flight K14); until then a user enters a
- * first address only (AccountController), an operator any (UserController).
+ * ConfirmationProof in task 11 (pre-flight K14); until then an account
+ * enters a first address only, on every path (refuseOwnChange()), and an
+ * operator may change somebody else's.
  */
 final class EmailConfirmation
 {
@@ -89,6 +90,8 @@ final class EmailConfirmation
             throw new EmailEntryDisabled($refusal);
         }
 
+        self::refuseOwnChange($user, $by, $this->db->table('users')->where('id', $user->id)->value('email_confirmed_at') !== null);
+
         $this->throttle($by);
 
         $email = trim($email);
@@ -111,7 +114,11 @@ final class EmailConfirmation
                     return null; // already the confirmed address of this account
                 }
 
+                // Under the lock as well: the address may have been confirmed meanwhile.
+                self::refuseOwnChange($user, $by, $row->email_confirmed_at !== null);
+
                 $this->dropExpiredReservation($bidx, $now);
+                $this->refuseIfHeldUnderPreviousKey($email, $bidx, $user->id, $now);
 
                 $ownReservation = $row->pending_email_bidx === $bidx
                     && $row->pending_email_reserved_until !== null
@@ -150,7 +157,7 @@ final class EmailConfirmation
 
                 return ['token' => $token, 'old' => $row->email_confirmed_at !== null && ! $ownReservation];
             });
-        } catch (UniqueConstraintViolationException) {
+        } catch (UniqueConstraintViolationException|EmailAlreadyClaimed) {
             $this->audit->record(AuditAction::EmailClaimRejected, $by, $user, [], AuditOutcome::Denied);
 
             throw new EmailAlreadyClaimed;
@@ -162,7 +169,7 @@ final class EmailConfirmation
 
         $fresh = $user->fresh() ?? $user;
         Mail::to($email)->locale($fresh->locale)->queue((new ConfirmEmailMail(
-            route('email.confirm.show', ['token' => $sent['token']]),
+            self::link($sent['token']),
             self::LINK_MINUTES,
             $fresh->username,
         ))->afterCommit());
@@ -268,7 +275,33 @@ final class EmailConfirmation
      */
     public function confirmedOwnerOf(string $email): ?User
     {
-        return User::query()->where('email_bidx', BlindIndex::of($email))->whereNotNull('email_confirmed_at')->first();
+        return User::query()->whereIn('email_bidx', BlindIndex::candidates($email))->whereNotNull('email_confirmed_at')->first();
+    }
+
+    /**
+     * The link of the confirmation mail, built from APP_URL and never from the
+     * request: a forged Host header must not send the token to another
+     * domain, and a queued mail has no request at all.
+     */
+    public static function link(string $token): string
+    {
+        return rtrim((string) config('app.url'), '/').route('email.confirm.show', ['token' => $token], false);
+    }
+
+    /**
+     * An account changes its own confirmed address only with a fresh second
+     * factor (ConfirmationProof, task 11; pre-flight K14), whatever the path:
+     * the own page, the operator's user page, a token. Until then it is
+     * refused. Entering a first address, and an operator changing somebody
+     * else's, stay possible.
+     *
+     * @throws EmailEntryDisabled
+     */
+    private static function refuseOwnChange(User $user, Actor $by, bool $confirmed): void
+    {
+        if ($confirmed && in_array($by->type, [Actor::USER, Actor::TOKEN], true) && $by->id === (int) $user->getKey()) {
+            throw new EmailEntryDisabled('confirmed_exists');
+        }
     }
 
     /** @throws EmailClaimThrottled */
@@ -284,6 +317,33 @@ final class EmailConfirmation
         }
 
         $this->limiter->hit($key, 3600);
+    }
+
+    /**
+     * While the blind index key changes, claims not yet rotated carry the
+     * index under the previous key; the primary key cannot see that they are
+     * the same address. Such a claim of another account (confirmed, or
+     * reserved and not run out) holds the address as well.
+     *
+     * @throws EmailAlreadyClaimed
+     */
+    private function refuseIfHeldUnderPreviousKey(string $email, string $bidx, int $userId, \DateTimeInterface $now): void
+    {
+        $previous = array_values(array_diff(BlindIndex::candidates($email), [$bidx]));
+        if ($previous === []) {
+            return;
+        }
+
+        $held = $this->db->table('account_email_claims')
+            ->whereIn('bidx', $previous)
+            ->where('user_id', '<>', $userId)
+            ->where(fn ($q) => $q->where('kind', 'confirmed')->orWhere('reserved_until', '>', $now))
+            ->lockForUpdate()
+            ->first(['bidx']) !== null;
+
+        if ($held) {
+            throw new EmailAlreadyClaimed;
+        }
     }
 
     /** A reservation of $bidx that ran out no longer holds the address. */

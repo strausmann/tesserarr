@@ -22,6 +22,7 @@ use App\Privacy\EmailClaimThrottled;
 use App\Privacy\EmailConfirmation;
 use App\Privacy\EmailEntryDisabled;
 use App\Privacy\InvalidConfirmationLink;
+use App\Privacy\PiiKeys;
 use App\Settings\Settings;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
@@ -396,6 +397,61 @@ it('lets an account enter a first address but not change a confirmed one yet', f
     Mail::assertNothingQueued();
 });
 
+it('refuses an operator changing their own confirmed address through the user page', function () {
+    $operator = User::factory()->operator()->withConfirmedEmail('me@example.org')->create();
+
+    $this->actingAs($operator)->putJson("/users/{$operator->id}/email", ['email' => 'other@example.org'])
+        ->assertStatus(409)->assertJsonPath('error', 'own_address_needs_confirmation');
+    expect($operator->refresh()->pending_email)->toBeNull()
+        ->and(DB::table('account_email_claims')->where('user_id', $operator->id)->pluck('kind')->all())->toBe(['confirmed']);
+    Mail::assertNothingQueued();
+
+    // On every path, not only these two pages: the check is in the service.
+    expect(fn () => confirmation()->request($operator, 'other@example.org', Actor::user($operator)))
+        ->toThrow(fn (EmailEntryDisabled $e) => expect($e->reason)->toBe('confirmed_exists'));
+});
+
+it('lets an operator enter a first address for themselves and change somebody else’s', function () {
+    $operator = User::factory()->operator()->create();
+    $other = User::factory()->withRole(Roles::USER)->withConfirmedEmail('old@example.org')->create();
+
+    $this->actingAs($operator)->put("/users/{$operator->id}/email", ['email' => 'me@example.org'])->assertSessionHasNoErrors();
+    $this->actingAs($operator)->put("/users/{$other->id}/email", ['email' => 'new@example.org'])->assertSessionHasNoErrors();
+
+    expect($operator->refresh()->pending_email)->toBe('me@example.org')
+        ->and($other->refresh()->pending_email)->toBe('new@example.org');
+});
+
+it('builds the confirmation link from APP_URL, not from the Host header of the request', function () {
+    config(['app.url' => 'https://tesserarr.example.org']);
+    $user = User::factory()->create();
+
+    // The test request takes its Host header from the URL.
+    $this->actingAs($user)->put('http://attacker.example.net/account/email', ['email' => 'mine@example.org'])->assertSessionHasNoErrors();
+    expect(request()->getHost())->toBe('attacker.example.net');
+
+    Mail::assertQueued(ConfirmEmailMail::class, fn (ConfirmEmailMail $mail) => str_starts_with($mail->url, 'https://tesserarr.example.org/email/confirm/')
+        && ! str_contains($mail->url, 'attacker'));
+});
+
+it('keeps an address unique and findable while the blind index key changes', function () {
+    $alice = User::factory()->withConfirmedEmail('shared@example.org')->create();
+    $bob = User::factory()->create();
+
+    // Restarted with a new blind index key, the rotation has not run yet:
+    // Alice's claim still carries the index under the old key.
+    $old = (string) config('tesserarr.pii.blind_index_key');
+    config(['tesserarr.pii.blind_index_key' => str_repeat('n', 32), 'tesserarr.pii.blind_index_previous_key' => $old]);
+    app()->forgetInstance(PiiKeys::class);
+
+    expect(fn () => confirmation()->request($bob, 'Shared@Example.org', Actor::user($bob)))->toThrow(EmailAlreadyClaimed::class)
+        ->and(confirmation()->confirmedOwnerOf('shared@example.org')?->id)->toBe($alice->id)
+        ->and(DB::table('account_email_claims')->count())->toBe(1);
+
+    $this->artisan('tesserarr:pii:rotate')->assertSuccessful();
+    expect(DB::table('account_email_claims')->value('bidx'))->toBe(BlindIndex::with('shared@example.org', str_repeat('n', 32)));
+});
+
 it('requires a fresh proof to request an address change')
     ->todo(note: 'Carried over to task 11: ConfirmationProof and the change of a confirmed own address arrive there (pre-flight K14). Until then AccountController offers the first address only (test above).');
 
@@ -482,7 +538,7 @@ it('shows other users’ addresses only to holders of users.view', function () {
 
 it('never puts an address into the shared props of a page', function () {
     $user = User::factory()->withConfirmedEmail('alice@example.org')->create();
-    confirmation()->request($user, 'next@example.org', Actor::user($user));
+    confirmation()->request($user, 'next@example.org', Actor::cli('ops'));
 
     $this->actingAs($user)->get('/settings/profile')->assertOk()
         ->assertDontSee('alice@example.org')->assertDontSee('next@example.org')

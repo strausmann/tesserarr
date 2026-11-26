@@ -31,12 +31,16 @@ nie in der Datenbank, in einem Protokoll oder im Browser. Die Zentrale startet o
 - Eine Adresse gehört zu einem Konto. Wer eine Adresse einträgt, die ein anderes Konto hat oder reserviert, bekommt
   „Diese Adresse ist bereits einem anderen Konto zugeordnet“, ohne dass das andere Konto genannt wird. Ein Nutzer kann
   zehn Adressen pro Stunde prüfen; jede Ablehnung steht im Protokoll.
+- Der Link in der Mail entsteht aus `APP_URL`, nie aus der Adresse, über die eine Anfrage kam, und die Instanz antwortet
+  nur auf den Host von `APP_URL` (und `TESSERARR_TRUSTED_HOSTS`).
 - Wird eine bestätigte Adresse geändert, bleibt die alte gültig, bis die neue bestätigt ist, und die alte Adresse
   erfährt von der Änderung.
 - Adressen lassen sich nur eintragen, solange der Betreiber sie erlaubt (Einstellung `email.allowed`) und Mails
   verschickt werden können. Mit einem Mailer, der nur ins Protokoll schreibt, lässt sich nichts bestätigen.
 - Die Adresse, die ein Anbieter meldet, bleibt bei diesem Anmeldeweg. Sie ist nicht eindeutig, und keine Anmeldung
   ändert je die Konto-Adresse. Hat ein Konto keine Adresse, bietet *Mein Konto* die Adresse des Anbieters zur Übernahme an.
+- Die eigene bestätigte Adresse zu ändern braucht eine Bestätigung mit dem zweiten Faktor, auf jedem Weg (auch ein
+  Betreiber auf seiner eigenen Nutzerseite); das kommt mit einer späteren Version.
 - Ein Betreiber trägt auf der Seite eines Nutzers eine Adresse für ihn ein; sie gilt, sobald ihr Inhaber sie bestätigt.
   Dort lässt sich eine Reservierung auch sofort freigeben.
 
@@ -45,14 +49,16 @@ nie in der Datenbank, in einem Protokoll oder im Browser. Die Zentrale startet o
 - Jeder sieht seine eigenen Adressen und seine eigene Aktivität unter *Mein Konto*.
 - Die Konto-Adressen anderer sehen nur Inhaber von `users.view`.
 - Das Protokoll speichert Kennungen, nie Namen oder Adressen; die Namen werden beim Anzeigen nachgeschlagen.
-- Jeder Protokollkanal ersetzt Adressen durch `[email]`, auch in den Meldungen und Aufrufketten von Fehlern.
+- Jeder Protokollkanal ersetzt Adressen durch `[email]`, auch in den Meldungen und Aufrufketten von Fehlern. Das
+  Zugriffsprotokoll schreibt das Token eines Bestätigungslinks als `[redacted]`.
 
 ## Schlüssel wechseln
 
 1. Den alten Schlüssel in `TESSERARR_PII_PREVIOUS_KEYS` eintragen (durch Komma getrennt, mehrere sind möglich) und den
    neuen in `TESSERARR_PII_KEY`. Für den Blindindex den alten Schlüssel in `TESSERARR_BLIND_INDEX_PREVIOUS_KEY` und den
    neuen in `TESSERARR_BLIND_INDEX_KEY`.
-2. Neu starten. Alles bleibt lesbar: Werte, die mit einem alten Schlüssel geschrieben wurden, werden weiter entschlüsselt.
+2. Neu starten. Alles bleibt lesbar: Werte, die mit einem alten Schlüssel geschrieben wurden, werden weiter entschlüsselt,
+   und eine Adresse wird unter dem alten Blindindex-Schlüssel weiter gefunden und bleibt eindeutig, bis die Rotation fertig ist.
 3. Erst zählen, dann umschreiben:
 
    ```bash

@@ -61,6 +61,8 @@ app_env=(
     # The keys for personal data (task 8a); the central instance does not start without them.
     -e TESSERARR_PII_KEY="base64:$(head -c 32 /dev/urandom | base64)" -e TESSERARR_BLIND_INDEX_KEY="base64:$(head -c 32 /dev/urandom | base64)"
     -e APP_URL="http://$app:8080"
+    # The second instance answers to its own host name as well (TrustHosts).
+    -e TESSERARR_TRUSTED_HOSTS="$next_app"
     -e DB_CONNECTION=pgsql -e DB_HOST="$db" -e DB_PORT=5432
     -e DB_DATABASE=tesserarr -e DB_USERNAME=tesserarr -e DB_PASSWORD=tesserarr
 )

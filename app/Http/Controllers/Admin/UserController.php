@@ -142,7 +142,11 @@ final class UserController extends Controller
         } catch (PrivilegeEscalation $e) {
             return $this->refuse($request, 'privilege_escalation', 403, 'email', $e->getMessage(), $e->permissions);
         } catch (EmailEntryDisabled $e) {
-            return $this->refuse($request, 'email_entry_disabled', 409, 'email', $e->getMessage());
+            // Also an operator changing their own confirmed address here: that
+            // needs the fresh second factor of the own page (task 11).
+            $error = $e->reason === 'confirmed_exists' ? 'own_address_needs_confirmation' : 'email_entry_disabled';
+
+            return $this->refuse($request, $error, 409, 'email', $e->getMessage());
         } catch (EmailAlreadyClaimed $e) {
             return $this->refuse($request, 'email_taken', 409, 'email', $e->getMessage());
         } catch (EmailClaimThrottled $e) {

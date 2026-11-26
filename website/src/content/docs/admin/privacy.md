@@ -31,12 +31,16 @@ and refuses a `TESSERARR_PII_KEY` that equals `APP_KEY`.
 - One address belongs to one account. Entering an address that another account holds or reserves is refused with
   "This address is already the address of another account", without naming that account. A user can check ten
   addresses an hour; each refusal is in the audit log.
+- The link in the mail is built from `APP_URL`, never from the address a request came in on, and the instance answers
+  only to the host of `APP_URL` (and `TESSERARR_TRUSTED_HOSTS`).
 - Changing a confirmed address keeps the old one valid until the new one is confirmed, and the old address is told
   about the change.
 - Addresses can be entered only while the operator allows them (setting `email.allowed`) and mail can be sent. With a
   mailer that only writes to the log, nothing can be confirmed.
 - The address a provider reports stays with that sign-in method. It is not unique, and no sign-in ever changes the
   account address. When an account has no address, *My account* offers the provider's address to take over.
+- Changing your own confirmed address needs a confirmation with your second factor, on every path (also an operator
+  on their own user page); it arrives with a later version.
 - An operator enters an address for somebody on the user's page; it counts once its owner confirms it. A reservation
   can be released there at once.
 
@@ -45,14 +49,16 @@ and refuses a `TESSERARR_PII_KEY` that equals `APP_KEY`.
 - Everyone sees their own addresses and their own activity under *My account*.
 - The account addresses of others are shown only to holders of `users.view`.
 - The audit log stores ids, never names or addresses; names are looked up when the log is shown.
-- Every log channel replaces addresses with `[email]`, also in the messages and traces of errors.
+- Every log channel replaces addresses with `[email]`, also in the messages and traces of errors. The access log
+  writes the token of a confirmation link as `[redacted]`.
 
 ## Changing the keys
 
 1. Put the old key into `TESSERARR_PII_PREVIOUS_KEYS` (comma-separated, several are possible) and the new one into
    `TESSERARR_PII_KEY`. For the blind index, put the old key into `TESSERARR_BLIND_INDEX_PREVIOUS_KEY` and the new one
    into `TESSERARR_BLIND_INDEX_KEY`.
-2. Restart. Everything stays readable: values written with a previous key are still decrypted.
+2. Restart. Everything stays readable: values written with a previous key are still decrypted, and an address is still
+   found and stays unique under the previous blind index key until the rotation is done.
 3. Count first, then rewrite:
 
    ```bash

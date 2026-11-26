@@ -34,8 +34,8 @@ use Inertia\Response;
  *
  * The account sees its own addresses in plain text, nobody else's. Until the
  * confirmation with a fresh second factor exists (task 11, pre-flight K14),
- * an account enters a first address only; changing a confirmed one comes
- * with it.
+ * an account enters a first address only (EmailConfirmation refuses the
+ * change of a confirmed one on every path); changing it comes with task 11.
  */
 #[SelfService]
 final class AccountController extends Controller
@@ -91,11 +91,6 @@ final class AccountController extends Controller
     public function updateEmail(Request $request, #[CurrentUser] User $user): RedirectResponse
     {
         $valid = $request->validate(['email' => ['required', 'string', 'max:254', 'email:rfc,strict']]);
-
-        if ($user->confirmedEmail() !== null) {
-            // Changing a confirmed address needs a fresh second factor (task 11).
-            return back()->withErrors(['email' => __('account.email.disabled.confirmed_exists')]);
-        }
 
         return $this->request($user, (string) $valid['email']);
     }

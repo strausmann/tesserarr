@@ -21,6 +21,19 @@ return [
     ))),
 
     /*
+    | Host names the instance answers to besides the host of APP_URL (and
+    | localhost / 127.0.0.1 / [::1] for the health check inside the container),
+    | comma-separated. A request with any other Host header is refused
+    | (TrustHosts, App\Http\TrustedHosts): links in mails are built from
+    | APP_URL anyway, never from the request.
+    */
+
+    'trusted_hosts' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('TESSERARR_TRUSTED_HOSTS', '')),
+    ))),
+
+    /*
     | Backups written by `artisan tesserarr:migrate` before it migrates
     | (pg_dump, custom format, mode 0600; see backups.keep below). In the
     | container this is a bind mount; see CONTRIBUTING.md.

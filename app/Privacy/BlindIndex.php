@@ -20,6 +20,21 @@ final class BlindIndex
         return self::with($email, app(PiiKeys::class)->blindIndex);
     }
 
+    /**
+     * Every index the address may still be stored under: the current one
+     * first, and while the blind index key changes (TESSERARR_BLIND_INDEX_PREVIOUS_KEY
+     * set, `tesserarr:pii:rotate` not finished) also the previous one.
+     *
+     * @return list<string>
+     */
+    public static function candidates(string $email): array
+    {
+        $keys = app(PiiKeys::class);
+        $current = self::with($email, $keys->blindIndex);
+
+        return $keys->blindIndexPrevious === null ? [$current] : [$current, self::with($email, $keys->blindIndexPrevious)];
+    }
+
     /** The index under a given key (the rotation computes old and new). */
     public static function with(string $email, string $key): string
     {

@@ -60,7 +60,15 @@ final class PiiRotation
                 ->orderBy('id')
                 ->chunkById(self::BATCH, function ($rows) use ($table, $columns, $reindex, $dryRun, &$report): void {
                     $this->db->transaction(function () use ($rows, $table, $columns, $reindex, $dryRun, &$report): void {
-                        foreach ($rows as $row) {
+                        foreach ($rows as $read) {
+                            // Read again under a row lock: a confirmation that
+                            // committed after the batch was read must not be
+                            // overwritten with the values it replaced.
+                            $row = $this->db->table($table)->where('id', $read->id)->lockForUpdate()
+                                ->first(['id', ...array_keys($columns), ...array_filter($columns)]);
+                            if ($row === null) {
+                                continue;
+                            }
                             $update = [];
                             foreach ($columns as $column => $bidx) {
                                 $payload = $row->{$column};
