@@ -157,6 +157,10 @@ final class RoleController extends Controller
 
         try {
             $this->guard->assertMayChangePermissions($by, $role);
+            // The members get the role "user": giving it needs its permissions.
+            if (User::role($role)->exists()) {
+                $this->guard->assertCanGrant($by, Roles::permissionsOf(Roles::USER));
+            }
         } catch (BuiltInRoleImmutable $e) {
             $this->audit->record(AuditAction::RoleDeleted, $by, $role, ['role' => $name], AuditOutcome::Denied);
 

@@ -62,10 +62,25 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         draft[role.id] = on ? [...current, permission] : current.filter((p) => p !== permission);
     }
 
+    /**
+     * Saves the changed own roles one after the other: two visits at once
+     * would cancel each other (Inertia keeps one), and only the last role
+     * would be saved. What is saved is taken when Save is pressed; a refused
+     * change stops the rest, and its message shows.
+     */
     function save(): void {
-        for (const role of changed) {
-            router.put(`/roles/${role.id}`, { permissions: draft[role.id] ?? [] }, { preserveScroll: true });
-        }
+        const queue = changed.map((r) => ({ id: r.id, permissions: [...(draft[r.id] ?? [])] }));
+        const next = (): void => {
+            const item = queue.shift();
+            if (item) {
+                router.put(
+                    `/roles/${item.id}`,
+                    { permissions: item.permissions },
+                    { preserveScroll: true, preserveState: true, onSuccess: next },
+                );
+            }
+        };
+        next();
     }
 
     // The boxes are one tab stop (roving tabindex): Tab reaches the matrix

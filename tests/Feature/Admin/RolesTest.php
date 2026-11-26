@@ -151,3 +151,27 @@ it('lists satellite.execute nowhere on the page', function () {
     $this->actingAs($operator)->get('/roles')->assertOk()->assertInertia(fn (Assert $page) => $page
         ->where('groups', fn ($groups) => ! str_contains((string) json_encode($groups), 'satellite.execute')));
 });
+
+it('refuses to delete a role whose members would get permissions the actor lacks', function () {
+    // The co-maintainer holds neither tokens.manage_own nor every permission
+    // of the role "user"; deleting their own role would hand them both.
+    $actor = coMaintainer();
+    $role = Role::findByName('co-maintainer', 'web');
+
+    $this->actingAs($actor)->deleteJson('/roles/'.$role->id)
+        ->assertStatus(403)
+        ->assertJsonPath('error', 'privilege_escalation')
+        ->assertJsonPath('permissions', ['tokens.manage_own']);
+
+    expect(Role::query()->where('name', 'co-maintainer')->exists())->toBeTrue()
+        ->and($actor->fresh()?->getRoleNames()->all())->toBe(['co-maintainer']);
+});
+
+it('lets the actor delete an own role without members even when lacking the user permissions', function () {
+    $actor = coMaintainer();
+    $empty = customRole('empty', [Permission::AuditView]);
+
+    $this->actingAs($actor)->delete('/roles/'.$empty->id)->assertRedirect('/roles');
+
+    expect(Role::query()->where('name', 'empty')->exists())->toBeFalse();
+});

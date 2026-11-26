@@ -322,6 +322,66 @@ const button = (text: string) =>
         (b) => b.textContent?.trim() === text,
     )!;
 
+describe('Roles, saving several roles', () => {
+    const two = [
+        ...roles,
+        { id: 4, name: 'second', built_in: false, permissions: [], members: 0 },
+    ];
+
+    it('saves one role after the other, each after the previous one succeeded', async () => {
+        const pending: (() => void)[] = [];
+        inertia.router.put.mockImplementation(
+            (
+                _url: string,
+                _data: unknown,
+                options: { onSuccess?: () => void },
+            ) => pending.push(() => options.onSuccess?.()),
+        );
+        await render(Roles, {
+            groups,
+            roles: two,
+            grantable: ['users.view', 'audit.view'],
+        });
+
+        const box = (key: string) =>
+            boxes().find((b) => b.dataset.box === key)!;
+        box('3:audit.view').click();
+        box('4:users.view').click();
+        flushSync();
+        button('roles.save').click();
+
+        expect(inertia.router.put).toHaveBeenCalledTimes(1);
+        expect(inertia.router.put.mock.calls[0][0]).toBe('/roles/3');
+        pending.shift()!();
+        expect(inertia.router.put).toHaveBeenCalledTimes(2);
+        expect(inertia.router.put.mock.calls[1]).toEqual([
+            '/roles/4',
+            { permissions: ['users.view'] },
+            expect.objectContaining({ preserveState: true }),
+        ]);
+    });
+
+    it('stops when a save is refused', async () => {
+        inertia.router.put.mockImplementation(() => {});
+        await render(Roles, {
+            groups,
+            roles: two,
+            grantable: ['users.view', 'audit.view'],
+        });
+
+        boxes()
+            .find((b) => b.dataset.box === '3:audit.view')!
+            .click();
+        boxes()
+            .find((b) => b.dataset.box === '4:users.view')!
+            .click();
+        flushSync();
+        button('roles.save').click();
+
+        expect(inertia.router.put).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('Roles, dialogs and errors', () => {
     it('creates a role from the dialog and deletes one after asking', async () => {
         inertia.router.post.mockImplementation(
