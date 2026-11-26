@@ -1,0 +1,112 @@
+/*
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+
+/*
+ * Tesserarr site theme, after the Labelyard site: paper and ink with an amber accent.
+ * The web app takes over the same colours with its design task; until then they live here.
+ * Starlight always sets data-theme="light" or "dark" on <html>, which these tokens follow.
+ */
+
+:root,
+:root[data-theme="light"] {
+  --tr-bg: #f6f4ef;
+  --tr-surface: #fdfcf9;
+  --tr-sunken: #efebe3;
+  --tr-line: #e3ded3;
+  --tr-line-strong: #cfc8ba;
+  --tr-ink: #1f1d1a;
+  --tr-ink-2: #4a463f;
+  --tr-ink-3: #6b655a;
+  --tr-accent: #d4912a;
+  --tr-accent-ink: #2b1d06;
+  --tr-accent-soft: #f6e6c8;
+  --tr-link: #2f4e8f;
+}
+
+:root[data-theme="dark"] {
+  --tr-bg: #171614;
+  --tr-surface: #201e1b;
+  --tr-sunken: #29261f;
+  --tr-line: #35312a;
+  --tr-line-strong: #4a443a;
+  --tr-ink: #f1eee7;
+  --tr-ink-2: #c4beb2;
+  --tr-ink-3: #958e81;
+  --tr-accent: #e2a445;
+  --tr-accent-ink: #241703;
+  --tr-accent-soft: #3a2d16;
+  --tr-link: #8faee6;
+}
+
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  --sl-font: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --sl-font-mono: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
+
+  --sl-color-white: var(--tr-ink);
+  --sl-color-gray-1: var(--tr-ink);
+  --sl-color-gray-2: var(--tr-ink-2);
+  --sl-color-gray-3: var(--tr-ink-3);
+  --sl-color-gray-4: var(--tr-line-strong);
+  --sl-color-gray-5: var(--tr-line);
+  --sl-color-gray-6: var(--tr-sunken);
+  --sl-color-gray-7: var(--tr-surface);
+  --sl-color-black: var(--tr-bg);
+
+  --sl-color-accent-low: var(--tr-accent-soft);
+  --sl-color-accent: var(--tr-accent);
+  --sl-color-accent-high: var(--tr-accent-ink);
+  /* Links and the current sidebar entry use the link colour: amber is too light as text. */
+  --sl-color-text-accent: var(--tr-link);
+
+  --sl-color-bg: var(--tr-bg);
+  --sl-color-bg-nav: var(--tr-bg);
+  --sl-color-bg-sidebar: var(--tr-bg);
+  --sl-color-bg-inline-code: var(--tr-sunken);
+  --sl-color-hairline-light: var(--tr-line);
+  --sl-color-hairline: var(--tr-line);
+  --sl-color-hairline-shade: var(--tr-line-strong);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--tr-bg);
+  color: var(--tr-ink);
+}
+
+:focus-visible {
+  outline: 3px solid var(--tr-link);
+  outline-offset: 2px;
+}
+
+/* Running text in full ink, at a readable size. */
+.sl-markdown-content {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+.sl-markdown-content a {
+  color: var(--tr-link);
+  text-underline-offset: 0.18em;
+}
+
+/* Current sidebar entry: a tone step, not a filled accent bar. */
+.sidebar-content a[aria-current="page"],
+.sidebar-content a[aria-current="page"]:hover {
+  background: var(--tr-accent-soft);
+  color: var(--tr-ink);
+  font-weight: 700;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}

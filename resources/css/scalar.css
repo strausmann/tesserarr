@@ -1,0 +1,58 @@
+/*
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+
+/*
+ * Scalar theme of the API reference (/docs/api, config/scalar.php). The colours are the
+ * web interface's (resources/css/app.css), in its light and its dark theme. Scalar sets
+ * .light-mode or .dark-mode on <body> and follows the system until the reader toggles it.
+ */
+
+.light-mode {
+    --scalar-color-1: oklch(0.145 0 0);
+    --scalar-color-2: oklch(0.4 0 0);
+    --scalar-color-3: oklch(0.556 0 0);
+    --scalar-color-accent: oklch(0.205 0 0);
+
+    --scalar-background-1: oklch(1 0 0);
+    --scalar-background-2: oklch(0.985 0 0);
+    --scalar-background-3: oklch(0.97 0 0);
+    --scalar-background-accent: oklch(0.97 0 0);
+
+    --scalar-border-color: oklch(0.922 0 0);
+
+    --scalar-button-1: oklch(0.205 0 0);
+    --scalar-button-1-color: oklch(0.985 0 0);
+    --scalar-button-1-hover: oklch(0.3 0 0);
+
+    --scalar-color-red: oklch(0.577 0.245 27.325);
+}
+
+.dark-mode {
+    --scalar-color-1: oklch(0.985 0 0);
+    --scalar-color-2: oklch(0.8 0 0);
+    --scalar-color-3: oklch(0.708 0 0);
+    --scalar-color-accent: oklch(0.985 0 0);
+
+    --scalar-background-1: oklch(0.145 0 0);
+    --scalar-background-2: oklch(0.205 0 0);
+    --scalar-background-3: oklch(0.269 0 0);
+    --scalar-background-accent: oklch(0.269 0 0);
+
+    --scalar-border-color: oklch(0.269 0 0);
+
+    --scalar-button-1: oklch(0.985 0 0);
+    --scalar-button-1-color: oklch(0.205 0 0);
+    --scalar-button-1-hover: oklch(0.9 0 0);
+
+    --scalar-color-red: oklch(0.637 0.237 25.331);
+}
+
+.light-mode,
+.dark-mode {
+    --scalar-font: ui-sans-serif, system-ui, sans-serif;
+    --scalar-font-code:
+        ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    --scalar-radius: 0.625rem;
+}

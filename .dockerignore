@@ -32,3 +32,6 @@ test-results
 AGENTS.md
 # CLAUDE.md stays in the context: the test stage reads it (tests/Unit/Repo).
 # The vendor stage removes it, so it never reaches the runtime image.
+# The documentation website is built and checked by its own workflow; the
+# image needs none of it (and its node_modules would bloat the context).
+website
