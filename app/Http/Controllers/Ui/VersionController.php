@@ -13,8 +13,9 @@ use Illuminate\Http\JsonResponse;
 
 /**
  * The running version, for the check an open tab makes now and then
- * (resources/js/lib/updates.svelte.ts). The answer carries it in the header
- * X-Tesserarr-Version as well, like every answer.
+ * (resources/js/lib/updates.svelte.ts). The answer carries the build in the
+ * header X-Tesserarr-Version, like every answer. Registered without the
+ * `web` group (App\Runtime\RoleBoot): it never touches a session.
  */
 final class VersionController extends Controller
 {

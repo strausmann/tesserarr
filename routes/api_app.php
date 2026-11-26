@@ -11,12 +11,9 @@ declare(strict_types=1);
 */
 
 use App\Http\Controllers\Ui\CollapsedSectionController;
-use App\Http\Controllers\Ui\VersionController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth')->group(function () {
     // ui.collapsed: whether the user collapsed a section (Collapsible.svelte).
     Route::put('me/ui/collapsed', CollapsedSectionController::class)->name('me.ui.collapsed');
-    // The running version, asked by an open tab now and then (lib/updates.svelte.ts).
-    Route::get('version', VersionController::class)->name('version');
 });

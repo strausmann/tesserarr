@@ -328,6 +328,7 @@ describe('asking the server', () => {
         await vi.advanceTimersByTimeAsync(1);
         expect(send).toHaveBeenCalledOnce();
         expect(send.mock.calls[0][0]).toBe(VERSION_URL);
+        expect(send.mock.calls[0][1]?.credentials).toBe('omit');
         expect(notice.state.version).toBe(SERVER);
 
         document.dispatchEvent(new Event('visibilitychange'));

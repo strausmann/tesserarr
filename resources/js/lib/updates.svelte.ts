@@ -227,7 +227,9 @@ export async function checkVersion(
         await appFetch(
             VERSION_URL,
             {
-                credentials: 'same-origin',
+                // No cookie: the check must not keep a sign-in alive. The
+                // route has no session on the server either.
+                credentials: 'omit',
                 headers: { Accept: 'application/json' },
             },
             target,

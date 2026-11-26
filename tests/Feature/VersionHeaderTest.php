@@ -90,8 +90,16 @@ it('names the commit as well, so two builds of the rolling tag dev differ', func
     $this->get('/login')->assertHeader(VERSION_HEADER, 'dev');
 });
 
-it('tells only a signed-in user the version through the session API', function () {
-    $this->getJson('/api/v1/app/version')
-        ->assertUnauthorized()
-        ->assertJsonMissingPath('version');
+it('answers the version check without a session, so it keeps no sign-in alive', function () {
+    // An unattended tab asks every five minutes; were the route in the `web`
+    // group, every check would renew the session and its cookie.
+    $response = $this->getJson('/api/v1/app/version')
+        ->assertOk()
+        ->assertExactJson(['version' => '1.2.3'])
+        ->assertHeader(VERSION_HEADER, '1.2.3')
+        ->assertCookieMissing((string) config('session.cookie'))
+        ->assertCookieMissing('XSRF-TOKEN');
+
+    expect($response->headers->getCookies())->toBe([])
+        ->and(app('router')->getRoutes()->getByName('app-api.version')?->gatherMiddleware())->toBe([]);
 });
