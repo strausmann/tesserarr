@@ -70,9 +70,9 @@ it('derives a username without @ from an email-shaped preferred_username of a pr
 
     $deriver = app(UsernameDeriver::class);
 
-    expect($deriver->derive('Bob@contoso.example'))->toBe('bob3')
-        ->and($deriver->derive('Kim.Lee@idp.example'))->toBe('kim.lee')
-        ->and($deriver->derive('a@b.example'))->toBe('a-user')
-        ->and($deriver->derive("Zo\u{0065}\u{0308}!#@x.example"))->toBe('zoë')
+    expect($deriver->derive('Bob@contoso.test'))->toBe('bob3')
+        ->and($deriver->derive('Kim.Lee@idp.test'))->toBe('kim.lee')
+        ->and($deriver->derive('a@b.test'))->toBe('a-user')
+        ->and($deriver->derive("Zo\u{0065}\u{0308}!#@x.test"))->toBe('zoë')
         ->and($deriver->derive('@@@'))->toBe('user');
 });
