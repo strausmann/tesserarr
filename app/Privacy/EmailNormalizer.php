@@ -45,6 +45,18 @@ final class EmailNormalizer
     /** Does $text contain something that looks like an address? */
     public static function containsAddress(string $text): bool
     {
-        return preg_match(self::PATTERN, $text) === 1;
+        return self::mayContainAddress($text) && preg_match(self::PATTERN, $text) === 1;
+    }
+
+    /** $text with every address replaced by $replacement. */
+    public static function redact(string $text, string $replacement = '[email]'): string
+    {
+        return self::mayContainAddress($text) ? (string) preg_replace(self::PATTERN, $replacement, $text) : $text;
+    }
+
+    /** No address without "@" or "%40": a long text of anything else never reaches the regex. */
+    private static function mayContainAddress(string $text): bool
+    {
+        return str_contains($text, '@') || stripos($text, '%40') !== false;
     }
 }

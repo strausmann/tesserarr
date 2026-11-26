@@ -23,7 +23,10 @@ use Spatie\Permission\Models\Role;
  *
  * A context value (or key) that looks like an e-mail address stops it with
  * PiiInAuditContext (task 8a): people are named by id, and the names are
- * looked up when the log is shown (AuditPresenter).
+ * looked up when the log is shown (AuditPresenter). Role names are labels an
+ * operator chose and may look like an address ("ops@example.org"): under
+ * the keys of OPERATOR_LABELS such a part is written as "[email]" instead,
+ * so the role stays manageable.
  */
 final class AuditLogger
 {
@@ -46,6 +49,9 @@ final class AuditLogger
         'sessionid',
     ];
 
+    /** Top-level context keys that carry a role name, or a list of them. */
+    private const OPERATOR_LABELS = ['role', 'previous'];
+
     /**
      * @param  array<string, mixed>  $context
      *
@@ -55,6 +61,13 @@ final class AuditLogger
     public function record(AuditAction $action, Actor $actor, ?Model $subject = null, array $context = [], AuditOutcome $outcome = AuditOutcome::Done): AuditEntry
     {
         self::assertNoSecretKeys($context);
+        foreach (self::OPERATOR_LABELS as $key) {
+            if (is_string($context[$key] ?? null)) {
+                $context[$key] = EmailNormalizer::redact($context[$key]);
+            } elseif (is_array($context[$key] ?? null)) {
+                $context[$key] = array_map(fn ($name) => is_string($name) ? EmailNormalizer::redact($name) : $name, $context[$key]);
+            }
+        }
         self::assertNoAddresses($context);
 
         return AuditEntry::query()->create([

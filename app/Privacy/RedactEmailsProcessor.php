@@ -69,13 +69,7 @@ final class RedactEmailsProcessor implements ProcessorInterface
 
     private static function text(string $text): string
     {
-        // No address without "@" or "%40": a long line of anything else
-        // never reaches the regex.
-        if (! str_contains($text, '@') && stripos($text, '%40') === false) {
-            return $text;
-        }
-
-        return (string) preg_replace(EmailNormalizer::PATTERN, self::REPLACEMENT, $text);
+        return EmailNormalizer::redact($text, self::REPLACEMENT);
     }
 
     /** @return array<string, mixed> */

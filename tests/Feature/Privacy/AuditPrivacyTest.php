@@ -11,8 +11,10 @@ use App\Audit\AuditEntry;
 use App\Audit\AuditLogger;
 use App\Audit\PiiInAuditContext;
 use App\Audit\SecretInAuditContext;
+use App\Authorization\Roles;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
+use Spatie\Permission\Models\Role;
 
 /*
 | The audit log names people by id (task 8a): an address in the context is
@@ -58,4 +60,25 @@ it('resolves actor and subject ids to usernames when the audit log is shown', fu
         ->where('entries.0.subject', 'Alice B.'));
     $this->actingAs($operator)->get("/users/{$alice->id}")->assertInertia(fn (Assert $page) => $page
         ->where('entries.0.who', 'olga')->where('entries.0.subject', 'Alice B.'));
+});
+
+it('keeps a role whose name looks like an address manageable and writes the name redacted', function () {
+    $operator = User::factory()->operator()->create();
+    $member = User::factory()->withRole(Roles::USER)->create();
+    $name = 'ops@example.org';
+
+    $this->actingAs($operator)->post('/roles', ['name' => $name, 'permissions' => ['audit.view']])->assertRedirect();
+    $role = Role::findByName($name, Roles::GUARD);
+    $this->actingAs($operator)->put('/roles/'.$role->id, ['permissions' => ['audit.view', 'catalog.browse']])->assertRedirect();
+    $this->actingAs($operator)->put("/users/{$member->id}/role", ['role' => $name])->assertRedirect();
+    $this->actingAs($operator)->put("/users/{$member->id}/role", ['role' => Roles::USER])->assertRedirect();
+    $this->actingAs($operator)->delete('/roles/'.$role->id)->assertRedirect('/roles');
+
+    $contexts = AuditEntry::query()->whereIn('action', [
+        AuditAction::RoleCreated->value, AuditAction::RoleChanged->value, AuditAction::RoleAssigned->value, AuditAction::RoleDeleted->value,
+    ])->pluck('context')->map(fn ($context) => json_encode($context))->implode("\n");
+
+    expect($contexts)->not->toContain('example.org')
+        ->and($contexts)->toContain('"role":"[email]"')
+        ->and($contexts)->toContain('"previous":["[email]"]');
 });
