@@ -362,17 +362,42 @@ keyboard in two ways: Chromium resizes the layout viewport (`interactive-widget=
 `window.visualViewport`. A layout that works in one can fail in the other. These rules apply to every interface with an
 input:
 
-- Every field goes through `resources/js/components/ui/Field.svelte`, with the fixed set of attributes for its purpose
-  (`type`, `inputmode`, `autocomplete`, `autocapitalize`, `enterkeyhint`). Do not set them by hand on a bare `<input>`.
-- Every dialog goes through `resources/js/components/ui/Dialog.svelte`.
+- Every field goes through `resources/js/components/ui/Field.svelte` with a `purpose` (`search`, `name`, `username`,
+  `email`, `password`, `new-password`, `one-time-code`, `url`, `api-key`, `number`). The purpose sets `type`,
+  `inputmode`, `autocomplete`, `autocapitalize`, `autocorrect` and `spellcheck` from the table in
+  `resources/js/lib/fields.ts`; `enterkeyhint` follows the field's place in its form (`next`, then `go` or `done`,
+  always `search` on a search), and Enter moves to the next field. Do not set them by hand on a bare `<input>`. An error
+  goes into the field's `error`, which sets `aria-invalid` and `aria-describedby`; after a failed submit,
+  `focusFirstInvalid()` moves the focus to the first one.
+- Every dialog, the phone menu included, goes through `resources/js/components/ui/Dialog.svelte`: the layer covers the
+  visible area, the frame sits at the top on a short screen and scrolls inside, the focus stays inside, Escape and a tap
+  beside it close it (a child that handles Escape first calls `preventDefault`), and the focus goes back to the opener.
+- A search on a phone is `resources/js/components/ui/SearchDialog.svelte`: 250 ms after the last keystroke, stale answers
+  dropped, Escape closes the list first and then the dialog.
 - Anything fixed or sized to the screen uses `var(--vvh)`, the visible height published by `resources/js/lib/viewport.ts`,
   never `vh`, `dvh` or `window.innerHeight`.
 - Text in fields is at least 16 px, so iOS does not zoom the page.
 - A clear button (the small cross) appears only while the field has a value, is 44 px square and keeps the focus in the
   field.
+- A list next to a field (a combobox, a popover) measures its room with `listRoom()` from `lib/viewport.ts` each time
+  it opens and flips above the field when the keyboard leaves too little below.
 - Every interface with an input gets a case in `e2e/keyboard.spec.ts`, in both modes: `resized` (layout viewport shrinks)
   and `covered` (the keyboard only covers the visual viewport). The case asserts that the field, its first option and
   the main buttons lie inside the visible area.
+
+### Web UI: language, sections and empty views
+
+- **Two languages.** Every text of the interface is a key in `lang/en.json` and `lang/de.json`, read with `t(key,
+  params)` from `resources/js/lib/i18n.ts` (placeholders `:name`). Both files hold the same keys and placeholders; a
+  test fails otherwise. The server picks the language per request (`App\Http\Middleware\SetLocale`: the profile, then
+  `Accept-Language`, then English) and sends it as the Inertia props `locale` and `translations`.
+- **Collapsible sections** use `resources/js/components/ui/Collapsible.svelte` with a key from
+  `App\Http\Ui\CollapsibleSection`; the server stores the state per user (`ui.collapsed`) and refuses other keys. A
+  new collapsible section adds its case there.
+- **Empty views** show `resources/js/components/EmptyState.svelte`: one sentence of what is missing, and the action that
+  fixes it where there is one.
+- **Navigation** is `resources/js/lib/navigation.ts`, separately for a friend and for the operator; the server says
+  which one a user gets (`App\Http\Ui\Audience`).
 
 ### Browser tests
 
