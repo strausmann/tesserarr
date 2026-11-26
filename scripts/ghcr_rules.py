@@ -14,6 +14,7 @@ CLI (tags are read from stdin, one per line):
     python3 scripts/ghcr_rules.py fetch-tags            # env: ACTOR, GHCR_TOKEN, IMAGE_PATH
     python3 scripts/ghcr_rules.py keep-regex
     python3 scripts/ghcr_rules.py next-preview <version-or-milestone>
+    python3 scripts/ghcr_rules.py preview-plan <ref-or-version> [--skip-released]   # GITHUB_OUTPUT lines
     python3 scripts/ghcr_rules.py released               # the x.y.z tags among stdin
     python3 scripts/ghcr_rules.py select-deletions --released <file>
     python3 scripts/ghcr_rules.py dockerhub-tags        # env: DOCKERHUB_ADMIN_USERNAME (login), DOCKERHUB_TOKEN_ADMIN, HUB_NAMESPACE, HUB_REPOSITORY
@@ -55,13 +56,16 @@ BASE_KEEP = "|".join(
 _NUM = r"(?:0|[1-9][0-9]*)"
 _RELEASE = re.compile(rf"^({_NUM})\.({_NUM})\.({_NUM})$")
 _PREVIEW = re.compile(rf"^(({_NUM})\.({_NUM})\.({_NUM}))-rc\.([0-9]+)$")
+# The rolling tag of a milestone: x.y.z-preview moves with every push to the
+# milestone branch (preview-image.yml) and is open while x.y.z does not exist.
+_PREVIEW_ROLLING = re.compile(rf"^(({_NUM})\.({_NUM})\.({_NUM}))-preview$")
 _PATCH_MILESTONE = re.compile(rf"^({_NUM})\.({_NUM})\.x$")
 # Tags the retention rule knows. Anything else is foreign: GHCR's cleanup
 # action deletes it (every tag is a candidate there), the Docker Hub job only
 # reports it and leaves the decision to a maintainer. One exception on GHCR:
 # cosign signature tags `sha256-<digest>` are foreign here, but the action keeps
 # them as children of their image and removes them only together with it.
-_KNOWN = re.compile(rf"^(dev|latest|{_NUM}|{_NUM}\.{_NUM}|{_NUM}\.{_NUM}\.{_NUM}(-rc\.[0-9]+)?)$")
+_KNOWN = re.compile(rf"^(dev|latest|{_NUM}|{_NUM}\.{_NUM}|{_NUM}\.{_NUM}\.{_NUM}(-rc\.[0-9]+|-preview)?)$")
 # A Docker tag (the registry's own grammar); used before a tag goes into a URL.
 _DOCKER_TAG = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\Z")
 
@@ -80,7 +84,8 @@ MAX_REGEX_LENGTH = 1000
 def keep_regex(tags: list[str]) -> str:
     """Return the exclude-tags regex: base rule plus every open preview.
 
-    A preview x.y.z-rc.N is open while the release x.y.z is not among the tags.
+    A preview x.y.z-rc.N, or the rolling x.y.z-preview, is open while the
+    release x.y.z is not among the tags.
     Previews are matched per open version (``(x.y.z|...)-rc.N`` with one shared suffix), not per
     tag, so the pattern grows with the number of open versions, not with the
     number of preview builds. Raises ValueError if it still exceeds the length
@@ -89,16 +94,17 @@ def keep_regex(tags: list[str]) -> str:
     present = set(tags)
     open_versions: list[str] = []
     for tag in tags:
-        match = _PREVIEW.match(tag)
+        match = _PREVIEW.match(tag) or _PREVIEW_ROLLING.match(tag)
         if match is None or match.group(1) in present or match.group(1) in open_versions:
             continue
         open_versions.append(match.group(1))
-    # One shared "-rc.N" suffix: the validator caps the number of repetitions
-    # (25), so a repetition per open version would fail after a few of them.
+    # One shared "-rc.N" / "-preview" suffix: the validator caps the number of
+    # repetitions (25), so a repetition per open version would fail after a few
+    # of them. The alternation is not repeated, so the pattern stays flat.
     suffix = ""
     if open_versions:
         alternatives = "|".join(re.escape(v) for v in sorted(open_versions))
-        suffix = f"|({alternatives})-rc\\.[0-9]+"
+        suffix = f"|({alternatives})-(rc\\.[0-9]+|preview)"
     pattern = f"^({BASE_KEEP}{suffix})$"
     if len(pattern) > MAX_REGEX_LENGTH:
         raise ValueError(
@@ -135,6 +141,33 @@ def next_preview_tag(version_or_milestone: str, tags: list[str], released: list[
         )
     numbers = [int(m.group(5)) for t in tags if (m := _PREVIEW.match(t)) and m.group(1) == version]
     return f"{version}-rc.{max(numbers, default=0) + 1}"
+
+
+def milestone_version(ref: str) -> str:
+    """The version a milestone branch leads to: ``refs/heads/milestone/0.1.0`` -> ``0.1.0``.
+
+    ``milestone/1.5.x`` -> ``1.5.x`` (next free patch). A plain version passes
+    through. Raises ValueError for anything else.
+    """
+    version = ref.removeprefix("refs/heads/").removeprefix("milestone/")
+    if _RELEASE.match(version) or _PATCH_MILESTONE.match(version):
+        return version
+    raise ValueError(f"'{ref}' is not a milestone branch or version (milestone/x.y.z or milestone/x.y.x)")
+
+
+def preview_plan(ref_or_version: str, tags: list[str], skip_released: bool = False) -> dict[str, str]:
+    """Plan one preview build: the next rc tag and the rolling ``x.y.z-preview`` tag.
+
+    With ``skip_released`` a milestone whose release exists yields ``{"skip": "true"}``
+    instead of an error (a push to a milestone branch after its release is no
+    failure, there is just nothing to preview).
+    """
+    version = milestone_version(ref_or_version)
+    released = released_versions(tags)
+    if skip_released and version in released:
+        return {"skip": "true", "reason": f"{version} is already released"}
+    tag = next_preview_tag(version, tags, released)
+    return {"skip": "false", "tag": tag, "rolling": f"{tag.split('-rc.')[0]}-preview"}
 
 
 def released_versions(tags: list[str]) -> list[str]:
@@ -326,6 +359,14 @@ def main(argv: list[str], stdin: Any = None, stdout: Any = None) -> int:
         except ValueError as err:
             print(f"::error::{err}", file=sys.stderr)
             return 1
+        return 0
+    if len(argv) in (2, 3) and argv[0] == "preview-plan" and argv[2:] in ([], ["--skip-released"]):
+        try:
+            plan = preview_plan(argv[1], _read_tags(stdin), skip_released=bool(argv[2:]))
+        except ValueError as err:
+            print(f"::error::{err}", file=sys.stderr)
+            return 1
+        stdout.write("".join(f"{k}={v}\n" for k, v in plan.items()))
         return 0
     if argv == ["released"]:
         stdout.write("".join(f"{t}\n" for t in dict.fromkeys(released_versions(_read_tags(stdin)))))
