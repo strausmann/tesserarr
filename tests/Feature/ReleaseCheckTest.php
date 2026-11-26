@@ -49,6 +49,7 @@ it('stores the newest release and tells the operator when it is newer', function
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
     expect(releaseProp($this, User::factory()->create()))->toMatchArray([
+        'status' => 'known',
         'latest' => '0.2.0',
         'newer' => true,
         'url' => 'https://github.com/strausmann/tesserarr/releases/tag/v0.2.0',
@@ -127,11 +128,12 @@ it('stores nothing for a tag that is not a plain version', function (mixed $tag)
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
     expect(Cache::get(ReleaseCheck::CACHE_KEY))->toBeNull()
-        ->and(releaseProp($this, User::factory()->create()))->toBeNull();
+        ->and(releaseProp($this, User::factory()->create()))->toBe(['status' => 'unknown']);
 })->with([
     'markup' => '<img src=x onerror=alert(1)>',
     'a prerelease' => 'v0.2.0-rc.1',
     'trailing text' => 'v0.2.0"><script>',
+    'a trailing newline' => "v0.2.0\n",
     'no version' => 'latest',
     'not a string' => [['v0.2.0']],
 ]);
@@ -152,7 +154,23 @@ it('asks no one when the check is switched off', function () {
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
     Http::assertNothingSent();
-    expect(releaseProp($this, User::factory()->create()))->toBeNull();
+    expect(releaseProp($this, User::factory()->create()))->toBe(['status' => 'off']);
+});
+
+it('is off by default: no request leaves the instance and About says so', function () {
+    Http::fake([RELEASE_URL => Http::response(['tag_name' => 'v0.2.0'])]);
+    // The shipped configuration, without TESSERARR_RELEASE_CHECK set.
+    config(['tesserarr.release_check' => (require base_path('config/tesserarr.php'))['release_check']]);
+
+    expect(config('tesserarr.release_check.enabled'))->toBeFalse();
+    $this->artisan('tesserarr:release-check')
+        ->expectsOutputToContain('TESSERARR_RELEASE_CHECK=true')
+        ->assertSuccessful();
+    app(ReleaseCheck::class)->refresh();
+
+    Http::assertNothingSent();
+    expect(releaseProp($this, User::factory()->create()))->toBe(['status' => 'off'])
+        ->and((string) file_get_contents(base_path('.env.example')))->toContain("TESSERARR_RELEASE_CHECK=false\n");
 });
 
 it('asks no one when switched off, also when called directly', function () {
@@ -177,8 +195,12 @@ it('gives up on a server that does not answer', function () {
     $took = microtime(true) - $started;
     fclose($server);
 
+    // Relative to the configured timeout, not an absolute limit: it waited
+    // for the timeout (so the socket really held it) and gave up within a
+    // few times of it, far below Guzzle's own 30 s.
     expect($release)->toBeNull()
-        ->and($took)->toBeLessThan(3.0);
+        ->and($took)->toBeGreaterThanOrEqual(0.9)
+        ->and($took)->toBeLessThan(1 * 5);
 });
 
 it('checks every six hours, from the scheduler only', function () {
@@ -186,7 +208,29 @@ it('checks every six hours, from the scheduler only', function () {
         ->filter(fn ($event) => str_contains((string) $event->command, 'tesserarr:release-check'));
 
     expect($events)->toHaveCount(1)
-        ->and($events->first()->expression)->toBe('0 */6 * * *');
+        ->and($events->first()->expression)->toBe('0 */6 * * *')
+        ->and($events->first()->withoutOverlapping)->toBeTrue()
+        ->and($events->first()->expiresAt)->toBe(10);
+});
+
+it('refuses an answer larger than 64 KiB', function () {
+    $padding = str_repeat('x', ReleaseCheck::MAX_BODY_BYTES);
+    Http::fake([RELEASE_URL => Http::response(['tag_name' => 'v0.2.0', 'body' => $padding])]);
+
+    $this->artisan('tesserarr:release-check')->assertSuccessful();
+
+    expect(Cache::get(ReleaseCheck::CACHE_KEY))->toBeNull()
+        ->and(ReleaseCheck::MAX_BODY_BYTES)->toBe(64 * 1024);
+});
+
+it('reads an answer just below the limit', function () {
+    $json = json_encode(['tag_name' => 'v0.2.0', 'body' => ''], JSON_THROW_ON_ERROR);
+    $padding = str_repeat('x', ReleaseCheck::MAX_BODY_BYTES - strlen($json));
+    Http::fake([RELEASE_URL => Http::response(['tag_name' => 'v0.2.0', 'body' => $padding])]);
+
+    $this->artisan('tesserarr:release-check')->assertSuccessful();
+
+    expect(Cache::get(ReleaseCheck::CACHE_KEY)['version'] ?? null)->toBe('0.2.0');
 });
 
 it('does not stop the command when the connection fails', function () {

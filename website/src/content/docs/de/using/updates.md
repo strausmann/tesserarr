@@ -25,14 +25,26 @@ Neuladen, und eine noch neuere Version öffnet den Hinweis wieder.
 Ein offener Tab fragt den Server alle fünf Minuten nach seiner Version, außerdem wenn du zum Tab zurückkehrst und wenn
 das Netz wieder da ist. Die nächste Seite, die du nach einer Aktualisierung öffnest, lädt die neue Version ohnehin.
 
-## Neuere Versionen (Betreiber)
+## Neuere Versionen (Betreiber, nur auf Wunsch)
 
-Unter **Über Tesserarr** sieht der Betreiber zusätzlich, ob eine neuere Version erschienen ist. Der Scheduler fragt alle
-sechs Stunden die GitHub-Releases von Tesserarr nach dem neuesten Release, das keine Vorabversion ist. Die Anfrage
-enthält kein Token, kein Cookie, keine Adresse und keine Version deiner Installation, nur den Namen `Tesserarr` als
-User-Agent, und gibt nach fünf Sekunden auf. Ohne Netz bleibt die letzte bekannte Antwort stehen; in der Oberfläche
-schlägt nichts fehl. Von der Antwort wird nur die Versionsnummer verwendet.
+Tesserarr kann dem Betreiber unter **Über Tesserarr** anzeigen, ob eine neuere Version erschienen ist. Die Prüfung ist
+**standardmäßig ausgeschaltet**: Solange sie aus ist, verlässt nichts deine Instanz, und der Dialog sagt, dass die
+Prüfung ausgeschaltet ist.
 
-Ausschalten lässt sich die Prüfung mit `TESSERARR_RELEASE_CHECK=false` (siehe
-[Konfiguration](/tesserarr/de/install/configuration/)). Tesserarr sendet und zeigt dann nichts zu Releases.
-`artisan tesserarr:release-check` führt die Prüfung einmal von Hand aus.
+Einschalten lässt sie sich mit `TESSERARR_RELEASE_CHECK=true` (siehe
+[Konfiguration](/tesserarr/de/install/configuration/)). Dann fragt der Scheduler der Zentrale alle sechs Stunden die
+GitHub-Releases von Tesserarr nach dem neuesten Release, das keine Vorabversion ist. Ein Satellit fragt nie.
+
+- **Was gesendet wird:** eine einfache `GET`-Anfrage mit dem User-Agent `Tesserarr`. Kein Token, kein Cookie, keine
+  Adresse und keine Version deiner Installation.
+- **Was verwendet wird:** nur die Versionsnummer der Antwort, und von der Antwort werden höchstens 64 KiB gelesen. Name,
+  Text und Verweise des Releases werden ignoriert; den Verweis im Dialog baut Tesserarr selbst.
+- **Ohne Netz:** Die Anfrage gibt nach fünf Sekunden auf, die letzte bekannte Antwort bleibt stehen, und in der
+  Oberfläche schlägt nichts fehl.
+
+Die erste Antwort kommt mit dem nächsten Lauf des Schedulers, das kann bis zu sechs Stunden nach dem Einschalten
+dauern. Wer sie sofort haben will, führt die Prüfung einmal von Hand aus:
+
+```bash
+artisan tesserarr:release-check
+```

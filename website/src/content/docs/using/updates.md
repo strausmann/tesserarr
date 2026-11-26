@@ -23,14 +23,25 @@ notice again.
 An open tab asks the server for its version every five minutes, when you come back to the tab and when the network is
 back. The next page you open after an update loads the new version anyway.
 
-## Newer releases (operator)
+## Newer releases (operator, opt-in)
 
-Under **About Tesserarr** the operator also sees whether a newer release has been published. The scheduler asks the
-GitHub releases of Tesserarr every six hours for the newest release that is not a prerelease. The request carries no
-token, no cookie, no address and no version of your installation, only the name `Tesserarr` as the user agent, and gives
-up after five seconds. Without a network the last known answer stays; nothing in the interface fails. Only the version
-number of the answer is used.
+Tesserarr can tell the operator under **About Tesserarr** whether a newer release has been published. The check is
+**off by default**: as long as it is off, nothing leaves your instance, and the dialog says that the check is off.
 
-To switch the check off, set `TESSERARR_RELEASE_CHECK=false` (see
-[configuration](/tesserarr/install/configuration/)). Tesserarr then sends nothing and shows nothing about releases.
-`artisan tesserarr:release-check` runs the check once by hand.
+To switch it on, set `TESSERARR_RELEASE_CHECK=true` (see [configuration](/tesserarr/install/configuration/)). The
+scheduler of the central instance then asks the GitHub releases of Tesserarr every six hours for the newest release
+that is not a prerelease. A satellite never asks.
+
+- **What is sent:** a plain `GET` request with the user agent `Tesserarr`. No token, no cookie, no address and no version
+  of your installation.
+- **What is used:** only the version number of the answer, and at most 64 KiB of it are read. Name, text and links of
+  the release are ignored; the link in the dialog is built by Tesserarr.
+- **Without a network:** the request gives up after five seconds, the last known answer stays, and nothing in the
+  interface fails.
+
+The first answer comes with the next run of the scheduler, which can be up to six hours after the switch. To have it at
+once, run the check one time by hand:
+
+```bash
+artisan tesserarr:release-check
+```

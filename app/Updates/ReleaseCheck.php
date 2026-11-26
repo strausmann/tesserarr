@@ -14,13 +14,16 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Whether a newer release of Tesserarr has been published.
+ * Whether a newer release of Tesserarr has been published. Opt-in
+ * (`TESSERARR_RELEASE_CHECK=true`); off, nothing is sent.
  *
  * `refresh()` asks the GitHub releases API for the newest release that is
  * neither a draft nor a prerelease (`/releases/latest`), once per run of
- * `artisan tesserarr:release-check` (scheduled every six hours). The request
+ * `artisan tesserarr:release-check` (scheduled every six hours on the central
+ * instance). The request
  * carries no token, cookie, address or version of this installation, only
- * the User-Agent GitHub requires, and gives up after the configured timeout.
+ * the User-Agent GitHub requires, gives up after the configured timeout and
+ * reads at most MAX_BODY_BYTES of the answer.
  * The answer is trusted for one thing only: a tag of the form vX.Y.Z. Name,
  * text and links of the release are never read, the link the interface shows
  * is built here from the checked number.
@@ -34,7 +37,11 @@ final class ReleaseCheck
 {
     public const CACHE_KEY = 'tesserarr.release.latest';
 
-    private const TAG = '/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/';
+    // \z, not $: `$` also matches before a final newline ("v0.2.0\n").
+    private const TAG = '/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\z/';
+
+    /** The most of an answer that is read; a release answer is a few KiB. */
+    public const MAX_BODY_BYTES = 65_536;
 
     public function __construct(
         private readonly Http $http,
@@ -43,7 +50,7 @@ final class ReleaseCheck
 
     public function enabled(): bool
     {
-        return (bool) config('tesserarr.release_check.enabled', true);
+        return (bool) config('tesserarr.release_check.enabled', false);
     }
 
     /**
@@ -70,27 +77,29 @@ final class ReleaseCheck
     }
 
     /**
-     * What the interface shows under "About": the newest release, whether it
-     * is newer than the running version, and its release page. Null when the
-     * check is off or has never succeeded.
+     * What the interface shows under "About": `off` while the check is
+     * switched off (the default), `unknown` until a check has succeeded,
+     * otherwise the newest release, whether it is newer than the running
+     * version, and its release page.
      *
-     * @return array{latest: string, newer: bool, url: string, checkedAt: string}|null
+     * @return array{status: 'off'}|array{status: 'unknown'}|array{status: 'known', latest: string, newer: bool, url: string, checkedAt: string}
      */
-    public function latest(): ?array
+    public function latest(): array
     {
         if (! $this->enabled()) {
-            return null;
+            return ['status' => 'off'];
         }
 
         $stored = $this->cache->get(self::CACHE_KEY);
 
         if (! is_array($stored) || ! is_string($stored['version'] ?? null) || ! self::plain($stored['version'])) {
-            return null;
+            return ['status' => 'unknown'];
         }
 
         $version = $stored['version'];
 
         return [
+            'status' => 'known',
             'latest' => $version,
             'newer' => version_compare($version, AddVersionHeader::running(), '>'),
             'url' => (string) config('tesserarr.release_check.releases').'v'.$version,
@@ -112,20 +121,37 @@ final class ReleaseCheck
                 ->connectTimeout($timeout)
                 ->timeout($timeout)
                 ->withoutRedirecting()
+                // Read the body in pieces, at most MAX_BODY_BYTES (+1 to
+                // notice more): a mirror or a broken proxy cannot make the
+                // scheduler load an answer of any size.
+                ->withOptions(['stream' => true])
                 ->get((string) config('tesserarr.release_check.url'));
+
+            if (! $response->successful()) {
+                Log::info('release check: GitHub answered with an error', ['status' => $response->status()]);
+
+                return null;
+            }
+
+            $body = $response->toPsrResponse()->getBody();
+            $data = '';
+            while (! $body->eof() && strlen($data) <= self::MAX_BODY_BYTES) {
+                $data .= $body->read(8192);
+            }
+            $body->close();
         } catch (Throwable $e) {
             Log::info('release check: GitHub not reachable', ['reason' => $e::class]);
 
             return null;
         }
 
-        if (! $response->successful()) {
-            Log::info('release check: GitHub answered with an error', ['status' => $response->status()]);
+        if (strlen($data) > self::MAX_BODY_BYTES) {
+            Log::info('release check: the answer is too large');
 
             return null;
         }
 
-        $release = $response->json();
+        $release = json_decode($data, true);
         $tag = is_array($release) ? ($release['tag_name'] ?? null) : null;
 
         if (! is_string($tag) || ! self::plain($tag) || ($release['draft'] ?? false) === true || ($release['prerelease'] ?? false) === true) {

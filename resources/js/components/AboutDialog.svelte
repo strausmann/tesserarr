@@ -18,7 +18,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
      * the update notice says why. The release number came from GitHub and is
      * only ever shown as text; the link is built by the server.
      */
-    type Release = { latest: string; newer: boolean; url: string } | null;
+    type Release =
+        | { status: 'off' }
+        | { status: 'unknown' }
+        | { status: 'known'; latest: string; newer: boolean; url: string }
+        | null;
 
     let {
         open = $bindable(false),
@@ -59,7 +63,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             <dd data-testid="about-release">
                 {#if loading && !release}
                     {t('about.release.checking')}
-                {:else if release && release.newer}
+                {:else if release?.status === 'off'}
+                    {t('about.release.off')}
+                {:else if release?.status === 'known' && release.newer}
                     {t('about.release.newer', { version: release.latest })}
                     <a
                         href={release.url}
@@ -67,7 +73,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                         target="_blank"
                         rel="noopener noreferrer">{t('about.release.notes')}</a
                     >
-                {:else if release}
+                {:else if release?.status === 'known'}
                     {t('about.release.current')}
                 {:else}
                     {t('about.release.unknown')}

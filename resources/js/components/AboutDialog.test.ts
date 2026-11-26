@@ -22,6 +22,7 @@ const translations = {
     'about.release.notes': 'Release notes',
     'about.release.current': 'This is the newest release.',
     'about.release.unknown': 'Not known.',
+    'about.release.off': 'The check is off.',
     'about.licence': 'Licence',
     'about.licence.name': 'AGPL-3.0-or-later.',
     'about.source': 'Source code',
@@ -90,6 +91,7 @@ describe('AboutDialog', () => {
         await open({
             audience: 'operator',
             release: {
+                status: 'known',
                 latest: '0.2.0<b>',
                 newer: true,
                 url: 'https://github.com/strausmann/tesserarr/releases/tag/v0.2.0',
@@ -108,7 +110,12 @@ describe('AboutDialog', () => {
     it('says when the running version is the newest or nothing is known', async () => {
         await open({
             audience: 'operator',
-            release: { latest: '0.1.0', newer: false, url: '' },
+            release: {
+                status: 'known',
+                latest: '0.1.0',
+                newer: false,
+                url: '',
+            },
         });
         expect(release()?.textContent).toContain('This is the newest release.');
         void unmount(app!);
@@ -116,8 +123,18 @@ describe('AboutDialog', () => {
         const done = inertia.router.reload.mockImplementation(
             (options: { onFinish?: () => void }) => options.onFinish?.(),
         );
-        await open({ audience: 'operator', release: null });
+        await open({ audience: 'operator', release: { status: 'unknown' } });
         expect(done).toHaveBeenCalled();
         expect(release()?.textContent).toContain('Not known.');
+    });
+
+    it('says plainly that the check is off', async () => {
+        inertia.router.reload.mockImplementation(
+            (options: { onFinish?: () => void }) => options.onFinish?.(),
+        );
+        await open({ audience: 'operator', release: { status: 'off' } });
+
+        expect(release()?.textContent?.trim()).toBe('The check is off.');
+        expect(release()?.querySelector('a')).toBeNull();
     });
 });

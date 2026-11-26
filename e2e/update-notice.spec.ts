@@ -225,9 +225,11 @@ test.describe('update notice', () => {
             ],
             states: ['filled'],
         });
-        // No network in the browser tests: the check of the e2e stack never
-        // reached GitHub, so nothing is known about a newer release.
-        await expect(about).toContainText('Nicht bekannt');
+        // The release check is off by default: About says so, and the e2e
+        // stack never sends anything to GitHub.
+        await expect(about).toContainText(
+            'Die Prüfung auf neuere Versionen ist ausgeschaltet.',
+        );
         await page.keyboard.press('Escape');
         await expect(about).toHaveCount(0);
         await expect(foot).toBeFocused();

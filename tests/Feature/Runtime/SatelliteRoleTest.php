@@ -6,6 +6,7 @@
 declare(strict_types=1);
 
 use App\Runtime\SatelliteHasNoDatabase;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\EnvSnapshot;
@@ -47,4 +48,11 @@ it('answers 200 on /up without a database', function () {
 
 it('answers 404 on the central login page', function () {
     $this->get('/login')->assertNotFound();
+});
+
+it('schedules no release check', function () {
+    $commands = collect(app(Schedule::class)->events())
+        ->map(fn ($event) => (string) $event->command);
+
+    expect($commands->filter(fn (string $command) => str_contains($command, 'tesserarr:release-check')))->toBeEmpty();
 });

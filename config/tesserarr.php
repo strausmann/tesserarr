@@ -41,16 +41,16 @@ return [
     ],
 
     /*
-    | Whether a newer release of Tesserarr has been published. The scheduler
-    | asks GitHub every six hours (artisan tesserarr:release-check) without a
-    | token, cookie or anything about this installation, and keeps the last
-    | answer; pages only read it, and the operator sees it under "About".
-    | TESSERARR_RELEASE_CHECK=false switches it off: nothing is sent and
-    | nothing is shown. The timeout is in seconds.
+    | Whether a newer release of Tesserarr has been published. Off unless
+    | TESSERARR_RELEASE_CHECK=true: then the scheduler of the central instance
+    | asks GitHub every six hours (artisan tesserarr:release-check) with
+    | nothing but the User-Agent "Tesserarr", and keeps the last answer; pages
+    | only read it, and the operator sees it under "About". Off, nothing is
+    | sent. The timeout is in seconds.
     */
 
     'release_check' => [
-        'enabled' => (bool) env('TESSERARR_RELEASE_CHECK', true),
+        'enabled' => (bool) env('TESSERARR_RELEASE_CHECK', false),
         'url' => env('TESSERARR_RELEASE_CHECK_URL', 'https://api.github.com/repos/strausmann/tesserarr/releases/latest'),
         'timeout' => (int) env('TESSERARR_RELEASE_CHECK_TIMEOUT', 5),
         'releases' => 'https://github.com/strausmann/tesserarr/releases/tag/',

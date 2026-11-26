@@ -24,7 +24,7 @@ final class ReleaseCheckCommand extends Command
     public function handle(ReleaseCheck $check): int
     {
         if (! $check->enabled()) {
-            $this->info('The release check is switched off (TESSERARR_RELEASE_CHECK=false).');
+            $this->info('The release check is off; set TESSERARR_RELEASE_CHECK=true to switch it on.');
 
             return self::SUCCESS;
         }
