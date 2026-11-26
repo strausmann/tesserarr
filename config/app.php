@@ -24,6 +24,11 @@ return [
 
     'version' => env('TESSERARR_VERSION', '0.0.0-dev'),
 
+    // The commit the image was built from (build argument REVISION). Together
+    // with the version it names the build (AddVersionHeader::build()), so two
+    // builds under the rolling tag `dev` still differ.
+    'revision' => env('TESSERARR_REVISION', 'unknown'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

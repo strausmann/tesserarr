@@ -397,12 +397,192 @@
         cursor: pointer;
     }
 
+    /* Opens "About and licences"; underlined like the canvas link. */
     .tr-nav-version {
         display: flex;
         align-items: center;
         min-height: 44px;
         margin: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        font: inherit;
         color: var(--tr-ink-2);
+        text-align: start;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        overflow-wrap: anywhere;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    /* "Version X ready" in the foot of the navigation (UpdateNotice, box). */
+    .tr-update-box {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px;
+        border: 1px solid var(--tr-accent);
+        border-radius: var(--tr-r-3);
+        background: var(--tr-accent-soft);
+    }
+
+    .tr-update-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-weight: var(--tr-weight-bold);
+        color: var(--tr-ink);
+    }
+
+    .tr-update-hint {
+        margin: 0;
+        font-size: var(--tr-text-small);
+        line-height: 1.4;
+        color: var(--tr-ink-2);
+    }
+
+    .tr-update-reload,
+    .tr-update-later {
+        min-height: 44px;
+        padding: 0 16px;
+        border: 0;
+        border-radius: var(--tr-r-2);
+        font: inherit;
+        font-size: var(--tr-text-small);
+        font-weight: var(--tr-weight-bold);
+        cursor: pointer;
+        touch-action: manipulation;
+        user-select: none;
+        -webkit-user-select: none;
+        transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .tr-update-reload:active,
+    .tr-update-later:active {
+        transform: scale(0.97);
+    }
+
+    .tr-update-reload {
+        background: var(--tr-accent);
+        color: var(--tr-accent-ink);
+    }
+
+    .tr-update-reload--box {
+        width: 100%;
+        background: var(--tr-ink);
+        color: var(--tr-bg);
+    }
+
+    .tr-update-later {
+        padding: 0 12px;
+        background: transparent;
+        color: inherit;
+        font-weight: var(--tr-weight-regular);
+    }
+
+    /* "New version available" at the bottom (UpdateNotice, toast): dark in
+       the light theme, sunken in the dark one (Dashboard.dc.html). */
+    .tr-update-toast {
+        position: fixed;
+        z-index: 30;
+        inset-inline-end: max(16px, env(safe-area-inset-right, 0px));
+        bottom: max(16px, env(safe-area-inset-bottom, 0px));
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 16px;
+        box-sizing: border-box;
+        width: 28rem;
+        max-width: calc(100% - 32px);
+        padding: 12px 16px;
+        border: 1px solid transparent;
+        border-radius: var(--tr-r-3);
+        background: var(--tr-ink);
+        color: var(--tr-surface);
+        box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+        transition:
+            opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
+            transform 200ms cubic-bezier(0.23, 1, 0.32, 1);
+
+        @starting-style {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+    }
+
+    .dark .tr-update-toast {
+        border-color: var(--tr-line-strong);
+        background: var(--tr-sunken);
+        color: var(--tr-ink);
+    }
+
+    .tr-update-message {
+        display: flex;
+        flex: 1 1 200px;
+        align-items: flex-start;
+        gap: 10px;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .tr-update-mark {
+        flex-shrink: 0;
+        margin-top: 6px;
+        color: var(--tr-warn);
+    }
+
+    .tr-update-version {
+        font-size: var(--tr-text-small);
+        opacity: 0.8;
+    }
+
+    .tr-update-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-inline-start: auto;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .tr-update-toast {
+            transition: opacity 200ms ease;
+
+            @starting-style {
+                opacity: 0;
+                transform: none;
+            }
+        }
+    }
+
+    /* "About and licences" (AboutDialog). */
+    .tr-about {
+        display: grid;
+        gap: 4px 16px;
+        margin: 0;
+    }
+
+    .tr-about dt {
+        font-size: var(--tr-text-small);
+        color: var(--tr-ink-2);
+    }
+
+    .tr-about dd {
+        margin: 0 0 12px;
+        overflow-wrap: anywhere;
+    }
+
+    .tr-about-version {
+        font-family: var(--tr-font-mono);
+    }
+
+    .tr-about-link {
+        color: var(--tr-link);
+        text-decoration: underline;
+        text-underline-offset: 2px;
     }
 
     /* A 44 px hit area around a 32 px box without frame or fill. */

@@ -7,8 +7,10 @@ namespace App\Http\Middleware;
 use App\Http\Ui\Audience;
 use App\Http\Ui\CollapsibleSection;
 use App\Models\User;
+use App\Updates\ReleaseCheck;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -23,13 +25,17 @@ class HandleInertiaRequests extends Middleware
     protected $rootView = 'app';
 
     /**
-     * Determines the current asset version.
+     * The asset version: the running build (TESSERARR_VERSION, plus the
+     * commit when the image knows it), the same value the bundle is built
+     * with (vite.config.ts) and the header X-Tesserarr-Version names. A visit the user starts from a tab of another
+     * version becomes a full page load; a background request does not
+     * (router.reload is async), the update notice covers that time.
      *
-     * @see https://inertiajs.com/asset-versioning
+     * @see https://inertiajs.com/docs/v3/advanced/asset-versioning
      */
-    public function version(Request $request): ?string
+    public function version(Request $request): string
     {
-        return parent::version($request);
+        return AddVersionHeader::build();
     }
 
     /**
@@ -55,7 +61,13 @@ class HandleInertiaRequests extends Middleware
             'locale' => $locale,
             'translations' => $this->translations($locale),
             'audience' => Audience::of($user instanceof User ? $user : null)->value,
-            'version' => config('app.version'),
+            'version' => AddVersionHeader::running(),
+            // The newest published release, for the operator's "About"
+            // dialog only. Optional: loaded by the dialog with a partial
+            // reload, never with a page (App\Updates\ReleaseCheck).
+            'release' => Inertia::optional(fn () => Audience::of($user instanceof User ? $user : null) === Audience::Operator
+                ? app(ReleaseCheck::class)->latest()
+                : null),
             'ui' => [
                 'collapsed' => $user instanceof User ? CollapsibleSection::known($user->ui_collapsed ?? []) : [],
             ],

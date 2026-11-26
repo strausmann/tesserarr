@@ -13,10 +13,18 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     /**
      * The content of the navigation, the same in the fixed sidebar (wide) and
      * in the drawer (narrow): the logo, the groups of the audience, and at the
-     * foot the account, sign-out and the running version (Dashboard.dc.html).
-     * The update notice of task 7a goes into `notice`.
+     * foot the account, sign-out and the running version, which opens "About
+     * and licences" (Dashboard.dc.html). The update notice (UpdateNotice,
+     * variant `box`) goes into `notice`.
      */
-    let { notice }: { notice?: import('svelte').Snippet } = $props();
+    let {
+        notice,
+        onabout,
+    }: {
+        notice?: import('svelte').Snippet;
+        /** The version in the foot was pressed: open "About and licences". */
+        onabout?: (opener: HTMLElement) => void;
+    } = $props();
 
     const audience = $derived(
         ((page.props as { audience?: Audience }).audience ?? 'guest') as Audience,
@@ -71,6 +79,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         >
             {t('nav.sign_out')}
         </Link>
-        <p class="tr-nav-version">{t('app.about', { version })}</p>
+        <button
+            type="button"
+            class="tr-nav-version"
+            aria-haspopup="dialog"
+            onclick={(event) => onabout?.(event.currentTarget)}
+            >{t('app.about', { version })}</button
+        >
     </div>
 {/if}

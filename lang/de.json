@@ -1,4 +1,19 @@
 {
+    "about.fonts": "Schriften",
+    "about.fonts.licence": "Lizenztext",
+    "about.fonts.name": "Atkinson Hyperlegible, SIL Open Font License 1.1.",
+    "about.licence": "Lizenz",
+    "about.licence.name": "GNU Affero General Public License v3.0 oder neuer.",
+    "about.release": "Neuere Version",
+    "about.release.checking": "Wird geprüft …",
+    "about.release.current": "Das ist die neueste Version.",
+    "about.release.newer": "Version :version ist erschienen.",
+    "about.release.notes": "Versionshinweise",
+    "about.release.off": "Die Prüfung auf neuere Versionen ist ausgeschaltet. Einschalten mit TESSERARR_RELEASE_CHECK=true.",
+    "about.release.unknown": "Noch nicht bekannt: Die Prüfung hat GitHub bisher nicht erreicht.",
+    "about.source": "Quellcode",
+    "about.title": "Über Tesserarr",
+    "about.version": "Version",
     "app.about": "Tesserarr :version · Über und Lizenzen",
     "app.main": "Hauptinhalt",
     "app.skip": "Zum Inhalt springen",
@@ -62,5 +77,12 @@
     "settings.language.de": "Deutsch",
     "settings.language.description": "Die Sprache der Oberfläche auf jedem Gerät, auf dem du dich anmeldest.",
     "settings.language.en": "English",
-    "settings.language.title": "Sprache"
+    "settings.language.title": "Sprache",
+    "update.available": "Neue Version verfügbar",
+    "update.later": "Später",
+    "update.ready": "Version :version bereit",
+    "update.ready_hint": "Neu laden, um sie zu verwenden.",
+    "update.region": "Neue Version",
+    "update.reload": "Neu laden",
+    "update.version": "Version :version"
 }

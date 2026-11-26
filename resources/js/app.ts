@@ -1,10 +1,11 @@
-import { createInertiaApp, router } from '@inertiajs/svelte';
+import { createInertiaApp, http, router } from '@inertiajs/svelte';
 import AppLayout from '@/layouts/AppLayout.svelte';
 import AuthLayout from '@/layouts/AuthLayout.svelte';
 import SettingsLayout from '@/layouts/settings/Layout.svelte';
 import { initializeFlashToast } from '@/lib/flash-toast';
 import { applyDocumentLanguage } from '@/lib/i18n';
 import { initializeTheme } from '@/lib/theme.svelte';
+import { watchInertia } from '@/lib/updates.svelte';
 import { trackVisibleViewport } from '@/lib/viewport';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Tesserarr';
@@ -48,3 +49,7 @@ router.on('navigate', (event) =>
 router.on('success', (event) =>
     applyDocumentLanguage(event.detail.page.props.locale),
 );
+
+// The version the server names on every Inertia answer, the 409 of an
+// outdated background reload included (lib/updates.svelte.ts).
+watchInertia(http);

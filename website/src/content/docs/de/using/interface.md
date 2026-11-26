@@ -8,7 +8,8 @@ description: Navigation auf breitem Bildschirm und auf dem Handy, die Sprache, z
 Ab 1024 Pixeln Breite steht die Navigation als feste Leiste links. Auf schmaleren Bildschirmen, etwa auf dem Handy, zeigt
 eine Leiste oben den Menüknopf, das Logo und den Titel der Seite. Der Menüknopf öffnet die ganze Navigation als
 Schublade; unten darin stehen dein Konto, Abmelden und die laufende Version. Escape, ein Tipp neben die Schublade oder
-ein Link darin schließt sie wieder.
+ein Link darin schließt sie wieder. Die Version öffnet **Über Tesserarr**, und nach einer Aktualisierung bietet die Navigation
+Neuladen an (siehe [Version und Aktualisierungen](/tesserarr/de/using/updates/)).
 
 Ein Freund sieht den Katalog, seine Token und sein Konto. Der Betreiber sieht zusätzlich Status, Medien, Betrieb und
 Verwaltung.

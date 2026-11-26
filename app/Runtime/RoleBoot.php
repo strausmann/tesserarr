@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace App\Runtime;
 
+use App\Http\Controllers\Ui\VersionController;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Facades\Broadcast;
@@ -52,6 +53,13 @@ final class RoleBoot
         Route::middleware('web')->group($routes.'/web.php');
         // The sign-in of the browser tests, in the e2e image only.
         E2eImage::registerRoutes();
+        // The running version, asked by an open tab every five minutes
+        // (lib/updates.svelte.ts). Outside the `web` group on purpose: no
+        // session is read or written, so the checks of an unattended tab
+        // never keep its sign-in alive past SESSION_LIFETIME, and no session
+        // row is created for them. The version is no secret: every answer
+        // names it in X-Tesserarr-Version.
+        Route::get('api/v1/app/version', VersionController::class)->name('app-api.version');
         // The app API (session) before the token API, so /api/v1/app/* never
         // falls into a token route.
         Route::middleware('web')->prefix('api/v1/app')->name('app-api.')->group($routes.'/api_app.php');

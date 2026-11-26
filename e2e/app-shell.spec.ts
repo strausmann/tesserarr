@@ -133,12 +133,15 @@ test.describe('app frame, narrow', () => {
             open.getByRole('button', { name: 'Abmelden' }),
         ).toBeVisible();
         await expect(
-            open.getByText(/^Tesserarr \S+ · Über und Lizenzen$/),
+            open.getByRole('button', {
+                name: /^Tesserarr \S+ · Über und Lizenzen$/,
+            }),
         ).toBeVisible();
     });
 
-    // The update notice comes with task 7a into the `notice` slot of
-    // AppNavigation.svelte; 7a adds its own check here.
+    // The update notice in the drawer needs a second version:
+    // e2e/update-notice.spec.ts ("shows account, sign-out, version and the
+    // update notice in the drawer").
 
     test('shows the open menu of its artboard', async ({ page }) => {
         await menuButton(page).click();

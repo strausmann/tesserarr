@@ -29,3 +29,11 @@ MFA-Regel, Mail), setzt du dort, nicht hier. Jede Version ergänzt die Variablen
 | `TESSERARR_BACKUP_KEEP` | `5` | Wie viele Sicherungen bleiben, 1 bis 50. |
 | `TESSERARR_PG_DUMP` | `pg_dump` | Das Programm `pg_dump` für die Sicherung. |
 | `TESSERARR_ACCESS_LOG` | `php://stdout` | Wohin das Zugriffsprotokoll geht (Format „combined“). |
+
+## Aktualisierungen
+
+| Variable | Standard | Bedeutung |
+| --- | --- | --- |
+| `TESSERARR_RELEASE_CHECK` | `false` | Nur auf Wunsch. `true`: Die Zentrale fragt alle sechs Stunden bei den GitHub-Releases von Tesserarr nach, ob es eine neuere Version gibt, nur mit dem User-Agent `Tesserarr`; der Betreiber sieht es unter „Über“. `false` sendet nichts. Siehe [Version und Aktualisierungen](/tesserarr/de/using/updates/). |
+| `TESSERARR_RELEASE_CHECK_TIMEOUT` | `5` | Sekunden, die die Prüfung auf eine Antwort wartet. |
+| `TESSERARR_RELEASE_CHECK_URL` | das neueste Release von `strausmann/tesserarr` auf `api.github.com` | Wo die Prüfung fragt, für einen Spiegel, der wie die Releases-API von GitHub antwortet. |

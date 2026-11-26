@@ -12,7 +12,8 @@ import { defineConfig } from 'vitest/config';
 // 80 %, components at 70 %.
 //
 // The Tesserarr components (resources/js/components/ui/{Dialog,Field,
-// Collapsible,SearchDialog}.svelte, EmptyState) are measured at 70 %.
+// Collapsible,SearchDialog}.svelte, EmptyState, AboutDialog, UpdateNotice)
+// are measured at 70 %.
 // WHITELIST: the other files in resources/js/components
 // Reason: starter-kit components, replaced by the tasks that rebuild their
 //   pages (sign-in 11, second factor 12, settings 8b); each adds its files to
@@ -20,7 +21,9 @@ import { defineConfig } from 'vitest/config';
 // Issue: #83 (https://github.com/strausmann/tesserarr/issues/83)
 // Expires: 2027-02-22
 const components = [
+    'resources/js/components/AboutDialog.svelte',
     'resources/js/components/EmptyState.svelte',
+    'resources/js/components/UpdateNotice.svelte',
     'resources/js/components/ui/Collapsible.svelte',
     'resources/js/components/ui/Dialog.svelte',
     'resources/js/components/ui/Field.svelte',

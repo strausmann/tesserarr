@@ -47,7 +47,21 @@ function scalarApiReference(): Plugin {
     };
 }
 
+// The build this bundle belongs to: TESSERARR_VERSION, plus `+<commit>` when
+// the image is built with REVISION (two builds under the rolling tag `dev`
+// differ). The server forms the same value from the same build arguments
+// (App\Http\Middleware\AddVersionHeader::build()), default 0.0.0-dev on
+// both sides. lib/updates.svelte.ts compares it with the X-Tesserarr-Version
+// header of every answer.
+const revision = process.env.REVISION ?? '';
+const buildVersion =
+    (process.env.TESSERARR_VERSION || '0.0.0-dev') +
+    (revision !== '' && revision !== 'unknown' ? `+${revision}` : '');
+
 export default defineConfig({
+    define: {
+        __TESSERARR_BUILD_VERSION__: JSON.stringify(buildVersion),
+    },
     plugins: lazyPlugins(() => [
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.ts'],

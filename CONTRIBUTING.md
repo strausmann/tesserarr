@@ -435,6 +435,17 @@ error when the two differ.
   `e2e/support/artboard.ts` that puts the view into it, and the artboard is checked again in every state. A task that
   builds or changes a view adds the view, its artboard and its states in the same pull request. A deliberate difference
   from the artboard is explained in the pull request.
+- **Two versions** (`e2e/update-notice.spec.ts`). The update notice is checked against two real builds of the same
+  commit. With `E2E_NEXT_IMAGE` set, `scripts/e2e/run.sh` starts a second instance of that image next to the first, on
+  the same database and with the same `APP_KEY`, and passes its address as `E2E_NEXT_URL`; the spec sends the requests
+  of an open page there, as if the server had been restarted with a new version. CI builds the second image with
+  `--build-arg TESSERARR_VERSION=0.0.1-e2e`. Without it the spec is skipped locally and fails in CI:
+
+  ```bash
+  docker build $(python3 scripts/base_images.py cli) --build-arg TESSERARR_VERSION=0.0.1-e2e \
+      -f docker/Dockerfile --target e2e -t tesserarr:e2e-next .
+  E2E_NEXT_IMAGE=tesserarr:e2e-next scripts/e2e/run.sh tesserarr:e2e
+  ```
 - **On-screen keyboard** (`e2e/keyboard.spec.ts`). Every dialog, search and combobox adds a case to `keyboardCases`;
   each case runs in all four modes and uses `expectInSight` from `e2e/support/keyboard.ts`. A check on a real Android
   phone with Chrome and an iPhone with Safari stays part of the release acceptance.

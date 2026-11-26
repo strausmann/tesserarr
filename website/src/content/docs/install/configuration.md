@@ -29,3 +29,11 @@ MFA rule, mail) are set there, not here. Each release adds the variables of its 
 | `TESSERARR_BACKUP_KEEP` | `5` | How many backups to keep, 1 to 50. |
 | `TESSERARR_PG_DUMP` | `pg_dump` | The `pg_dump` program used for the backup. |
 | `TESSERARR_ACCESS_LOG` | `php://stdout` | Where the access log goes (combined format). |
+
+## Updates
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TESSERARR_RELEASE_CHECK` | `false` | Opt-in. `true`: the central instance asks the GitHub releases of Tesserarr every six hours whether a newer release exists, with only the user agent `Tesserarr`, and shows it to the operator under "About". `false` sends nothing. See [version and updates](/tesserarr/using/updates/). |
+| `TESSERARR_RELEASE_CHECK_TIMEOUT` | `5` | Seconds the check waits for an answer. |
+| `TESSERARR_RELEASE_CHECK_URL` | the latest release of `strausmann/tesserarr` on `api.github.com` | Where the check asks, for a mirror that answers like the GitHub releases API. |
