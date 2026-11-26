@@ -106,7 +106,7 @@ final class EmailConfirmation
         $before = $this->db->table('users')->where('id', $user->id)
             ->first(['email_confirmed_at', 'pending_email_bidx', 'pending_email_reserved_until']);
         if ($before !== null) {
-            self::refuseOwnChange($user, $by, $before->email_confirmed_at !== null && ! self::isActiveReservation($before, $bidx, $now));
+            self::refuseOwnChange($user, $by, $before->email_confirmed_at !== null && self::activeReservation($before, $email, $now) === null);
         }
 
         $this->throttle($by);
@@ -133,7 +133,12 @@ final class EmailConfirmation
                 // be sent again, also when a confirmed one exists (an operator
                 // entered it): that changes nothing the owner has not to
                 // confirm anyway.
-                $ownReservation = self::isActiveReservation($row, $bidx, $now);
+                // While the blind index key changes, that reservation may
+                // still carry the index under the previous key: the new link
+                // carries the same index, so it confirms that reservation.
+                $reserved = self::activeReservation($row, $email, $now);
+                $ownReservation = $reserved !== null;
+                $linkBidx = $reserved ?? $bidx;
 
                 // Under the lock as well: the address may have been confirmed meanwhile.
                 self::refuseOwnChange($user, $by, $row->email_confirmed_at !== null && ! $ownReservation);
@@ -164,7 +169,7 @@ final class EmailConfirmation
                 $token = rtrim(strtr(base64_encode(random_bytes(self::TOKEN_BYTES)), '+/', '-_'), '=');
                 $this->db->table('email_confirmations')->insert([
                     'user_id' => $user->id,
-                    'email_bidx' => $bidx,
+                    'email_bidx' => $linkBidx,
                     'token_hash' => hash('sha256', $token),
                     'expires_at' => $now->addMinutes(self::LINK_MINUTES),
                     'created_at' => $now,
@@ -350,12 +355,19 @@ final class EmailConfirmation
         }
     }
 
-    /** Is $bidx the address waiting on this account row, its reservation not run out? */
-    private static function isActiveReservation(object $row, string $bidx, \DateTimeInterface $now): bool
+    /**
+     * The index of the reservation on this account row when $email is the
+     * address waiting there (under the current or the previous blind index
+     * key) and it has not run out; null otherwise.
+     */
+    private static function activeReservation(object $row, string $email, \DateTimeInterface $now): ?string
     {
-        return ($row->pending_email_bidx ?? null) === $bidx
+        $pending = $row->pending_email_bidx ?? null;
+
+        return is_string($pending) && in_array($pending, BlindIndex::candidates($email), true)
             && ($row->pending_email_reserved_until ?? null) !== null
-            && Date::parse((string) $row->pending_email_reserved_until)->isAfter($now);
+            && Date::parse((string) $row->pending_email_reserved_until)->isAfter($now)
+            ? $pending : null;
     }
 
     /** @throws EmailClaimThrottled */

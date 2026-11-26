@@ -499,6 +499,44 @@ it('lets the account send the link of an address an operator entered again, also
         ->toThrow(fn (EmailEntryDisabled $e) => expect($e->reason)->toBe('confirmed_exists'));
 });
 
+it('keeps a waiting reservation and its link working while the blind index key changes', function () {
+    $operator = User::factory()->operator()->create();
+    $user = User::factory()->withRole(Roles::USER)->withConfirmedEmail('old@example.org')->create();
+    $fresh = User::factory()->withRole(Roles::USER)->create();
+    $this->actingAs($operator)->put("/users/{$user->id}/email", ['email' => 'new@example.org'])->assertSessionHasNoErrors();
+    confirmation()->request($fresh, 'first@example.org', Actor::user($fresh));
+    $until = DB::table('users')->where('id', $fresh->id)->value('pending_email_reserved_until');
+
+    // Restarted with a new blind index key, the rotation has not run yet.
+    $old = (string) config('tesserarr.pii.blind_index_key');
+    config(['tesserarr.pii.blind_index_key' => str_repeat('n', 32), 'tesserarr.pii.blind_index_previous_key' => $old]);
+    app()->forgetInstance(PiiKeys::class);
+    $this->travel(5)->minutes();
+
+    // With a confirmed address: the resend is the own reservation, not a change.
+    $this->actingAs($user)->from('/account')->post('/account/email/resend')->assertSessionHasNoErrors();
+    // Without one: the reservation is kept, not dropped and made again.
+    confirmation()->request($fresh, 'first@example.org', Actor::user($fresh));
+
+    expect(DB::table('users')->where('id', $fresh->id)->value('pending_email_reserved_until'))->toBe($until)
+        ->and(DB::table('account_email_claims')->where('kind', 'pending')->count())->toBe(2);
+
+    // The newest link of each still confirms its address.
+    $links = [];
+    Mail::assertQueued(ConfirmEmailMail::class, function (ConfirmEmailMail $mail) use (&$links) {
+        $links[] = substr($mail->url, strrpos($mail->url, '#') + 1);
+
+        return true;
+    });
+    confirmation()->confirm($links[2]);
+    confirmation()->confirm($links[3]);
+    expect($user->refresh()->confirmedEmail())->toBe('new@example.org')
+        ->and($fresh->refresh()->confirmedEmail())->toBe('first@example.org');
+
+    $this->artisan('tesserarr:pii:rotate')->assertSuccessful();
+    expect(confirmation()->confirmedOwnerOf('new@example.org')?->id)->toBe($user->id);
+});
+
 it('requires a fresh proof to request an address change')
     ->todo(note: 'Carried over to task 11: ConfirmationProof and the change of a confirmed own address arrive there (pre-flight K14). Until then AccountController offers the first address only (test above).');
 
