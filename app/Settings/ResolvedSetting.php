@@ -14,7 +14,11 @@ final readonly class ResolvedSetting
         public SettingKey $key,
         public string|int $value,
         public SettingSource $source,
-        /** The environment variable holds something this setting does not accept: it is ignored. */
+        /**
+         * The environment variable holds something this setting does not accept.
+         * Normally it is ignored and the stored value or the default is in force;
+         * for backups.keep tesserarr:migrate refuses to run (envRefusesMigrate()).
+         */
         public bool $envInvalid = false,
         /** The stored value does not pass the rules (an old or hand-edited row): it is not in force. */
         public bool $storedInvalid = false,

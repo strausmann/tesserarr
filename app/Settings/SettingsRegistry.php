@@ -24,8 +24,13 @@ use Illuminate\Validation\ValidationException;
  * default. A value that does not pass the rules of its setting is not in
  * force wherever it comes from; the next source is.
  *
- * Nothing is kept between calls: every read goes to the configuration and the
- * database, so a worker never serves a value an earlier request saw.
+ * Nothing outlives its unit of work. The environment is read from the
+ * configuration on every call. The stored values are read from the database
+ * once per request and kept on the request object (never in a static), so
+ * the middleware, the page and the controller of one request share one
+ * query; the queue worker and the scheduler start every job and task with a
+ * fresh read (forget(), AppServiceProvider). A worker therefore never serves
+ * a value an earlier request, job or task saw.
  */
 final class SettingsRegistry
 {
@@ -116,7 +121,7 @@ final class SettingsRegistry
     public function update(array $input, Actor $actor): array
     {
         // What was read earlier in this request is not what is stored now.
-        $this->forgetStored();
+        $this->forget();
 
         $wanted = [];
         foreach ($input as $field => $raw) {
@@ -163,7 +168,7 @@ final class SettingsRegistry
             }
         });
 
-        $this->forgetStored();
+        $this->forget();
 
         return $changed;
     }
@@ -214,7 +219,14 @@ final class SettingsRegistry
         return $values;
     }
 
-    private function forgetStored(): void
+    /**
+     * Drops what this request read. HTTP requests never need it (every one
+     * has its own object); a process that outlives requests does: in the
+     * queue worker and the scheduler the "request" is one object for the
+     * whole process, so AppServiceProvider calls this before every job and
+     * every scheduled task.
+     */
+    public function forget(): void
     {
         app('request')->attributes->remove(self::MEMO);
     }

@@ -14,9 +14,12 @@ use App\Models\User;
 use App\Settings\SettingKey;
 use App\Settings\Settings;
 use App\Settings\SettingsRegistry;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\Jobs\ReadDisplayName;
 
 use function Tests\Support\generalForm;
 use function Tests\Support\protectedRoutes;
@@ -288,4 +291,26 @@ it('has both routes of the page among the routes the Authorizer coverage test en
     $covered = collect(protectedRoutes())->map(fn ($route) => implode('|', array_diff($route->methods(), ['HEAD'])).' '.$route->uri())->all();
 
     expect($covered)->toContain('GET settings/general')->toContain('PUT settings/general');
+});
+
+it('reads a setting fresh for every queued job of one worker process', function () {
+    ReadDisplayName::dispatch(1)->onConnection('sync');
+    // Changed between the two jobs, as another process or the page would.
+    DB::table('app_settings')->updateOrInsert(['key' => 'instance.display_name'], ['value' => json_encode('Second'), 'updated_at' => now()]);
+    ReadDisplayName::dispatch(2)->onConnection('sync');
+
+    expect(Cache::get('seen.1'))->toBe('Tesserarr')->and(Cache::get('seen.2'))->toBe('Second');
+});
+
+it('reads a setting fresh for every scheduled task of one process', function () {
+    $seen = [];
+    app(Schedule::class)->call(function () use (&$seen) {
+        $seen[] = app(SettingsRegistry::class)->value(SettingKey::DisplayName);
+    })->everyMinute();
+
+    $this->artisan('schedule:run')->assertSuccessful();
+    DB::table('app_settings')->updateOrInsert(['key' => 'instance.display_name'], ['value' => json_encode('Second'), 'updated_at' => now()]);
+    $this->artisan('schedule:run')->assertSuccessful();
+
+    expect($seen)->toBe(['Tesserarr', 'Second']);
 });
