@@ -3,19 +3,42 @@
 
 # Build a preview image of a milestone before its release, e.g. 0.1.0-rc.3.
 #
-# Run it by hand on the milestone branch that holds the work (or on main); any
-# other branch is refused, because only these refs are signed.
-# Version is x.y.z or, for a patch milestone, x.y.x (next free patch).
+# Two triggers:
+# - A push to a milestone branch (every merge into it) builds the preview
+#   automatically. The version comes from the branch name: milestone/0.1.0 leads
+#   to 0.1.0, milestone/1.5.x to the next free patch. A push after the release of
+#   that version, or to a milestone branch that is not signed, builds nothing.
+# - By hand (workflow_dispatch), on the milestone branch that holds the work (or
+#   on main); any other branch is refused, because only these refs are signed.
+#   Version is x.y.z or, for a patch milestone, x.y.x (next free patch).
+#
 # The rc number counts up from the tags already in GHCR
-# (ghcr.io/strausmann/tesserarr); the same tag goes to GHCR and Docker Hub
-# (docker.io/bstrausmann/tesserarr). A preview gets only its exact
-# tag: no `latest`, no x.y / x (docker-publish.yml treats every version with a
-# `-` as a pre-release). registry-cleanup.yml keeps previews on both registries
-# while their release does not exist and removes them afterwards.
+# (ghcr.io/strausmann/tesserarr); the same tags go to GHCR and Docker Hub
+# (docker.io/bstrausmann/tesserarr). A preview gets x.y.z-rc.N and the moving
+# x.y.z-preview, which always points at the newest rc of that version: no
+# `latest`, no x.y / x (docker-publish.yml treats every version with a `-` as a
+# pre-release). registry-cleanup.yml keeps previews on both registries while
+# their release does not exist and removes them afterwards.
+#
+# After the image is published, `redeploy` calls a webhook that makes a test
+# instance pull x.y.z-preview. The URL and the token are the repository secrets
+# TESTSTACK_WEBHOOK_URL and TESTSTACK_WEBHOOK_TOKEN; without them (a fork, or an
+# installation that has no test instance) the job ends with a notice.
 
 name: Preview image
 
 on:
+  push:
+    branches: ["milestone/**"]
+    # Same filter as docker-publish.yml: a push that changes no image does not
+    # build a preview.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "website/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
+      - ".github/labels.yml"
   workflow_dispatch:
     inputs:
       version:
@@ -38,7 +61,9 @@ jobs:
       contents: read
       packages: read
     outputs:
+      skip: ${{ steps.guard.outputs.skip == 'true' && 'true' || steps.next.outputs.skip }}
       tag: ${{ steps.next.outputs.tag }}
+      rolling: ${{ steps.next.outputs.rolling }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,40 +73,61 @@ jobs:
       # Previews are published to both registries, so they are signed like the
       # release images. docker-publish.yml signs only on main and
       # milestone/x.y.0 or milestone/x.y.x; a preview from any other branch
-      # would go out unsigned, so it is refused here, before anything is built.
+      # would go out unsigned. A manual run from such a branch is refused, before
+      # anything is built; a push to one (milestone/anything) only skips.
       - name: Refuse a branch whose images are not signed
+        id: guard
         env:
           REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           signed_refs='^refs/(heads/main|heads/milestone/[0-9]+\.[0-9]+\.(0|x))$'
           if ! [[ "$REF" =~ $signed_refs ]]; then
+            if [ "$EVENT" = push ]; then
+              echo "::notice::No preview: this branch is not one whose images are signed"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "::error::A preview is built from main or a milestone branch only (the images of other branches are not signed)"
             exit 1
           fi
 
       - name: Compute the next rc tag
         id: next
+        if: steps.guard.outputs.skip != 'true'
         env:
-          VERSION: ${{ inputs.version }}
+          EVENT: ${{ github.event_name }}
+          # A push takes the version from the branch name, a manual run from its input.
+          SOURCE: ${{ github.event_name == 'push' && github.ref || inputs.version }}
           ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_PATH: strausmann/tesserarr
         run: |
           set -euo pipefail
           # 0.1.x -> 0.1.<next free patch>-rc.N; 0.2.0 -> 0.2.0-rc.N; a released
-          # version is refused. A package that does not exist yet (first preview
-          # of a new image) has an empty tag list: 403/404 is tolerated there.
+          # version is refused by hand and skipped on a push. A package that does
+          # not exist yet (first preview of a new image) has an empty tag list:
+          # 403/404 is tolerated there.
           python3 scripts/ghcr_rules.py fetch-tags > tags.txt
-          tag=$(python3 scripts/ghcr_rules.py next-preview "$VERSION" < tags.txt)
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Preview tag: $tag" >> "$GITHUB_STEP_SUMMARY"
+          flag=()
+          [ "$EVENT" = push ] && flag=(--skip-released)
+          python3 scripts/ghcr_rules.py preview-plan "$SOURCE" "${flag[@]}" < tags.txt > plan.txt
+          cat plan.txt >> "$GITHUB_OUTPUT"
+          {
+            echo "Preview plan:"
+            echo '```'
+            cat plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     needs: next-tag
+    if: needs.next-tag.outputs.skip == 'false'
     uses: ./.github/workflows/docker-publish.yml
     with:
       tag: ${{ needs.next-tag.outputs.tag }}
+      rolling-tag: ${{ needs.next-tag.outputs.rolling }}
       ref: ${{ github.sha }}
     # By name, as release.yml does: no `inherit`, and never the admin token.
     secrets:
@@ -91,3 +137,33 @@ jobs:
       contents: read
       packages: write
       id-token: write
+
+  # Tells the test instance to pull the new x.y.z-preview. The URL is a secret
+  # because it is an internal address; the token travels in a curl config on
+  # stdin, so neither shows up in a process list.
+  redeploy:
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Call the test instance webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.TESTSTACK_WEBHOOK_URL }}
+          WEBHOOK_TOKEN: ${{ secrets.TESTSTACK_WEBHOOK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WEBHOOK_URL" ] || [ -z "$WEBHOOK_TOKEN" ]; then
+            echo "::notice::No test instance configured (TESTSTACK_WEBHOOK_URL / TESTSTACK_WEBHOOK_TOKEN); nothing to redeploy."
+            echo "No test instance configured; redeploy skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status=$(printf 'url = "%s"\nrequest = "POST"\nheader = "X-Gitlab-Token: %s"\n' "$WEBHOOK_URL" "$WEBHOOK_TOKEN" \
+            | curl -sS -K - --max-time 120 --retry 2 --retry-connrefused -o /dev/null -w '%{http_code}')
+          echo "Webhook answered HTTP $status"
+          if ! [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::The test instance webhook answered HTTP $status"
+            exit 1
+          fi
+          echo "Test instance told to redeploy (HTTP $status)." >> "$GITHUB_STEP_SUMMARY"

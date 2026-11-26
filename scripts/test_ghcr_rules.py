@@ -227,6 +227,74 @@ class SelectDeletionsTest(unittest.TestCase):
         self.assertEqual(g.select_deletions([signature], set()), [])
 
 
+class RollingPreviewTest(unittest.TestCase):
+    """The rolling x.y.z-preview tag follows the rc tags of its version."""
+
+    def test_open_rolling_preview_is_kept_until_release_exists(self) -> None:
+        pattern = g.keep_regex(["0.1.0-rc.2", "0.1.0-preview"])
+        self.assertTrue(re.match(pattern, "0.1.0-preview"))
+        closed = g.keep_regex(["0.1.0-rc.2", "0.1.0-preview", "0.1.0"])
+        self.assertFalse(re.match(closed, "0.1.0-preview"))
+
+    def test_rolling_preview_alone_opens_its_version(self) -> None:
+        self.assertTrue(re.match(g.keep_regex(["0.2.0-preview"]), "0.2.0-preview"))
+        self.assertFalse(re.match(g.keep_regex(["0.2.0-preview"]), "0.3.0-preview"))
+
+    def test_select_deletes_closed_rolling_preview(self) -> None:
+        tags = ["0.1.0-rc.1", "0.1.0-preview", "0.2.0-preview"]
+        self.assertEqual(g.select_deletions(tags, {"0.1.0"}), ["0.1.0-rc.1", "0.1.0-preview"])
+
+    def test_rolling_preview_is_not_a_foreign_tag(self) -> None:
+        self.assertEqual(g.foreign_tags(["0.1.0-preview", "0.1.0-previews", "x-preview"]), ["0.1.0-previews", "x-preview"])
+
+    def test_pattern_with_rolling_tag_passes_the_validator_model(self) -> None:
+        pattern = g.keep_regex([f"1.{i}.0-preview" for i in range(10, 20)])
+        height, count = safe_regex_metrics(pattern)
+        self.assertLessEqual(height, SAFE_REGEX_STAR_LIMIT, pattern)
+        self.assertLessEqual(count, SAFE_REGEX_REPETITION_LIMIT, pattern)
+
+
+class PreviewPlanTest(unittest.TestCase):
+    def test_milestone_version_from_ref(self) -> None:
+        self.assertEqual(g.milestone_version("refs/heads/milestone/0.1.0"), "0.1.0")
+        self.assertEqual(g.milestone_version("milestone/1.5.x"), "1.5.x")
+        self.assertEqual(g.milestone_version("0.2.0"), "0.2.0")
+        for bad in ("refs/heads/main", "refs/heads/milestone/foo", "milestone/1.5", "refs/heads/milestone/0.1.0-rc.1"):
+            with self.subTest(ref=bad), self.assertRaises(ValueError):
+                g.milestone_version(bad)
+
+    def test_plan_counts_up_and_names_the_rolling_tag(self) -> None:
+        plan = g.preview_plan("refs/heads/milestone/0.1.0", ["0.1.0-rc.1", "0.1.0-rc.2"])
+        self.assertEqual(plan, {"skip": "false", "tag": "0.1.0-rc.3", "rolling": "0.1.0-preview"})
+
+    def test_plan_for_a_patch_milestone_uses_the_next_free_patch(self) -> None:
+        plan = g.preview_plan("milestone/1.5.x", ["1.5.0", "1.5.1", "1.5.2-rc.1"])
+        self.assertEqual(plan, {"skip": "false", "tag": "1.5.2-rc.2", "rolling": "1.5.2-preview"})
+
+    def test_released_version_is_an_error_unless_skipped(self) -> None:
+        with self.assertRaises(ValueError):
+            g.preview_plan("milestone/0.1.0", ["0.1.0"])
+        plan = g.preview_plan("milestone/0.1.0", ["0.1.0"], skip_released=True)
+        self.assertEqual(plan["skip"], "true")
+        self.assertNotIn("tag", plan)
+
+    def test_cli_writes_github_output_lines(self) -> None:
+        out = io.StringIO()
+        code = g.main(["preview-plan", "refs/heads/milestone/0.1.0"], stdin=io.StringIO("0.1.0-rc.1\n"), stdout=out)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), "skip=false\ntag=0.1.0-rc.2\nrolling=0.1.0-preview\n")
+
+    def test_cli_fails_on_a_foreign_branch(self) -> None:
+        code = g.main(["preview-plan", "refs/heads/feature/x"], stdin=io.StringIO(""), stdout=io.StringIO())
+        self.assertEqual(code, 1)
+
+    def test_cli_skip_released(self) -> None:
+        out = io.StringIO()
+        code = g.main(["preview-plan", "milestone/0.1.0", "--skip-released"], stdin=io.StringIO("0.1.0\n"), stdout=out)
+        self.assertEqual(code, 0)
+        self.assertIn("skip=true", out.getvalue())
+
+
 class _Response(io.BytesIO):
     def __enter__(self) -> _Response:
         return self
@@ -464,7 +532,7 @@ class CliTest(unittest.TestCase):
     def test_keep_regex(self) -> None:
         code, out = self.run_cli(["keep-regex"], "1.5.1-rc.1\n1.4.0\n")
         self.assertEqual(code, 0)
-        self.assertIn(r"(1\.5\.1)-rc\.[0-9]+", out)
+        self.assertIn(r"(1\.5\.1)-(rc\.[0-9]+|preview)", out)
 
     def test_next_preview_reads_released_from_tags(self) -> None:
         code, out = self.run_cli(["next-preview", "1.5.x"], "1.5.0\n1.5.1\n")
@@ -594,7 +662,7 @@ class WorkflowsCallTheScriptTest(unittest.TestCase):
             ],
             "preview-image.yml": [
                 "scripts/ghcr_rules.py fetch-tags",
-                "scripts/ghcr_rules.py next-preview",
+                "scripts/ghcr_rules.py preview-plan",
             ],
         }.items():
             text = (WORKFLOWS / name).read_text()

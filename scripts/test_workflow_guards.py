@@ -154,5 +154,52 @@ class ScriptTestLayoutTest(unittest.TestCase):
                     self.assertEqual(index, len(body) - 1, f"{path.name}: code after the __main__ block")
 
 
+class PreviewRedeployTest(unittest.TestCase):
+    """The test instance webhook: URL and token are secrets and never reach a command line.
+
+    Source-text guards (no behaviour test outside GitHub Actions); they see characters, not
+    meaning, so each looks for the exact line.
+    """
+
+    def text(self) -> str:
+        return (WORKFLOWS / "preview-image.yml").read_text()
+
+    def step(self) -> str:
+        found = [b for b in run_blocks(self.text()) if "curl" in b]
+        self.assertEqual(len(found), 1, "preview-image.yml: expected one curl step")
+        return found[0]
+
+    def test_the_header_and_the_url_come_from_a_curl_config_on_stdin(self) -> None:
+        step = self.step()
+        self.assertIn("curl -sS -K -", step)
+        self.assertIn('header = "X-Gitlab-Token: %s"', step)
+        self.assertNotIn("-H ", step)
+        self.assertNotIn("--header", step)
+
+    def test_url_and_token_are_secrets_not_literals(self) -> None:
+        text = self.text()
+        self.assertIn("${{ secrets.TESTSTACK_WEBHOOK_URL }}", text)
+        self.assertIn("${{ secrets.TESTSTACK_WEBHOOK_TOKEN }}", text)
+        self.assertNotRegex(text, r"https?://[^\s]*strausmann\.(cloud|de|net)")
+
+    def test_missing_secrets_end_the_job_green(self) -> None:
+        step = self.step()
+        self.assertIn('if [ -z "$WEBHOOK_URL" ] || [ -z "$WEBHOOK_TOKEN" ]; then', step)
+        self.assertIn("exit 0", step)
+
+    def test_redeploy_runs_only_after_a_successful_publish(self) -> None:
+        text = self.text()
+        job = text[text.index("  redeploy:\n") :]
+        self.assertIn("needs: publish", job)
+        self.assertIn("if: needs.publish.result == 'success'", job)
+
+    def test_rolling_tag_is_gated_and_validated(self) -> None:
+        text = (WORKFLOWS / "docker-publish.yml").read_text()
+        lines = [line for line in text.splitlines() if "inputs.rolling-tag ||" in line]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("steps.tag.outputs.flavor == 'release' && inputs.rolling-tag != ''", lines[0])
+        self.assertTrue(any('"$ROLLING_TAG" == "${INPUT_TAG%-rc.*}-preview"' in b for b in run_blocks(text)))
+
+
 if __name__ == "__main__":
     unittest.main()

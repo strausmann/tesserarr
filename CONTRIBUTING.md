@@ -704,8 +704,9 @@ and a step summary with the rerun command, never a published release with missin
 | `latest`     | the newest stable release          | `latest`     |
 | `dev`        | every push to `main`               | `dev`        |
 | `x.y.z-rc.N` | a preview of a milestone           | `0.1.0-rc.1` |
+| `x.y.z-preview` | the newest preview of a milestone | `0.1.0-preview` |
 
-A preview gets only its exact tag, never `x.y`, `x` or `latest`. Each image carries build provenance (`mode=max`) and an
+A preview gets only its exact tag and the moving `x.y.z-preview`, never `x.y`, `x` or `latest`. Each image carries build provenance (`mode=max`) and an
 SBOM; the CycloneDX SBOM is also attached to the GitHub release. The image index is signed without a key (cosign with the
 workflow's OIDC token), from `main` and `milestone/*` only:
 
@@ -724,12 +725,21 @@ docker run --rm ghcr.io/sigstore/cosign/cosign:v3.0.2 verify docker.io/bstrausma
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-**Previews.** Before a milestone ships, a maintainer runs `Preview image` on the milestone branch with the milestone
-version (`0.1.0`, or `0.1.x` for the next free patch); any other branch is refused, because only `main` and the
-milestone branches are signed. The rc number counts up from the tags in GHCR. A preview is signed like a release image
-(the signature covers the image index with its SBOM and provenance attestations), and gets no
-git tag, no release and no changelog entry. `Registry cleanup` removes a preview on both registries once its release
-exists; it deletes only when the repository variable `GHCR_CLEANUP_ENABLED` is `true`, a manual run is a dry run.
+**Previews.** Every merge into a milestone branch (`milestone/x.y.z`, or `milestone/x.y.x` for a patch milestone)
+builds a preview automatically: `Preview image` runs on the push, counts the rc number up from the tags in GHCR
+(`0.1.0-rc.4`) and moves the tag `0.1.0-preview` to the same image. A push after the release of that version, a push that
+changes only documentation, and a push to a branch that is not signed build nothing. A maintainer can still run
+`Preview image` by hand with the milestone version (`0.1.0`, or `0.1.x` for the next free patch); by hand, any branch but
+`main` and the milestone branches is refused, because only these are signed. Two merges in a row queue behind each other
+and never get the same rc number. A preview is signed like a release image (the signature covers the image index with its
+SBOM and provenance attestations), and gets no git tag, no release and no changelog entry. `Registry cleanup` removes
+`x.y.z-rc.N` and `x.y.z-preview` on both registries once the release exists; it deletes only when the repository
+variable `GHCR_CLEANUP_ENABLED` is `true`, a manual run is a dry run.
+
+A test instance can follow `x.y.z-preview`. When the repository secrets `TESTSTACK_WEBHOOK_URL` and
+`TESTSTACK_WEBHOOK_TOKEN` are set, the job `redeploy` calls that webhook (a POST with the token in the header
+`X-Gitlab-Token`) after the image is published, so the instance pulls the new image. Without the secrets the job ends
+with a notice and the run stays green.
 
 **Weekly rebuild.** `Image rebuild` (Mondays, and by hand) rebuilds the highest published release from its tag, with the
 base image pins of `main` and freshly upgraded Debian packages, and scans the rebuild and the published image with the
@@ -756,6 +766,8 @@ rule as the rest of the repository: no details of a real installation.
 | `DOCKERHUB_TOKEN`            | secret   | the same jobs: organization access token with Image Push on `bstrausmann/tesserarr` |
 | `DOCKERHUB_ADMIN_USERNAME`   | secret   | `Docker Hub description`, `Registry cleanup`: a personal account that is a member or owner of the organization (not the organization) |
 | `DOCKERHUB_TOKEN_ADMIN`      | secret   | the same jobs: personal access token of that account, permission Read, Write, Delete. Organization access tokens cannot edit repository metadata (peter-evans/dockerhub-description#294) |
+| `TESTSTACK_WEBHOOK_URL`      | secret   | `Preview image`: optional; webhook that redeploys a test instance after each preview |
+| `TESTSTACK_WEBHOOK_TOKEN`    | secret   | the same job: the token the webhook expects in the header `X-Gitlab-Token` |
 | `ARM64_NATIVE_RUNNER`        | variable | `true` builds arm64 on the native runner (public repositories only); otherwise QEMU |
 | `GHCR_CLEANUP_ENABLED`       | variable | `true` lets the weekly `Registry cleanup` delete     |
 | `RENOVATE_APP_ID`            | secret   | `Renovate`: ID of the Renovate GitHub App, installed on this repository only |
