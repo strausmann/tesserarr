@@ -10,6 +10,9 @@ Route::inertia('/', 'Welcome')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+    // The friend's home: what is shared with them (Friend-Home.dc.html). The
+    // shares and tokens in it arrive with tasks 21a and 9.
+    Route::inertia('shared', 'friend/Home')->name('friend.home');
 });
 
 // The interactive API reference (Scalar) and the OpenAPI document it reads,

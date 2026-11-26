@@ -6,6 +6,7 @@ use App\Http\Middleware\AccessLog;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\LimitRequestBody;
+use App\Http\Middleware\SetLocale;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
 use Illuminate\Foundation\Application;
@@ -23,7 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         then: fn () => RoleBoot::routes(app(InstanceRole::class)),
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
+        $middleware->encryptCookies(except: ['appearance']);
 
         // First, so it also logs responses that later middleware short-circuits.
         $middleware->prepend(AccessLog::class);
@@ -36,6 +37,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             HandleAppearance::class,
+            // After the session (the user's profile), before the page props.
+            SetLocale::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);

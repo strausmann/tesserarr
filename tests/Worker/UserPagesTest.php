@@ -38,3 +38,19 @@ it('shows each user only their own data when they open different pages', functio
     'profile, then dashboard' => ['/settings/profile', '/dashboard'],
     'appearance, then profile' => ['/settings/appearance', '/settings/profile'],
 ]);
+
+// The language and the collapsed sections are per user (SetLocale,
+// HandleInertiaRequests): Alice reads German, Bob English, and nothing of
+// Alice's choice may reach Bob or a guest through the worker.
+it('keeps the language and the collapsed sections of one user away from the next', function () {
+    $alice = workerUser('Alice');
+    $alice->setRawAttributes([...$alice->getAttributes(), 'locale' => 'de', 'ui_collapsed' => '{"dashboard.attention":true}'], true);
+    $bob = workerUser('Bob');
+    $bob->setRawAttributes([...$bob->getAttributes(), 'locale' => 'en', 'ui_collapsed' => '{}'], true);
+
+    assertNoStateLeakBetweenUsers(
+        // German strings of the frame and Alice's collapsed section.
+        fn () => UserRequest::as($alice, Request::create('/dashboard'), 'Alice', 'Hauptnavigation', 'dashboard.attention'),
+        fn () => UserRequest::as($bob, Request::create('/dashboard'), 'Bob', 'Main navigation'),
+    );
+});
