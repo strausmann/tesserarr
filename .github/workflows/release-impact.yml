@@ -42,7 +42,7 @@ concurrency:
 jobs:
   tests:
     name: release-impact unit tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -52,13 +52,13 @@ jobs:
           persist-credentials: false
       # Standard library only, so no install step: pytest runs the unittest cases.
       - name: Install pytest
-        run: python3 -m pip install --user --no-cache-dir 'pytest==9.1.1'
+        run: python3 -m pip install --user --no-cache-dir 'pytest==9.2.0'
       - name: Run the unit tests
         run: python3 -m pytest scripts/ -v
 
   release-impact:
     name: release-impact
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read  # tags and history

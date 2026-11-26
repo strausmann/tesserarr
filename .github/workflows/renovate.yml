@@ -41,7 +41,7 @@ concurrency:
 jobs:
   renovate:
     name: Renovate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     # The token only ever runs from the default branch.
     if: github.ref == 'refs/heads/main'
@@ -98,7 +98,7 @@ jobs:
           # The image that holds the token, pinned by version and digest
           # (Renovate updates it, renovate.json); the action's default is the
           # floating tag 44.
-          renovate-image: ghcr.io/renovatebot/renovate:44.262.1@sha256:9f571539ab94f0798d9439110ecf38c1e540920520794d87e111fbb97c322d50
+          renovate-image: ghcr.io/renovatebot/renovate:44.263.6@sha256:0c4bd5ac86fd79efe03c9864eaaffda04196be633b721e61fa3b5de62098b414
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           # renovate.json is in the repository; no onboarding pull request.

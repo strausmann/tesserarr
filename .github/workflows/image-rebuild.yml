@@ -52,7 +52,7 @@ env:
 jobs:
   scan:
     name: Rebuild and compare
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     if: github.ref == 'refs/heads/main'
     permissions:
@@ -171,7 +171,7 @@ jobs:
     name: Patch release with the rebuilt image
     needs: scan
     if: needs.scan.outputs.result == 'better'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       actions: write   # start release.yml (workflow_dispatch)
@@ -261,7 +261,7 @@ jobs:
     name: Critical findings without a fix
     needs: scan
     if: needs.scan.outputs.result == 'better' || needs.scan.outputs.result == 'not-better'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read

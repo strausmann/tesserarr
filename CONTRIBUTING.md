@@ -162,13 +162,41 @@ pull request and the sync pull requests are merged with a merge commit, see
 | **Codex** (`chatgpt-codex-connector`) | Every pull request, with access to the whole repository: bugs, cross-file effects, security | Take it seriously; reply when you disagree |
 | **GitHub Copilot**                    | When requested on a pull request                                     | Same: read every comment, fix or reply           |
 
-1. Open the pull request (a draft is fine).
-2. Wait for green CI and the Codex review. After new commits, comment `@codex review` to request a new one.
-3. Read every bot comment. Fix it or reply with the reason you do not.
-4. Mark the pull request ready; the maintainer reviews and merges.
+1. Open the pull request **as a draft** and keep it a draft while you work on it.
+2. Run the local CI checks. Mark the pull request **Ready for review** only when they are green.
+3. Wait for green CI and the Codex review. After new commits, comment `@codex review` to request a new one.
+4. Read every bot comment. Fix it or reply with the reason you do not.
+5. The maintainer reviews and merges.
+
+**Codex and drafts.** Codex reviews when a pull request is opened for review, when a draft is marked ready, and on the
+comment `@codex review` (this is the wording of its own review summary). It does **not** review a draft on its own:
+verified on this repository (26 Nov 2026), a draft got no review in three minutes, and the comment `@codex review` on
+the same draft was answered with a full review within two minutes. So a draft can be reviewed early by asking for it;
+without that comment, the review starts when the draft is marked ready.
 
 A pull request is not ready while CI is red, a bot finding is neither fixed nor answered, or the title does not follow
 Conventional Commits. One change per pull request: an unrelated bug found on the way gets its own issue and pull request.
+
+## Pull request metadata
+
+Every pull request carries a milestone and a `type:` label; the workflow `PR metadata`
+(`.github/workflows/pr-metadata.yml`) sets them and the `area:` labels, and its check fails when a milestone or a
+`type:` label is still missing. Nobody has to remember them, but you can set them by hand; a value that is already set
+is never replaced.
+
+| What | Rule |
+| ---- | ---- |
+| Milestone | The branch decides: a pull request into `milestone/x.y.z` (or from it) gets milestone `x.y.z`, a patch branch `milestone/x.y.x` gets `x.y.x`. Into `main` it is the milestone of the first issue named by `Closes #n` or `Refs #n` in the description, else the open patch milestone, else (for `docs`, `ci`, `chore`, `test`, `refactor`, `build`, `style`) the lowest open minor milestone, because that is the first release that carries it. A `fix` or `perf` on `main` that matches none of these gets `status:needs-triage` and a red check: name an issue or set the milestone |
+| `type:` label | From the Conventional Commit type of the title: `feat` is `type:feature`, `fix` is `type:bug`, `docs` is `type:docs`, `refactor` is `type:refactor`, `test` is `type:test`, `chore`, `ci`, `build`, `perf`, `style` and `revert` are `type:chore` |
+| `area:` labels | From the changed paths, see `.github/labeler.yml`. Sync pull requests get none |
+| `dependencies` | Pull requests from Renovate |
+
+The area labels are read from `.github/labeler.yml` of the branch the pull request targets. A milestone branch gets the
+file with the next `main` into milestone sync; until then its pull requests get a milestone and a type label, but no area
+labels.
+
+Which `type:` label a feature carries decides nothing about the release; the release type comes from the title (see
+[Milestones, branches and releases](#milestones-branches-and-releases)).
 
 ## Triage
 
