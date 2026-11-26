@@ -69,6 +69,10 @@ on:
         type: string
         required: false
         default: ""
+    outputs:
+      rolling-applied:
+        description: "true when the rolling x.y.z-preview tag was moved to this build"
+        value: ${{ jobs.merge.outputs.rolling }}
     secrets:
       DOCKERHUB_USERNAME:
         required: false
@@ -430,6 +434,7 @@ jobs:
     # drop it: "Skip output since it may contain secret").
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      rolling: ${{ steps.rolling.outputs.apply }}
     steps:
       # Fail fast on a malformed release tag, before it is used anywhere
       # (the checkout ref below, labels, image tags).
@@ -573,6 +578,29 @@ jobs:
             printf 'latest=false\nmajor=false\nminor=false\n' | tee -a "$GITHUB_OUTPUT"
           fi
 
+      # The rolling x.y.z-preview moves only while no higher rc of the version is
+      # published: a rerun of an older build (its inputs are reused) must not
+      # take the tag back. The tag list is read from GHCR; the rc being built is
+      # not in it yet.
+      - name: Rolling preview tag
+        id: rolling
+        env:
+          ROLLING_TAG: ${{ inputs.rolling-tag }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_PATH: strausmann/tesserarr
+        run: |
+          set -euo pipefail
+          if [ -z "$ROLLING_TAG" ]; then
+            echo "apply=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/ghcr_rules.py fetch-tags > rolling-tags.txt
+          apply=$(python3 scripts/ghcr_rules.py rolling-allowed "$TAG" < rolling-tags.txt)
+          echo "apply=$apply" >> "$GITHUB_OUTPUT"
+          [ "$apply" = true ] || echo "::notice::A newer rc of this version exists; the rolling tag stays where it is"
+
       # Metadata again — the merge job needs the tag list and the
       # index-level annotations. Labels are NOT applied here (they live
       # on each per-platform manifest from the build phase).
@@ -598,7 +626,7 @@ jobs:
             type=ref,event=branch,enable=${{ steps.tag.outputs.flavor == 'branch' }}
             type=raw,value=dev,enable=${{ steps.tag.outputs.flavor == 'dev' }}
             type=semver,pattern={{version}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' }}
-            type=raw,value=${{ inputs.rolling-tag || 'unused' }},enable=${{ steps.tag.outputs.flavor == 'release' && inputs.rolling-tag != '' }}
+            type=raw,value=${{ inputs.rolling-tag || 'unused' }},enable=${{ steps.tag.outputs.flavor == 'release' && inputs.rolling-tag != '' && steps.rolling.outputs.apply == 'true' }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.minor == 'true' }}
             type=semver,pattern={{major}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.major == 'true' }}
             type=raw,value=latest,enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.latest == 'true' }}
