@@ -164,3 +164,37 @@ it('keeps a role an account was given while its old role is deleted', function (
         ->and($deleted['result']['members'] ?? null)->toBe(0)
         ->and(User::query()->where('username', 'race-bob')->sole()->getRoleNames()->all())->toBe(['operator']);
 });
+
+it('locks the member accounts before the role, in the order every role change uses', function () {
+    // Every path that changes an account's roles locks the account first and
+    // the roles after it. The deletion must do the same, or it can hold the
+    // role while it waits for an account whose holder waits for the role
+    // (a deadlock that PostgreSQL ends by aborting one side).
+    User::factory()->operator()->create(['username' => 'race-op']);
+    $helpers = Role::create(['name' => 'helpers', 'guard_name' => 'web']);
+    $helpers->syncPermissions([Permission::AuditView->value]);
+    $bob = User::factory()->withRole('helpers')->create(['username' => 'race-bob']);
+
+    config(['database.connections.race_writer' => config('database.connections.'.config('database.default'))]);
+    $writer = DB::connection('race_writer');
+    // A role change of Bob in progress: his account is locked.
+    $writer->beginTransaction();
+    $writer->table('users')->where('id', $bob->id)->lockForUpdate()->first(['id']);
+
+    try {
+        $delete = raceChild(crc32('role-deletion-lock-order'), 'DeleteRole', ['race-op', 'helpers']);
+        waitUntil(fn () => (int) $writer->scalar("select count(*) from pg_locks where locktype <> 'advisory' and not granted") >= 1, 'the deletion waits for Bob\'s account');
+
+        // While the deletion waits, the role row is still free to share: the
+        // holder of Bob's account could take it and finish.
+        $shared = $writer->select('select id from roles where id = ? for share nowait', [$helpers->id]);
+    } finally {
+        $writer->commit();
+    }
+
+    $deleted = raceResult($delete->wait());
+    $writer->disconnect();
+
+    expect($shared)->toHaveCount(1)
+        ->and($deleted['result']['deleted'] ?? null)->toBeTrue(json_encode($deleted));
+});

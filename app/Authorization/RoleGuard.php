@@ -102,6 +102,35 @@ final class RoleGuard
     }
 
     /**
+     * The lock order of every change that a guard decides: first the
+     * accounts, in id order (FOR UPDATE those whose roles or lock change, FOR
+     * SHARE the actor whose permissions decide), then the role rows. Taking
+     * them in the same order everywhere keeps two changes from waiting for
+     * each other (a deadlock PostgreSQL would end by aborting one).
+     *
+     * @param  list<User>  $changing
+     * @param  list<User|null>  $deciding
+     */
+    public function lockAccounts(array $changing, array $deciding = []): void
+    {
+        $modes = [];
+        foreach ($deciding as $user) {
+            if ($user !== null) {
+                $modes[(int) $user->getKey()] = 'share';
+            }
+        }
+        foreach ($changing as $user) {
+            $modes[(int) $user->getKey()] = 'update';
+        }
+        ksort($modes);
+
+        foreach ($modes as $id => $mode) {
+            $query = $this->db->table('users')->where('id', $id);
+            ($mode === 'update' ? $query->lockForUpdate() : $query->sharedLock())->first(['id']);
+        }
+    }
+
+    /**
      * The role row, locked and read again with its permissions: FOR UPDATE
      * to change or delete the role, FOR SHARE to give it to an account.
      * Inserting into role_has_permissions or model_has_roles takes a KEY

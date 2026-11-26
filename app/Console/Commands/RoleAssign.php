@@ -61,7 +61,7 @@ final class RoleAssign extends Command
                 $locked = $guard->lockRole($role, forUpdate: false);
                 $guard->assertCanGrant($actor, RoleGuard::permissionsOfRole($locked));
                 $guard->assertKeepsAnOperator(fn () => $user->syncRoles([$locked]));
-            });
+            }, 3);
         } catch (PrivilegeEscalation $e) {
             $audit->record(AuditAction::RoleAssigned, $actor, $user, ['role' => $role->name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
             $this->error($e->getMessage());

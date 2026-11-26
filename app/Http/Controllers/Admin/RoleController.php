@@ -95,15 +95,16 @@ final class RoleController extends Controller
         $by = Actor::user($actor);
 
         try {
-            $role = DB::transaction(function () use ($by, $name, $permissions): Role {
+            $role = DB::transaction(function () use ($by, $actor, $name, $permissions): Role {
                 // The check after the locks on the actor's permissions (RoleGuard).
+                $this->guard->lockAccounts([], [$actor]);
                 $this->guard->assertCanGrant($by, $permissions);
                 /** @var Role $role */
                 $role = Role::create(['name' => $name, 'guard_name' => Roles::GUARD]);
                 $role->syncPermissions(Permission::values($permissions));
 
                 return $role;
-            });
+            }, 3);
         } catch (PrivilegeEscalation $e) {
             $this->audit->record(AuditAction::RoleCreated, $by, null, ['role' => $name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
 
@@ -127,8 +128,10 @@ final class RoleController extends Controller
         $after = Permission::ordered(Permission::fromValues($validated['permissions'] ?? []));
 
         try {
-            $before = DB::transaction(function () use ($by, $role, $after): array {
-                // Every check after the lock, on the role as it is now.
+            $before = DB::transaction(function () use ($by, $actor, $role, $after): array {
+                // Every check after the locks (the actor's account, then the
+                // role), on the role as it is now.
+                $this->guard->lockAccounts([], [$actor]);
                 $locked = $this->guard->lockRole($role, forUpdate: true);
                 $before = RoleGuard::permissionsOfRole($locked);
                 // Removing a permission needs it as much as adding one.
@@ -137,7 +140,7 @@ final class RoleController extends Controller
                 $locked->syncPermissions(Permission::values($after));
 
                 return $before;
-            });
+            }, 3);
         } catch (BuiltInRoleImmutable $e) {
             $this->audit->record(AuditAction::RoleChanged, $by, $role, ['role' => $name], AuditOutcome::Denied);
 

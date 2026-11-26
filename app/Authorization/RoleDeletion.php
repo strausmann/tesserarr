@@ -28,6 +28,9 @@ use Spatie\Permission\Models\Role;
  */
 final class RoleDeletion
 {
+    /** A transaction PostgreSQL ends as a deadlock victim is run again. */
+    private const ATTEMPTS = 3;
+
     public function __construct(
         private readonly RoleGuard $guard,
         private readonly ConnectionInterface $db,
@@ -42,18 +45,23 @@ final class RoleDeletion
     public function delete(Actor $by, Role $role): int
     {
         return $this->db->transaction(function () use ($by, $role): int {
-            // Every check after the lock, on the role as it is now.
-            $locked = $this->guard->lockRole($role, forUpdate: true);
-            $this->guard->assertMayChangePermissions($by, $locked);
+            // Lock order as in every role change: the accounts first (in id
+            // order), the role after them. The members are read once to know
+            // which accounts to lock and again after the role is locked: an
+            // account given another role meanwhile is no member any more and
+            // keeps that role; one that joined meanwhile is locked as well.
+            $candidates = User::role($role)->orderBy('id')->get(['id']);
+            $this->guard->lockAccounts(array_values($candidates->all()), [$by->user]);
+            $locked = $candidates->pluck('id')->all();
 
-            // Lock the members' accounts (in id order), then read the members
-            // again: an account whose role was changed meanwhile (that path
-            // locks the account first) is no member any more and keeps its
-            // new role; one changed later waits for this transaction.
-            foreach (User::role($locked)->orderBy('id')->get(['id']) as $candidate) {
-                $this->guard->lockAccount($candidate);
+            // Every check after the locks, on the role as it is now.
+            $roleNow = $this->guard->lockRole($role, forUpdate: true);
+            $this->guard->assertMayChangePermissions($by, $roleNow);
+
+            foreach (User::role($roleNow)->whereNotIn('id', $locked)->orderBy('id')->get(['id']) as $late) {
+                $this->guard->lockAccount($late);
             }
-            $members = User::role($locked)->get();
+            $members = User::role($roleNow)->get();
             if ($members->isNotEmpty()) {
                 $this->guard->assertCanGrant($by, Roles::permissionsOf(Roles::USER));
             }
@@ -61,9 +69,9 @@ final class RoleDeletion
             foreach ($members as $member) {
                 $member->syncRoles([Roles::USER]);
             }
-            $locked->delete();
+            $roleNow->delete();
 
             return $members->count();
-        });
+        }, self::ATTEMPTS);
     }
 }
