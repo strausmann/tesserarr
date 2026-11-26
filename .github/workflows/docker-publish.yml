@@ -121,7 +121,7 @@ jobs:
   # ---------------------------------------------------------------------------
   detect:
     name: Detect Dockerfile
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -421,7 +421,7 @@ jobs:
   # ---------------------------------------------------------------------------
   merge:
     name: Merge manifest
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: build
     # A job-level block replaces the workflow default, so all three are listed.
     permissions:
@@ -768,7 +768,7 @@ jobs:
   # ---------------------------------------------------------------------------
   sbom:
     name: SBOM
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: merge
     if: inputs.tag != ''
     permissions:
