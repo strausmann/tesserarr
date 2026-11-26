@@ -88,3 +88,19 @@ it('keeps the token of a confirmation link out of the session', function () {
     expect(session()->previousUrl())->not->toContain($token)
         ->and(storedSessions())->not->toContain($token);
 });
+
+it('keeps an audit search of a failed validation out of the flashed input', function () {
+    config(['session.encrypt' => false]);
+    $operator = User::factory()->operator()->create();
+    $address = 'probe-q@example.invalid';
+
+    // Too long (max 100): the validation fails and Laravel flashes the input.
+    $this->actingAs($operator)->withHeader('Referer', url('/audit'))
+        ->get('/audit?q='.urlencode($address.str_repeat('x', 120)).'&period=7d')
+        ->assertSessionHasErrors('q');
+
+    $old = DB::table('sessions')->pluck('payload')
+        ->map(fn ($payload) => json_decode((string) base64_decode((string) $payload, true), true)['_old_input'] ?? null)
+        ->filter()->first();
+    expect($old)->toBeArray()->toHaveKey('period')->not->toHaveKey('q');
+});

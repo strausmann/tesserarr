@@ -353,6 +353,32 @@ describe('Confirm email', () => {
         inertia.router.post.mock.calls[0][2].onFinish();
     });
 
+    it('takes the token out of the address bar once it is read', async () => {
+        window.history.replaceState(null, '', '/email/confirm?x=1#abc');
+        await render(ConfirmEmail, {});
+        expect(window.location.hash).toBe('');
+        expect(window.location.pathname + window.location.search).toBe(
+            '/email/confirm?x=1',
+        );
+
+        button('account.confirm.button')!.click();
+        expect(inertia.router.post).toHaveBeenCalledWith(
+            '/email/confirm',
+            { token: 'abc' },
+            expect.anything(),
+        );
+    });
+
+    it('says the link is not valid when the fragment is broken', async () => {
+        window.location.hash = '#%E0%A4%A';
+        await render(ConfirmEmail, {});
+        expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+            'account.email.link_invalid',
+        );
+        expect(button('account.confirm.button')?.disabled).toBe(true);
+        expect(window.location.hash).toBe('');
+    });
+
     it('says the link is not valid when the fragment is missing', async () => {
         window.location.hash = '';
         await render(ConfirmEmail, {});

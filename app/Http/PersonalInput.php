@@ -9,9 +9,10 @@ namespace App\Http;
 
 /**
  * Request fields that are never flashed into the session after a failed
- * validation (bootstrap/app.php): secrets, addresses and the PGP key, and
- * the token of a confirmation link. A form that shows such a field again
- * after an error keeps the value in the browser instead.
+ * validation (bootstrap/app.php): secrets, addresses and the PGP key, the
+ * token of a confirmation link, and one-time codes (TOTP, recovery). A form
+ * that shows such a field again after an error keeps the value in the
+ * browser instead.
  */
 final class PersonalInput
 {
@@ -24,5 +25,9 @@ final class PersonalInput
         'pgp_public_key',
         'login',
         'token',
+        'code',
+        'recovery_code',
+        // A search of the audit log may be an address.
+        'q',
     ];
 }

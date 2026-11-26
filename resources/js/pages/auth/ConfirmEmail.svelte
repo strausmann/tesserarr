@@ -25,7 +25,21 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     let sending = $state(false);
 
     onMount(() => {
-        token = decodeURIComponent(window.location.hash.replace(/^#/, ''));
+        const raw = window.location.hash.replace(/^#/, '');
+        try {
+            token = decodeURIComponent(raw);
+        } catch {
+            // A cut or altered link: shown as not valid.
+            token = '';
+        }
+        // Out of the address bar, the history and a bookmark.
+        if (raw !== '') {
+            window.history.replaceState(
+                window.history.state,
+                '',
+                window.location.pathname + window.location.search,
+            );
+        }
     });
 
     function confirm(): void {
