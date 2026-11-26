@@ -452,6 +452,23 @@ it('keeps an address unique and findable while the blind index key changes', fun
     expect(DB::table('account_email_claims')->value('bidx'))->toBe(BlindIndex::with('shared@example.org', str_repeat('n', 32)));
 });
 
+it('frees an expired reservation under the previous blind index key when the address is claimed again', function () {
+    $alice = User::factory()->create();
+    $bob = User::factory()->create();
+    confirmation()->request($alice, 'squat@example.org', Actor::user($alice));
+    $old = (string) config('tesserarr.pii.blind_index_key');
+
+    $this->travel(EmailConfirmation::RESERVATION_HOURS + 1)->hours();
+    config(['tesserarr.pii.blind_index_key' => str_repeat('n', 32), 'tesserarr.pii.blind_index_previous_key' => $old]);
+    app()->forgetInstance(PiiKeys::class);
+
+    confirmation()->request($bob, 'squat@example.org', Actor::user($bob));
+
+    expect(DB::table('account_email_claims')->pluck('user_id')->all())->toBe([$bob->id])
+        ->and($alice->refresh()->pending_email)->toBeNull();
+    $this->artisan('tesserarr:pii:rotate')->assertSuccessful();
+});
+
 it('requires a fresh proof to request an address change')
     ->todo(note: 'Carried over to task 11: ConfirmationProof and the change of a confirmed own address arrive there (pre-flight K14). Until then AccountController offers the first address only (test above).');
 

@@ -117,7 +117,7 @@ final class EmailConfirmation
                 // Under the lock as well: the address may have been confirmed meanwhile.
                 self::refuseOwnChange($user, $by, $row->email_confirmed_at !== null);
 
-                $this->dropExpiredReservation($bidx, $now);
+                $this->dropExpiredReservation($email, $now);
                 $this->refuseIfHeldUnderPreviousKey($email, $bidx, $user->id, $now);
 
                 $ownReservation = $row->pending_email_bidx === $bidx
@@ -189,17 +189,27 @@ final class EmailConfirmation
     {
         $now = Date::now();
 
-        $userId = $this->db->transaction(function () use ($token, $now): int {
+        $hash = hash('sha256', $token);
+
+        $userId = $this->db->transaction(function () use ($hash, $now): int {
+            // The account row first, then the link: the same order as
+            // request() and release(), which hold the account row while they
+            // void older links. The other order deadlocks with a resend.
+            $owner = $this->db->table('email_confirmations')->where('token_hash', $hash)->value('user_id');
+            if ($owner === null) {
+                throw new InvalidConfirmationLink;
+            }
+
+            $user = $this->db->table('users')->where('id', $owner)->lockForUpdate()
+                ->first(['pending_email_bidx', 'pending_email_reserved_until']);
+
             $link = $this->db->selectOne(
                 'update email_confirmations set used_at = ? where token_hash = ? and used_at is null and expires_at > ? returning user_id, email_bidx',
-                [$now, hash('sha256', $token), $now],
+                [$now, $hash, $now],
             );
             if ($link === null) {
                 throw new InvalidConfirmationLink;
             }
-
-            $user = $this->db->table('users')->where('id', $link->user_id)->lockForUpdate()
-                ->first(['pending_email_bidx', 'pending_email_reserved_until']);
             $claim = $this->db->table('account_email_claims')->where('bidx', $link->email_bidx)->lockForUpdate()->first(['user_id', 'kind']);
 
             $valid = $user !== null
@@ -346,15 +356,18 @@ final class EmailConfirmation
         }
     }
 
-    /** A reservation of $bidx that ran out no longer holds the address. */
-    private function dropExpiredReservation(string $bidx, \DateTimeInterface $now): void
+    /** A reservation of the address that ran out no longer holds it. */
+    private function dropExpiredReservation(string $email, \DateTimeInterface $now): void
     {
+        // Under every index the address may have, the previous blind index
+        // key included, so an expired reservation of the old key cannot
+        // survive beside a new one.
         $expired = $this->db->table('account_email_claims')
-            ->where('bidx', $bidx)->where('kind', 'pending')->where('reserved_until', '<=', $now)
-            ->lockForUpdate()->value('user_id');
+            ->whereIn('bidx', BlindIndex::candidates($email))->where('kind', 'pending')->where('reserved_until', '<=', $now)
+            ->lockForUpdate()->pluck('user_id');
 
-        if ($expired !== null) {
-            $this->dropReservationOf((int) $expired);
+        foreach ($expired as $userId) {
+            $this->dropReservationOf((int) $userId);
         }
     }
 
