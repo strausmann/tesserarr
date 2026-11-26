@@ -202,3 +202,17 @@ it('words the refusal in both languages', function () {
         ->and($de['general.env_invalid_backups'])->toContain('tesserarr:migrate')->toContain('verweigert')
         ->and($en['general.env_invalid'])->toContain('ignored');
 });
+
+it('keeps the words true, false and null of an environment variable as text, so they are refused, not dropped', function (string $word) {
+    $this->env = new EnvSnapshot;
+    $this->env->set(['TESSERARR_BACKUP_KEEP' => $word, 'TESSERARR_PAGE_SIZE' => $word]);
+
+    // What config/tesserarr.php reads at boot: env() would turn these words into booleans or null.
+    $map = (require config_path('tesserarr.php'))['setting_env'];
+    expect($map['TESSERARR_BACKUP_KEEP'])->toBe($word);
+
+    config(['tesserarr.setting_env' => $map]);
+    expect(fn () => app(SettingsRegistry::class)->backupKeep())
+        ->toThrow(InvalidArgumentException::class, 'TESSERARR_BACKUP_KEEP must be a whole number');
+    expect(app(SettingsRegistry::class)->resolve(SettingKey::PageSize)->envInvalid)->toBeTrue();
+})->with(['false', 'true', 'null']);

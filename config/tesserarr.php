@@ -5,6 +5,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Env;
+
 return [
 
     /*
@@ -35,19 +37,21 @@ return [
     | that is set wins over what the operator stored and locks the field in the
     | interface; empty means not set. Read here, once, so cached configuration
     | keeps the values (the variable names must match SettingKey::env(); a test
-    | checks it). backups.keep is the number of backups tesserarr:migrate keeps
+    | checks it). The raw text is read, not env(): env() turns the words
+    | true, false and null into booleans and null, which would let an invalid
+    | override look like no override. backups.keep is the number of backups tesserarr:migrate keeps
     | (1 to 50).
     */
 
     'setting_env' => [
-        'TESSERARR_DISPLAY_NAME' => env('TESSERARR_DISPLAY_NAME'),
-        'TESSERARR_DEFAULT_LOCALE' => env('TESSERARR_DEFAULT_LOCALE'),
-        'TZ' => env('TZ'),
-        'TESSERARR_PAGE_SIZE' => env('TESSERARR_PAGE_SIZE'),
-        'TESSERARR_THEME_DEFAULT' => env('TESSERARR_THEME_DEFAULT'),
-        'TESSERARR_INVITATION_DAYS' => env('TESSERARR_INVITATION_DAYS'),
-        'TESSERARR_AUDIT_RETENTION_DAYS' => env('TESSERARR_AUDIT_RETENTION_DAYS'),
-        'TESSERARR_BACKUP_KEEP' => env('TESSERARR_BACKUP_KEEP'),
+        'TESSERARR_DISPLAY_NAME' => Env::getRepository()->get('TESSERARR_DISPLAY_NAME'),
+        'TESSERARR_DEFAULT_LOCALE' => Env::getRepository()->get('TESSERARR_DEFAULT_LOCALE'),
+        'TZ' => Env::getRepository()->get('TZ'),
+        'TESSERARR_PAGE_SIZE' => Env::getRepository()->get('TESSERARR_PAGE_SIZE'),
+        'TESSERARR_THEME_DEFAULT' => Env::getRepository()->get('TESSERARR_THEME_DEFAULT'),
+        'TESSERARR_INVITATION_DAYS' => Env::getRepository()->get('TESSERARR_INVITATION_DAYS'),
+        'TESSERARR_AUDIT_RETENTION_DAYS' => Env::getRepository()->get('TESSERARR_AUDIT_RETENTION_DAYS'),
+        'TESSERARR_BACKUP_KEEP' => Env::getRepository()->get('TESSERARR_BACKUP_KEEP'),
     ],
 
     /*
