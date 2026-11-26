@@ -5,14 +5,16 @@ name: Renovate
 
 # Self-hosted Renovate: reads renovate.json from main and opens dependency
 # pull requests against main and every milestone/** branch. It merges an
-# update by itself (automerge) once every check is green, and only where the
-# changed files have no code owner (lockfiles, docker/base-images.env); see
-# CONTRIBUTING.md, "Dependencies and licences".
+# update by itself (automerge) once every check is green: lockfiles,
+# docker/base-images.env, patch and minor updates inside workflows and of
+# development or optional dependencies; never a major. See CONTRIBUTING.md,
+# "Dependencies and licences".
 #
 # Renovate acts as its own GitHub App (Renovate docs, "Running as a GitHub
-# App"), not as a user: the app is no bypass actor of the rulesets, so its
-# pull requests meet the code owner rule and the required checks like anyone
-# else's. Each run creates an installation token for this repository only
+# App"), not as a user: the app is a bypass actor of the ruleset "main +
+# milestones: pull request and code owners" for pull requests only, so it
+# merges without the code owner approval; the required checks are in other
+# rulesets and hold for it like for anyone else. Each run creates an installation token for this repository only
 # (actions/create-github-app-token) from the repository secrets
 # RENOVATE_APP_ID and RENOVATE_APP_PRIVATE_KEY. Pull requests opened with that
 # token start the CI workflows (GITHUB_TOKEN could not). The app
@@ -22,7 +24,8 @@ name: Renovate
 
 on:
   schedule:
-    - cron: '17 2 * * *'   # daily at 02:17 UTC, before the nightly release at 04:00
+    - cron: '17 2 * * *'    # 02:17 UTC, before the nightly release at 04:00
+    - cron: '17 14 * * *'   # 14:17 UTC: merges what the checks of the night run cleared, and picks up new releases
   workflow_dispatch:
     inputs:
       log_level:
