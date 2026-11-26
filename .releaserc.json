@@ -75,37 +75,37 @@
                         {
                             "type": "docs",
                             "section": "Documentation",
-                            "hidden": true
+                            "effect": "hidden"
                         },
                         {
                             "type": "style",
                             "section": "Styles",
-                            "hidden": true
+                            "effect": "hidden"
                         },
                         {
                             "type": "chore",
                             "section": "Maintenance",
-                            "hidden": true
+                            "effect": "hidden"
                         },
                         {
                             "type": "refactor",
                             "section": "Refactoring",
-                            "hidden": true
+                            "effect": "hidden"
                         },
                         {
                             "type": "test",
                             "section": "Tests",
-                            "hidden": true
+                            "effect": "hidden"
                         },
                         {
                             "type": "build",
                             "section": "Build",
-                            "hidden": true
+                            "effect": "hidden"
                         },
                         {
                             "type": "ci",
                             "section": "CI",
-                            "hidden": true
+                            "effect": "hidden"
                         }
                     ]
                 }
