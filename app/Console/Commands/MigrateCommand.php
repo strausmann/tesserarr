@@ -11,6 +11,7 @@ use App\Database\Backup\BackupFailed;
 use App\Database\Backup\DatabaseDumper;
 use App\Database\Backup\PreMigrateBackups;
 use App\Database\MigrationLock;
+use App\Settings\SettingsRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\Log;
@@ -25,8 +26,8 @@ use Throwable;
  *   1. Nothing pending: exit 0, no backup.
  *   2. Otherwise pg_dump (custom format) to TESSERARR_BACKUP_DIR first; a failed
  *      or empty backup stops the run with exit 1 and nothing is migrated.
- *   3. `migrate --force`, then keep the newest backups (tesserarr.backups.keep,
- *      TESSERARR_BACKUP_KEEP, default 5).
+ *   3. `migrate --force`, then keep the newest backups (the setting backups.keep of
+ *      the interface, default 5; TESSERARR_BACKUP_KEEP overrides it).
  *
  * The whole sequence holds the MigrationLock (a PostgreSQL advisory lock), so
  * two migrate containers never dump and migrate at the same time. Migrations
@@ -48,7 +49,7 @@ final class MigrateCommand extends Command
         $this->log('migrate.start');
 
         try {
-            $keep = PreMigrateBackups::keep(config('tesserarr.backups.keep'));
+            $keep = app(SettingsRegistry::class)->backupKeep();
         } catch (InvalidArgumentException $invalid) {
             $this->error($invalid->getMessage().'; nothing was migrated.');
             $this->log('migrate.invalid_config', ['setting' => 'backups.keep'], 'error');

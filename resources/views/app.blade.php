@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}"  @class(['dark' => request()->attributes->get(App\Http\Middleware\HandleAppearance::ATTRIBUTE, 'system') === 'dark'])>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme-default="{{ request()->attributes->get(App\Http\Middleware\HandleAppearance::DEFAULT_ATTRIBUTE, 'system') }}"  @class(['dark' => request()->attributes->get(App\Http\Middleware\HandleAppearance::ATTRIBUTE, 'system') === 'dark'])>
     <head>
         <meta charset="utf-8">
         {{-- viewport-fit=cover for the safe areas; resizes-content makes Chromium

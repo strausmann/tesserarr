@@ -4,7 +4,7 @@ import AuthLayout from '@/layouts/AuthLayout.svelte';
 import SettingsLayout from '@/layouts/settings/Layout.svelte';
 import { initializeFlashToast } from '@/lib/flash-toast';
 import { applyDocumentLanguage } from '@/lib/i18n';
-import { initializeTheme } from '@/lib/theme.svelte';
+import { initializeTheme, setDefaultAppearance } from '@/lib/theme.svelte';
 import { watchInertia } from '@/lib/updates.svelte';
 import { trackVisibleViewport } from '@/lib/viewport';
 
@@ -51,3 +51,10 @@ router.on('success', (event) =>
 // The version the server names on every Inertia answer, the 409 of an
 // outdated background reload included (lib/updates.svelte.ts).
 watchInertia(http);
+
+// The default theme the operator set follows an Inertia visit too: it changes
+// for everybody without an own choice when the setting is saved (lib/theme.svelte.ts).
+const followDefaultTheme = (props: { ui?: { themeDefault?: string } }) =>
+    setDefaultAppearance(props.ui?.themeDefault);
+router.on('navigate', (event) => followDefaultTheme(event.detail.page.props));
+router.on('success', (event) => followDefaultTheme(event.detail.page.props));

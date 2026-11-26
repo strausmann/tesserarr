@@ -3,8 +3,9 @@ title: Configuration
 description: Every environment variable of Tesserarr, its default and what it does.
 ---
 
-Tesserarr reads its settings from the environment. Settings that belong in the web interface (sign-in methods, the
-MFA rule, mail) are set there, not here. Each release adds the variables of its features to this page.
+Tesserarr reads its configuration from the environment. Settings that belong in the web interface (sign-in methods,
+the MFA rule, mail, and the [general settings](/tesserarr/admin/settings/) such as name, language and time zone) are set
+there, not here. Each release adds the variables of its features to this page.
 
 ## Required
 
@@ -26,9 +27,24 @@ MFA rule, mail) are set there, not here. Each release adds the variables of its 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `TESSERARR_BACKUP_DIR` | `/var/lib/tesserarr/backups` | Where `tesserarr:migrate` writes the `pg_dump` backup before it migrates. Mount a volume here. |
-| `TESSERARR_BACKUP_KEEP` | `5` | How many backups to keep, 1 to 50. |
+| `TESSERARR_BACKUP_KEEP` | `5` | How many backups to keep, 1 to 50. The setting *Backups to keep* of the interface; the variable overrides it, for emergencies only. |
 | `TESSERARR_PG_DUMP` | `pg_dump` | The `pg_dump` program used for the backup. |
 | `TESSERARR_ACCESS_LOG` | `php://stdout` | Where the access log goes (combined format). |
+
+## Emergency overrides of the general settings
+
+These variables override the [general settings](/tesserarr/admin/settings/) of the interface. Leave them unset in normal
+operation: a variable that is set locks its field in the interface.
+
+| Variable | Overrides |
+| --- | --- |
+| `TESSERARR_DISPLAY_NAME` | Display name |
+| `TESSERARR_DEFAULT_LOCALE` | Default language, `de` or `en` |
+| `TZ` | Time zone, an IANA name |
+| `TESSERARR_PAGE_SIZE` | List size, `25`, `50` or `100` |
+| `TESSERARR_THEME_DEFAULT` | Default theme, `system`, `light` or `dark` |
+| `TESSERARR_INVITATION_DAYS` | Validity of new invitations, 1 to 90 |
+| `TESSERARR_AUDIT_RETENTION_DAYS` | Audit log retention, 30 to 3650 |
 
 ## Updates
 

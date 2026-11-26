@@ -259,6 +259,25 @@ describe('Audit', () => {
         people: [{ value: 'user:1', label: 'Alice' }],
     };
 
+    it('shows the time in the time zone of the instance, not the browser', async () => {
+        await render(Audit, props, { timeZone: 'Pacific/Auckland' });
+        const auckland = document.querySelector('time')!.textContent;
+        document.body.innerHTML = '';
+        await render(Audit, props, { timeZone: 'America/Los_Angeles' });
+        const losAngeles = document.querySelector('time')!.textContent;
+
+        // 10:00 UTC on 2 January: 23:00 in Auckland, the evening of 1 January in Los Angeles.
+        expect(auckland).toContain('11:00');
+        expect(losAngeles).toContain('2:00');
+        expect(auckland).not.toBe(losAngeles);
+    });
+
+    it('falls back to the browser zone for a zone it does not know', async () => {
+        await render(Audit, props, { timeZone: 'Mars/Olympus' });
+
+        expect(document.querySelector('time')!.textContent).toContain('2026');
+    });
+
     it('applies the origin filter and keeps the others', async () => {
         await render(Audit, props);
 

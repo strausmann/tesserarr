@@ -69,6 +69,7 @@ export default defineConfig({
         ]),
         group("Admin", [
           { slug: "admin" },
+          { slug: "admin/settings" },
           { slug: "admin/invitations" },
           { slug: "admin/login-methods" },
           { slug: "admin/mfa-and-recovery" },

@@ -11,6 +11,7 @@ import { audit } from './artboards/audit';
 import { dashboard } from './artboards/dashboard';
 import { friendHome } from './artboards/friend-home';
 import { roles } from './artboards/roles';
+import { settingsGeneral } from './artboards/settings-general';
 import { users } from './artboards/users';
 
 export type Role = 'guest' | 'friend' | 'operator';
@@ -145,6 +146,26 @@ export const gatedViews: GatedView[] = [
         artboard: roles.artboard,
         locale: 'de-DE',
         expect: roles.expect,
+    },
+    // Task 8b. Without the sections of later tasks: "Versionswarnungen" and
+    // its "Je Dienst abweichend" (version checks, 16c/16d) and the fields
+    // marked "ab 0.2.0" or "Vorschau 0.2.0". The page adds "Sicherungen vor
+    // einer Migration behalten", which the artboard lacks (see PR).
+    {
+        name: 'General settings',
+        path: '/settings/general',
+        as: 'operator',
+        artboard: settingsGeneral.artboard,
+        locale: 'de-DE',
+        expect: {
+            headings: without(settingsGeneral.expect.headings, [
+                'Versionswarnungen',
+            ]),
+            controls: without(settingsGeneral.expect.controls, [
+                'button:Je Dienst abweichend',
+            ]),
+            states: ['filled'],
+        },
     },
     {
         name: 'Audit log',

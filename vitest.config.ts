@@ -32,6 +32,9 @@ const components = [
     'resources/js/pages/admin/Audit.svelte',
     'resources/js/pages/admin/Roles.svelte',
     'resources/js/pages/admin/Users.svelte',
+    // Task 8b.
+    'resources/js/pages/admin/settings/General.svelte',
+    'resources/js/components/ui/Segmented.svelte',
 ];
 
 export default defineConfig({

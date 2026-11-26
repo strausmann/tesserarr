@@ -15,14 +15,18 @@ use App\Database\MigrationLock;
 use App\Database\PostgresMigrationLock;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
+use App\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -61,6 +65,14 @@ class AppServiceProvider extends ServiceProvider
         TrustProxies::at(config('tesserarr.trusted_proxies'));
 
         $this->definePermissionGates();
+
+        // The queue worker and the scheduler run for the whole process with one
+        // "request" object; the settings read for one job or task are dropped
+        // before the next (SettingsRegistry::forget()).
+        Event::listen(
+            [JobProcessing::class, ScheduledTaskStarting::class],
+            static fn () => app(SettingsRegistry::class)->forget(),
+        );
     }
 
     /**

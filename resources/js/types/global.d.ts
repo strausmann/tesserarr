@@ -25,7 +25,7 @@ declare module '@inertiajs/core' {
             translations: Record<string, string>;
             audience: 'guest' | 'friend' | 'operator';
             version: string;
-            ui: { collapsed: Record<string, boolean> };
+            ui: { collapsed: Record<string, boolean>; themeDefault?: string };
             [key: string]: unknown;
         };
     }
