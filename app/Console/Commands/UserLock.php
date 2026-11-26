@@ -35,7 +35,11 @@ final class UserLock extends Command
         $actor = Actor::console();
 
         try {
-            $guard->assertKeepsAnOperator(fn () => $user->forceFill(['locked_at' => now()])->save());
+            $guard->assertKeepsAnOperator(function () use ($guard, $user) {
+                $guard->lockAccount($user);
+
+                return $user->forceFill(['locked_at' => now()])->save();
+            });
         } catch (LastOperatorProtected) {
             $audit->record(AuditAction::UserLocked, $actor, $user, [], AuditOutcome::Denied);
             $this->error(sprintf('Refused: %s is the last active operator. Make another account an operator first.', $this->describe($user)));

@@ -48,10 +48,12 @@ afterEach(function () {
 });
 
 it('derives a unique username from the existing accounts and keeps their names and addresses', function () {
+    // Stand-ins for the stored hashes, which the migration must keep as they are.
+    [$a, $b, $c] = [str_repeat('a', 12), str_repeat('b', 12), str_repeat('c', 12)];
     legacyUsers([
-        ['name' => 'Alice Example', 'email' => 'Alice@example.org', 'password' => 'hash-a'],
-        ['name' => 'Alice Other', 'email' => 'alice@example.net', 'password' => 'hash-b'],
-        ['name' => '!!', 'email' => 'x@example.com', 'password' => 'hash-c'],
+        ['name' => 'Alice Example', 'email' => 'Alice@example.org', 'password' => $a],
+        ['name' => 'Alice Other', 'email' => 'alice@example.net', 'password' => $b],
+        ['name' => '!!', 'email' => 'x@example.com', 'password' => $c],
     ]);
 
     reshape();
@@ -59,9 +61,9 @@ it('derives a unique username from the existing accounts and keeps their names a
     $rows = DB::table('users')->orderBy('id')->get(['username', 'display_name', 'email', 'password', 'locked_at'])->map(fn ($r) => (array) $r)->all();
 
     expect($rows)->toBe([
-        ['username' => 'alice', 'display_name' => 'Alice Example', 'email' => 'Alice@example.org', 'password' => 'hash-a', 'locked_at' => null],
-        ['username' => 'alice2', 'display_name' => 'Alice Other', 'email' => 'alice@example.net', 'password' => 'hash-b', 'locked_at' => null],
-        ['username' => 'x-user', 'display_name' => '!!', 'email' => 'x@example.com', 'password' => 'hash-c', 'locked_at' => null],
+        ['username' => 'alice', 'display_name' => 'Alice Example', 'email' => 'Alice@example.org', 'password' => $a, 'locked_at' => null],
+        ['username' => 'alice2', 'display_name' => 'Alice Other', 'email' => 'alice@example.net', 'password' => $b, 'locked_at' => null],
+        ['username' => 'x-user', 'display_name' => '!!', 'email' => 'x@example.com', 'password' => $c, 'locked_at' => null],
     ]);
 });
 

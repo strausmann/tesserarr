@@ -99,3 +99,37 @@ it('checks the member that is given the role while the role is deleted', functio
         ->and(Role::query()->where('name', 'helpers')->exists())->toBeTrue()
         ->and(User::query()->where('username', 'race-bob')->sole()->getRoleNames()->all())->toBe(['helpers']);
 });
+
+it('checks a permission that is added to the role while the role is deleted', function () {
+    Role::create(['name' => 'helpers', 'guard_name' => 'web'])->syncPermissions([Permission::AuditView->value]);
+    Role::create(['name' => 'co-maintainer', 'guard_name' => 'web'])
+        ->syncPermissions([Permission::RolesManage->value, Permission::AuditView->value]);
+    User::factory()->withRole('co-maintainer')->create(['username' => 'race-actor']);
+
+    // Another transaction gives "helpers" users.manage, which the actor lacks,
+    // and is still open when the deletion starts.
+    config(['database.connections.race_writer' => config('database.connections.'.config('database.default'))]);
+    $writer = DB::connection('race_writer');
+    $writer->beginTransaction();
+    $writer->table('role_has_permissions')->insert([
+        'role_id' => Role::findByName('helpers', 'web')->id,
+        'permission_id' => DB::table('permissions')->where('name', Permission::UsersManage->value)->value('id'),
+    ]);
+
+    try {
+        $delete = raceChild(crc32('role-deletion-permission-race'), 'DeleteRole', ['race-actor', 'helpers']);
+        // Proof that the insert's foreign-key lock and the FOR UPDATE of the
+        // role row conflict: the deletion waits for the open insert.
+        waitUntil(fn () => (int) $writer->scalar("select count(*) from pg_locks where locktype <> 'advisory' and not granted") >= 1, 'the deletion waits for the open insert');
+    } finally {
+        $writer->commit();
+    }
+
+    $deleted = raceResult($delete->wait());
+    $writer->disconnect();
+
+    expect($deleted['ok'] ?? null)->toBeTrue(json_encode($deleted))
+        ->and($deleted['result']['deleted'] ?? null)->toBeFalse()
+        ->and((string) ($deleted['result']['refused'] ?? ''))->toContain('users.manage')
+        ->and(Role::query()->where('name', 'helpers')->exists())->toBeTrue();
+});

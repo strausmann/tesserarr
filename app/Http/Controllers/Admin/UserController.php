@@ -23,6 +23,7 @@ use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -86,11 +87,18 @@ final class UserController extends Controller
         $by = Actor::user($actor);
 
         try {
-            // Giving a role needs its permissions; taking one away needs the
-            // permissions the account holds now.
-            $this->guard->assertCanGrant($by, RoleGuard::permissionsOfRole($role));
-            $this->guard->assertCanGrant($by, $user->grantedPermissions());
-            $this->guard->assertKeepsAnOperator(fn () => $user->syncRoles([$role]));
+            DB::transaction(function () use ($by, $user, $role): void {
+                // Locks first (account, role, the account's permissions), then
+                // every check on what is locked, then the change.
+                $this->guard->lockAccount($user);
+                $locked = $this->guard->lockRole($role, forUpdate: false);
+                $this->guard->lockPermissionsOf($user);
+                // Giving a role needs its permissions; taking one away needs
+                // the permissions the account holds now.
+                $this->guard->assertCanGrant($by, RoleGuard::permissionsOfRole($locked));
+                $this->guard->assertCanGrant($by, $user->grantedPermissions());
+                $this->guard->assertKeepsAnOperator(fn () => $user->syncRoles([$locked]));
+            });
         } catch (PrivilegeEscalation $e) {
             $this->audit->record(AuditAction::RoleAssigned, $by, $user, ['role' => $role->name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
 
@@ -126,14 +134,18 @@ final class UserController extends Controller
         $action = $locked ? AuditAction::UserLocked : AuditAction::UserUnlocked;
 
         try {
-            // Nobody locks (or unlocks) an account that can do more than they can.
-            $this->guard->assertCanGrant($by, $user->grantedPermissions());
-            if ($locked) {
-                $this->guard->assertKeepsAnOperator(fn () => $user->forceFill(['locked_at' => now()])->save());
-            } else {
-                // Unlocking never lowers the number of active operators.
-                $user->forceFill(['locked_at' => null])->save();
-            }
+            DB::transaction(function () use ($by, $user, $locked): void {
+                $this->guard->lockAccount($user);
+                $this->guard->lockPermissionsOf($user);
+                // Nobody locks (or unlocks) an account that can do more than they can.
+                $this->guard->assertCanGrant($by, $user->grantedPermissions());
+                if ($locked) {
+                    $this->guard->assertKeepsAnOperator(fn () => $user->forceFill(['locked_at' => now()])->save());
+                } else {
+                    // Unlocking never lowers the number of active operators.
+                    $user->forceFill(['locked_at' => null])->save();
+                }
+            });
         } catch (PrivilegeEscalation $e) {
             $this->audit->record($action, $by, $user, ['refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
 

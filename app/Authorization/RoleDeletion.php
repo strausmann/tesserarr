@@ -10,7 +10,6 @@ namespace App\Authorization;
 use App\Audit\Actor;
 use App\Models\User;
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -23,7 +22,9 @@ use Spatie\Permission\Models\Role;
  * model_has_roles, whose foreign key takes a KEY SHARE lock on the same row.
  * So an assignment still open makes the deletion wait and is then counted as
  * a member, and an assignment that starts later waits for the deletion and
- * fails on the deleted role. No member is moved without the check.
+ * fails on the deleted role. No member is moved without the check. The
+ * role's own permissions are checked after the lock as well: a permission
+ * added meanwhile (role_has_permissions, same KEY SHARE lock) is counted.
  */
 final class RoleDeletion
 {
@@ -40,14 +41,10 @@ final class RoleDeletion
      */
     public function delete(Actor $by, Role $role): int
     {
-        $this->guard->assertMayChangePermissions($by, $role);
-
         return $this->db->transaction(function () use ($by, $role): int {
-            /** @var Role|null $locked */
-            $locked = Role::query()->whereKey($role->getKey())->lockForUpdate()->first();
-            if ($locked === null) {
-                throw (new ModelNotFoundException)->setModel(Role::class, [$role->getKey()]);
-            }
+            // Every check after the lock, on the role as it is now.
+            $locked = $this->guard->lockRole($role, forUpdate: true);
+            $this->guard->assertMayChangePermissions($by, $locked);
 
             $members = User::role($locked)->get();
             if ($members->isNotEmpty()) {

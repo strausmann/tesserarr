@@ -19,6 +19,7 @@ use App\Authorization\Roles;
 use App\Console\Commands\Concerns\FindsAccounts;
 use App\Console\Support\TerminalText;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -54,8 +55,13 @@ final class RoleAssign extends Command
         $previous = $user->getRoleNames()->values()->all();
 
         try {
-            $guard->assertCanGrant($actor, RoleGuard::permissionsOfRole($role));
-            $guard->assertKeepsAnOperator(fn () => $user->syncRoles([$role]));
+            DB::transaction(function () use ($guard, $actor, $user, $role): void {
+                // Locks first, then the checks on what is locked, then the change.
+                $guard->lockAccount($user);
+                $locked = $guard->lockRole($role, forUpdate: false);
+                $guard->assertCanGrant($actor, RoleGuard::permissionsOfRole($locked));
+                $guard->assertKeepsAnOperator(fn () => $user->syncRoles([$locked]));
+            });
         } catch (PrivilegeEscalation $e) {
             $audit->record(AuditAction::RoleAssigned, $actor, $user, ['role' => $role->name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
             $this->error($e->getMessage());

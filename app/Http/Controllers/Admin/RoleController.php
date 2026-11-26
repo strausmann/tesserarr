@@ -22,11 +22,13 @@ use App\Identity\Rules\DisplayName;
 use App\Models\User;
 use Closure;
 use Illuminate\Container\Attributes\CurrentUser;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\Permission\Models\Role;
@@ -93,20 +95,23 @@ final class RoleController extends Controller
         $by = Actor::user($actor);
 
         try {
-            $this->guard->assertCanGrant($by, $permissions);
+            $role = DB::transaction(function () use ($by, $name, $permissions): Role {
+                // The check after the locks on the actor's permissions (RoleGuard).
+                $this->guard->assertCanGrant($by, $permissions);
+                /** @var Role $role */
+                $role = Role::create(['name' => $name, 'guard_name' => Roles::GUARD]);
+                $role->syncPermissions(Permission::values($permissions));
+
+                return $role;
+            });
         } catch (PrivilegeEscalation $e) {
             $this->audit->record(AuditAction::RoleCreated, $by, null, ['role' => $name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
 
             return $this->refuse($request, 'privilege_escalation', 403, 'permissions', $e->getMessage(), $e->permissions);
+        } catch (UniqueConstraintViolationException) {
+            // Two roles of the same name at once: the index on lower(name) keeps one.
+            throw ValidationException::withMessages(['name' => __('validation.role.taken')]);
         }
-
-        $role = DB::transaction(function () use ($name, $permissions): Role {
-            /** @var Role $role */
-            $role = Role::create(['name' => $name, 'guard_name' => Roles::GUARD]);
-            $role->syncPermissions(Permission::values($permissions));
-
-            return $role;
-        });
 
         $this->audit->record(AuditAction::RoleCreated, $by, $role, ['role' => $name, 'permissions' => Permission::values($permissions)]);
 
@@ -118,27 +123,30 @@ final class RoleController extends Controller
         $by = Actor::user($actor);
         $name = (string) $role->getAttribute('name');
 
-        if (Roles::isBuiltIn($name)) {
-            $this->audit->record(AuditAction::RoleChanged, $by, $role, ['role' => $name], AuditOutcome::Denied);
-
-            return $this->refuse($request, 'built_in_role_immutable', 422, 'permissions', (new BuiltInRoleImmutable($name))->getMessage());
-        }
-
         $validated = $request->validate($this->permissionRules());
-        $before = RoleGuard::permissionsOfRole($role);
         $after = Permission::ordered(Permission::fromValues($validated['permissions'] ?? []));
 
         try {
-            // Removing a permission needs it as much as adding one.
-            $this->guard->assertMayChangePermissions($by, $role);
-            $this->guard->assertCanGrant($by, $after);
+            $before = DB::transaction(function () use ($by, $role, $after): array {
+                // Every check after the lock, on the role as it is now.
+                $locked = $this->guard->lockRole($role, forUpdate: true);
+                $before = RoleGuard::permissionsOfRole($locked);
+                // Removing a permission needs it as much as adding one.
+                $this->guard->assertMayChangePermissions($by, $locked);
+                $this->guard->assertCanGrant($by, $after);
+                $locked->syncPermissions(Permission::values($after));
+
+                return $before;
+            });
+        } catch (BuiltInRoleImmutable $e) {
+            $this->audit->record(AuditAction::RoleChanged, $by, $role, ['role' => $name], AuditOutcome::Denied);
+
+            return $this->refuse($request, 'built_in_role_immutable', 422, 'permissions', $e->getMessage());
         } catch (PrivilegeEscalation $e) {
             $this->audit->record(AuditAction::RoleChanged, $by, $role, ['role' => $name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
 
             return $this->refuse($request, 'privilege_escalation', 403, 'permissions', $e->getMessage(), $e->permissions);
         }
-
-        $role->syncPermissions(Permission::values($after));
 
         $this->audit->record(AuditAction::RoleChanged, $by, $role, [
             'role' => $name,

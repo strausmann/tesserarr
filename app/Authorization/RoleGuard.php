@@ -12,6 +12,7 @@ use App\Concurrency\ConcurrencyBarrier;
 use App\Concurrency\InvariantGuard;
 use App\Models\User;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -65,6 +66,13 @@ final class RoleGuard
      */
     public function grantableBy(Actor $actor, ?User $owner = null): array
     {
+        if ($actor->user !== null) {
+            $this->lockPermissionsOf($actor->user);
+        }
+        if ($owner !== null) {
+            $this->lockPermissionsOf($owner);
+        }
+
         $ceiling = match ($actor->type) {
             Actor::USER, Actor::TOKEN => $actor->user === null || $actor->user->isBlocked() ? [] : $actor->user->grantedPermissions(),
             Actor::CLI => Permission::assignableToUsers(),
@@ -80,6 +88,56 @@ final class RoleGuard
             $ceiling,
             fn (Permission $p) => in_array($p, Permission::assignableToUsers(), true),
         )));
+    }
+
+    /**
+     * Locks the account row for a change of its roles or its lock. Every
+     * path that changes an account's roles takes it first, so a grant check
+     * that read that account's permissions (lockPermissionsOf) finishes first, or
+     * reads the change. Call inside the transaction of the change.
+     */
+    public function lockAccount(User $user): void
+    {
+        $this->db->table('users')->where('id', $user->getKey())->lockForUpdate()->first(['id']);
+    }
+
+    /**
+     * The role row, locked and read again with its permissions: FOR UPDATE
+     * to change or delete the role, FOR SHARE to give it to an account.
+     * Inserting into role_has_permissions or model_has_roles takes a KEY
+     * SHARE lock on this row (their foreign keys), so a concurrent change of
+     * the role's permissions or members waits for a FOR UPDATE holder, and
+     * a FOR UPDATE waits for them (tests/Concurrency/RoleDeletionTest.php).
+     */
+    public function lockRole(Role $role, bool $forUpdate): Role
+    {
+        $query = Role::query()->whereKey($role->getKey());
+        /** @var Role|null $locked */
+        $locked = ($forUpdate ? $query->lockForUpdate() : $query->sharedLock())->first();
+
+        if ($locked === null) {
+            throw (new ModelNotFoundException)->setModel(Role::class, [$role->getKey()]);
+        }
+
+        return $locked;
+    }
+
+    /**
+     * Shares the locks on what a ceiling is read from: the account row
+     * (against a concurrent change of its roles, lockAccount) and its role
+     * rows (against a concurrent change of their permissions, lockRole).
+     * Outside a transaction the locks end with the statement. Call it before
+     * reading the permissions of an account a decision depends on.
+     */
+    public function lockPermissionsOf(User $user): void
+    {
+        $this->db->table('users')->where('id', $user->getKey())->sharedLock()->first(['id']);
+        $this->db->table('roles')
+            ->join('model_has_roles', 'model_has_roles.role_id', '=', 'roles.id')
+            ->where('model_has_roles.model_type', $user->getMorphClass())
+            ->where('model_has_roles.model_id', $user->getKey())
+            ->lock('for share of roles')
+            ->get(['roles.id']);
     }
 
     /**
