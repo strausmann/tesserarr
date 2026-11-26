@@ -111,6 +111,13 @@ test.describe('update notice', () => {
         expect(b, 'the second build runs another version').not.toBe(a);
     });
 
+    // A request the page started last (the About dialog reloads `release`)
+    // may still be forwarded to B when a test ends; wait for the handler
+    // instead of failing the run with "route.fetch: Test ended".
+    test.afterEach(async ({ page }) => {
+        await page.unrouteAll({ behavior: 'wait' });
+    });
+
     test('names the version on pages and the session API but not on files', async ({
         page,
     }) => {

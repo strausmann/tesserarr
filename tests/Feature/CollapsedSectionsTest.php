@@ -18,7 +18,7 @@ uses(RefreshDatabase::class);
 const COLLAPSED_URL = '/api/v1/app/me/ui/collapsed';
 
 it('writes the value when a section is toggled', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
         ->putJson(COLLAPSED_URL, ['section' => CollapsibleSection::DashboardAttention->value, 'collapsed' => true])
@@ -28,7 +28,7 @@ it('writes the value when a section is toggled', function () {
 });
 
 it('shows the stored value after a reload and in a second session', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
     $this->actingAs($user)
         ->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => false])
         ->assertNoContent();
@@ -48,7 +48,7 @@ it('shows the stored value after a reload and in a second session', function () 
 });
 
 it('keeps the other sections when one is toggled', function () {
-    $user = User::factory()->create(['ui_collapsed' => ['dashboard.attention' => true, 'retired' => true]]);
+    $user = User::factory()->operator()->create(['ui_collapsed' => ['dashboard.attention' => true, 'retired' => true]]);
 
     $this->actingAs($user)
         ->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => false])
@@ -58,7 +58,7 @@ it('keeps the other sections when one is toggled', function () {
 });
 
 it('rejects a section it does not know', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
         ->putJson(COLLAPSED_URL, ['section' => 'no.such.section', 'collapsed' => true])
@@ -69,7 +69,7 @@ it('rejects a section it does not know', function () {
 });
 
 it('rejects a value that is not a boolean', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
         ->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => 'maybe'])
@@ -83,7 +83,7 @@ it('turns a guest away', function () {
 });
 
 it('hands only the known sections to the page', function () {
-    $user = User::factory()->create(['ui_collapsed' => ['dashboard.attention' => true, 'retired' => true]]);
+    $user = User::factory()->operator()->create(['ui_collapsed' => ['dashboard.attention' => true, 'retired' => true]]);
 
     $this->actingAs($user)->get('/dashboard')
         ->assertInertia(fn (Assert $page) => $page->where('ui.collapsed', ['dashboard.attention' => true]));

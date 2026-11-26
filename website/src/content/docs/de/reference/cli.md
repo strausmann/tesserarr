@@ -32,3 +32,52 @@ Look up the newest release of Tesserarr on GitHub and remember it
 ```text
 tesserarr:release-check
 ```
+
+## `tesserarr:role:assign`
+
+Give an account a role (replaces its current role); keeps at least one active operator
+
+### Aufruf
+
+```text
+tesserarr:role:assign <username> <role>
+```
+
+### Argumente
+
+| Argument | Pflicht | Beschreibung |
+| --- | --- | --- |
+| `username` | ja | the account, by username (never an e-mail address) |
+| `role` | ja | operator, user or the name of an own role |
+
+## `tesserarr:user:lock`
+
+Lock an account: it is signed out and cannot sign in or use its tokens; keeps at least one active operator
+
+### Aufruf
+
+```text
+tesserarr:user:lock <username>
+```
+
+### Argumente
+
+| Argument | Pflicht | Beschreibung |
+| --- | --- | --- |
+| `username` | ja | the account, by username (never an e-mail address) |
+
+## `tesserarr:user:unlock`
+
+Unlock a locked account
+
+### Aufruf
+
+```text
+tesserarr:user:unlock <username>
+```
+
+### Argumente
+
+| Argument | Pflicht | Beschreibung |
+| --- | --- | --- |
+| `username` | ja | the account, by username (never an e-mail address) |

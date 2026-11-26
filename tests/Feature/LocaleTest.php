@@ -34,7 +34,7 @@ it('falls back to en without Accept-Language', function () {
 });
 
 it('prefers the language of the profile over the browser', function () {
-    $user = User::factory()->create(['locale' => 'de']);
+    $user = User::factory()->operator()->create(['locale' => 'de']);
 
     $this->actingAs($user)
         ->get('/dashboard', ['Accept-Language' => 'en-US'])
@@ -42,7 +42,7 @@ it('prefers the language of the profile over the browser', function () {
 });
 
 it('follows the browser when the profile names no language', function () {
-    $user = User::factory()->create(['locale' => null]);
+    $user = User::factory()->operator()->create(['locale' => null]);
 
     $this->actingAs($user)
         ->get('/dashboard', ['Accept-Language' => 'de'])
@@ -55,7 +55,7 @@ it('sets the lang attribute of the page', function () {
 });
 
 it('saves the language of the profile and clears it again', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
         ->from('/settings/appearance')
@@ -68,7 +68,7 @@ it('saves the language of the profile and clears it again', function () {
 });
 
 it('rejects a language it does not have', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
         ->patch('/settings/language', ['locale' => 'fr'])

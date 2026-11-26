@@ -6,12 +6,19 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Tests\Support\Worker\CommittedUsers;
 use Tests\Support\Worker\OneWorker;
 use Tests\Support\Worker\UserRequest;
 
 // Every page that shows user-specific data, served to two users by one worker
 // (CONTRIBUTING.md, "Worker-safe code"). A new page with user data adds its
-// path here.
+// path here. Alice and Bob are committed as operators: the pages ask the
+// Authorizer, which reads the account and its roles from the database.
+
+function aliceAndBob(): Closure
+{
+    return CommittedUsers::operators(workerUser('Alice'), workerUser('Bob'));
+}
 
 /**
  * @return Closure(): UserRequest
@@ -26,15 +33,18 @@ function pageAs(string $name, string $path): Closure
 }
 
 it('shows each user only their own data', function (string $path) {
-    assertNoStateLeakBetweenUsers(pageAs('Alice', $path), pageAs('Bob', $path));
+    assertNoStateLeakBetweenUsers(pageAs('Alice', $path), pageAs('Bob', $path), aliceAndBob());
 })->with([
     'dashboard' => '/dashboard',
+    // The user list and the audit log name every account by design, so they
+    // cannot be checked with "Bob sees nothing of Alice"; the roles page can.
+    'roles' => '/roles',
     'profile settings' => '/settings/profile',
     'appearance settings' => '/settings/appearance',
 ]);
 
 it('shows each user only their own data when they open different pages', function (string $pathOfA, string $pathOfB) {
-    assertNoStateLeakBetweenUsers(pageAs('Alice', $pathOfA), pageAs('Bob', $pathOfB));
+    assertNoStateLeakBetweenUsers(pageAs('Alice', $pathOfA), pageAs('Bob', $pathOfB), aliceAndBob());
 })->with([
     'profile, then dashboard' => ['/settings/profile', '/dashboard'],
     'appearance, then profile' => ['/settings/appearance', '/settings/profile'],
@@ -53,6 +63,7 @@ it('keeps the language and the collapsed sections of one user away from the next
         // German strings of the frame and Alice's collapsed section.
         fn () => UserRequest::as($alice, Request::create('/dashboard'), 'Alice', 'Hauptnavigation', 'dashboard.attention'),
         fn () => UserRequest::as($bob, Request::create('/dashboard'), 'Bob', 'Main navigation'),
+        aliceAndBob(),
     );
 });
 
@@ -72,7 +83,7 @@ it('serves a guest after a German user in English', function () {
     [$asAlice, $asGuest] = OneWorker::run([
         UserRequest::as($alice, Request::create('/dashboard'), 'Alice'),
         $guest,
-    ]);
+    ], aliceAndBob());
 
     expect($asAlice->getContent())->toContain('<html lang="de"')->toContain('Hauptnavigation');
     expect($asGuest->getStatusCode())->toBe(200)

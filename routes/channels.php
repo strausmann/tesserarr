@@ -7,6 +7,10 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Broadcast;
 
+// Loaded by App\Runtime\RoleBoot after Broadcast::routes(). The one
+// channel is the account's own: self-service, no permission
+// (tests/Feature/Security/AuthorizerCallersTest.php). A channel that needs a
+// permission asks the Authorizer, like every route.
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (string) $user->id === (string) $id;
 });

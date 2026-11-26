@@ -56,7 +56,7 @@ final readonly class UserRequest
         if ($this->user === null) {
             return 'a guest';
         }
-        $name = $this->user instanceof Model ? $this->user->getAttribute('name') : null;
+        $name = $this->user instanceof Model ? $this->user->getAttribute('display_name') : null;
 
         return is_string($name) ? $name : (string) $this->user->getAuthIdentifier();
     }

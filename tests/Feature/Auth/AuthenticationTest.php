@@ -20,7 +20,7 @@ test('users can authenticate using the login screen', function () {
     $user = User::factory()->create();
 
     $response = $this->post(route('login.store'), [
-        'login' => $user->email,
+        'login' => $user->username,
         'password' => 'password',
     ]);
 
@@ -39,7 +39,7 @@ test('users with two factor enabled are redirected to two factor challenge', fun
     $user = User::factory()->withTwoFactor()->create();
 
     $response = $this->post(route('login'), [
-        'login' => $user->email,
+        'login' => $user->username,
         'password' => 'password',
     ]);
 
@@ -52,7 +52,7 @@ test('users can not authenticate with invalid password', function () {
     $user = User::factory()->create();
 
     $this->post(route('login.store'), [
-        'login' => $user->email,
+        'login' => $user->username,
         'password' => 'wrong-password',
     ]);
 
@@ -72,10 +72,10 @@ test('users can logout', function () {
 test('users are rate limited', function () {
     $user = User::factory()->create();
 
-    RateLimiter::increment(md5('login'.implode('|', [$user->email, '127.0.0.1'])), amount: 5);
+    RateLimiter::increment(md5('login'.implode('|', [$user->username, '127.0.0.1'])), amount: 5);
 
     $response = $this->post(route('login.store'), [
-        'login' => $user->email,
+        'login' => $user->username,
         'password' => 'wrong-password',
     ]);
 
@@ -97,7 +97,7 @@ test('remember sets the remember-me cookie', function (string $value) {
     $user = User::factory()->create();
 
     $response = $this->post(route('login.store'), [
-        'login' => $user->email,
+        'login' => $user->username,
         'password' => 'password',
         'remember' => $value,
     ]);
@@ -114,7 +114,7 @@ test('a login without remember sets no remember-me cookie', function (array $rem
     $user = User::factory()->create();
 
     $response = $this->post(route('login.store'), [
-        'login' => $user->email,
+        'login' => $user->username,
         'password' => 'password',
         ...$remember,
     ]);
@@ -126,3 +126,28 @@ test('a login without remember sets no remember-me cookie', function (array $rem
     // what the checkbox used to send whether it was ticked or not
     'empty value' => [['remember' => '']],
 ]);
+
+test('the username is matched in its stored form, whatever the case', function () {
+    $user = User::factory()->create(['username' => 'alice']);
+
+    $this->post(route('login.store'), ['login' => 'Alice', 'password' => 'password']);
+
+    $this->assertAuthenticatedAs($user);
+});
+
+test('a locked account cannot sign in', function () {
+    $user = User::factory()->create(['locked_at' => now()]);
+
+    $this->post(route('login.store'), ['login' => $user->username, 'password' => 'password']);
+
+    $this->assertGuest();
+});
+
+test('the contact address is no sign-in name', function () {
+    $user = User::factory()->create(['email' => 'alice@example.org']);
+
+    $this->post(route('login.store'), ['login' => 'alice@example.org', 'password' => 'password']);
+
+    $this->assertGuest();
+    expect($user->email)->toBe('alice@example.org');
+});
