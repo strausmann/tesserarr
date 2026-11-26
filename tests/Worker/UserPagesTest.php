@@ -31,3 +31,10 @@ it('shows each user only their own data', function (string $path) {
     'profile settings' => '/settings/profile',
     'appearance settings' => '/settings/appearance',
 ]);
+
+it('shows each user only their own data when they open different pages', function (string $pathOfA, string $pathOfB) {
+    assertNoStateLeakBetweenUsers(pageAs('Alice', $pathOfA), pageAs('Bob', $pathOfB));
+})->with([
+    'profile, then dashboard' => ['/settings/profile', '/dashboard'],
+    'appearance, then profile' => ['/settings/appearance', '/settings/profile'],
+]);

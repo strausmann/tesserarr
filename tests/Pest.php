@@ -73,11 +73,13 @@ function closedLocalPort(): int
  *
  * Each closure returns a fresh UserRequest: the user, the request and the
  * strings only that user may see. $boot runs once on the booted worker
- * application, for fixtures. Details: Tests\Support\Worker\StateLeak.
+ * application, for fixtures; a closure it returns runs after the last request.
+ * Pages with database rows use CommittedUsers::boot() for it. Details:
+ * Tests\Support\Worker\StateLeak.
  *
  * @param  Closure(): UserRequest  $requestAsA
  * @param  Closure(): UserRequest  $requestAsB
- * @param  (Closure(Application): void)|null  $boot
+ * @param  (Closure(Application): mixed)|null  $boot
  */
 function assertNoStateLeakBetweenUsers(Closure $requestAsA, Closure $requestAsB, ?Closure $boot = null): void
 {
@@ -96,7 +98,7 @@ function workerUser(string $name, int $id = 0): User
     $user->setRawAttributes([
         'id' => $id !== 0 ? $id : crc32($name),
         'name' => $name,
-        'email' => strtolower($name).'@example.org',
+        'email' => strtolower(str_replace(' ', '.', $name)).'@example.org',
         'email_verified_at' => '2026-01-01 00:00:00',
     ], true);
     $user->exists = true;

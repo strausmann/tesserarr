@@ -44,7 +44,8 @@ final class OneWorker
 {
     /**
      * @param  list<UserRequest>  $requests
-     * @param  (Closure(Application): void)|null  $boot  runs once on the booted application, before the first request
+     * @param  (Closure(Application): mixed)|null  $boot  runs once on the booted application, before the first
+     *                                                    request; a closure it returns runs after the last one (cleanup)
      * @return list<Response> the responses, in the order of the requests
      */
     public static function run(array $requests, ?Closure $boot = null): array
@@ -52,6 +53,7 @@ final class OneWorker
         $client = new FakeClient(array_map(fn (UserRequest $request) => $request->request, $requests));
         $worker = new FakeWorker(new ApplicationFactory(dirname(__DIR__, 3)), $client);
 
+        $cleanUp = null;
         try {
             $worker->boot();
             $app = $worker->application();
@@ -64,11 +66,14 @@ final class OneWorker
             });
 
             if ($boot !== null) {
-                $boot($app);
+                $cleanUp = $boot($app);
             }
 
             $worker->run();
         } finally {
+            if ($cleanUp instanceof Closure) {
+                $cleanUp();
+            }
             self::releaseProcessState();
         }
 

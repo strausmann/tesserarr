@@ -30,7 +30,7 @@ final class StateLeak
     /**
      * @param  Closure(): UserRequest  $requestAsA
      * @param  Closure(): UserRequest  $requestAsB
-     * @param  (Closure(Application): void)|null  $boot
+     * @param  (Closure(Application): mixed)|null  $boot
      */
     public static function assertNone(Closure $requestAsA, Closure $requestAsB, ?Closure $boot = null): void
     {
