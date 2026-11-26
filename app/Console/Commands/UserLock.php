@@ -15,6 +15,7 @@ use App\Authorization\LastOperatorProtected;
 use App\Authorization\RoleGuard;
 use App\Console\Commands\Concerns\FindsAccounts;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 final class UserLock extends Command
 {
@@ -35,11 +36,14 @@ final class UserLock extends Command
         $actor = Actor::console();
 
         try {
-            $guard->assertKeepsAnOperator(function () use ($guard, $user) {
-                $guard->lockAccount($user);
-
-                return $user->forceFill(['locked_at' => now()])->save();
-            });
+            DB::transaction(function () use ($guard, $audit, $actor, $user): void {
+                // The account first, as on every path: the operator guard
+                // counts after this lock, so a concurrent role change of this
+                // account is finished (and counted) or waits.
+                $guard->lockAccounts([$user]);
+                $guard->assertKeepsAnOperator(fn () => $user->forceFill(['locked_at' => now()])->save());
+                $audit->record(AuditAction::UserLocked, $actor, $user);
+            }, 3);
         } catch (LastOperatorProtected) {
             $audit->record(AuditAction::UserLocked, $actor, $user, [], AuditOutcome::Denied);
             $this->error(sprintf('Refused: %s is the last active operator. Make another account an operator first.', $this->describe($user)));
@@ -47,7 +51,6 @@ final class UserLock extends Command
             return self::FAILURE;
         }
 
-        $audit->record(AuditAction::UserLocked, $actor, $user);
         $this->info(sprintf('Account %s locked.', $this->describe($user)));
 
         return self::SUCCESS;

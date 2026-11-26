@@ -10,6 +10,8 @@ use App\Authorization\Permission;
 use App\Authorization\Roles;
 use App\Identity\Identity;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 
@@ -125,7 +127,8 @@ it('gives a friend the friend navigation and an operator the operator one', func
 it('sends a friend from the operator start page to their own', function () {
     $friend = User::factory()->withRole(Roles::USER)->create();
 
-    $this->actingAs($friend)->get('/dashboard')->assertRedirect('/shared');
+    $this->actingAs($friend)->get('/dashboard')->assertRedirect('/');
+    $this->get('/')->assertRedirect('/shared');
 });
 
 it('gives the release notice to operators only', function () {
@@ -159,3 +162,21 @@ it('lists the sign-in identities of an account through its relation', function (
     expect($user->identities()->pluck('subject')->all())->toBe(['42'])
         ->and($identity->user->is($user))->toBeTrue();
 });
+
+it('gives an account one role only', function () {
+    $user = User::factory()->withRole(Roles::USER)->create();
+
+    expect(fn () => DB::transaction(fn () => $user->assignRole(Roles::OPERATOR)))
+        ->toThrow(UniqueConstraintViolationException::class);
+    expect($user->fresh()?->getRoleNames()->all())->toBe([Roles::USER]);
+});
+
+it('greets an account that may open nothing with a page instead of a 403', function (?string $role) {
+    if ($role === 'empty') {
+        Role::create(['name' => 'empty', 'guard_name' => 'web'])->syncPermissions(['tokens.manage_own']);
+    }
+    $user = $role === null ? User::factory()->create() : User::factory()->withRole($role)->create();
+
+    $this->actingAs($user)->get('/dashboard')->assertRedirect('/');
+    $this->get('/')->assertOk()->assertInertia(fn (Assert $page) => $page->component('NoAccess')->where('audience', 'friend'));
+})->with(['no role' => [null], 'own role without the catalogue' => ['empty']]);

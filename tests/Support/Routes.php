@@ -54,8 +54,9 @@ const VENDOR_SELF_SERVICE_ROUTES = [
     'passkeys/confirm*',
     // The redirect to the own profile (Route::redirect, no controller of ours).
     'settings',
-    // Channel authorisation: each channel callback decides through the
-    // Authorizer (routes/channels.php), the route itself only needs a session.
+    // Channel authorisation: the route needs a session, and the one channel
+    // (routes/channels.php) is the account's own. A channel that needs a
+    // permission asks the Authorizer.
     'broadcasting/auth',
 ];
 

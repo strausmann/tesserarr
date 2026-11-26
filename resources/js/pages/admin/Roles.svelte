@@ -175,7 +175,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     <section aria-labelledby="h-matrix" class="flex flex-col gap-3">
         <h2 id="h-matrix" class="tr-panel-title">{t('roles.matrix')}</h2>
         <div class="tr-table-wrap">
-            <table class="tr-table">
+            <table class="tr-table tr-matrix">
                 <thead>
                     <tr>
                         <th scope="col">{t('roles.col.permission')}</th>
@@ -184,7 +184,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                                 <span class="font-bold">{roleName(role)}</span>
                                 <span class="tr-sub">
                                     {role.built_in ? t('roles.built_in') : t('roles.own')}
-                                    · {t('roles.members', { count: role.members })}
+                                    · {t(role.members === 1 ? 'roles.members_one' : 'roles.members', { count: role.members })}
                                 </span>
                             </th>
                         {/each}

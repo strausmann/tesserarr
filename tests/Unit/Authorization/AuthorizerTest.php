@@ -162,3 +162,9 @@ it('does not let the user model answer can() past the gate', function () {
     // Outside a session route the Authorizer refuses; spatie's own check would have said yes.
     expect($user->can(Permission::CatalogBrowse->value))->toBeFalse();
 });
+
+it('denies a token with the wildcard ability', function () {
+    $operator = User::factory()->operator()->create();
+
+    expect(app(Authorizer::class)->allows($operator, tokenWith(['*'], $operator), Permission::AuditView)->reason)->toBe('token_lacks_permission');
+});

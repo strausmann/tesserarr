@@ -159,7 +159,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             <tbody>
                 {#each entries as entry (entry.id)}
                     <tr>
-                        <td><time datetime={entry.at}>{time.format(new Date(entry.at))}</time></td>
+                        <td class="tr-nowrap"><time datetime={entry.at}>{time.format(new Date(entry.at))}</time></td>
                         <td>
                             <span>{entry.who}</span>
                             <span class="tr-sub">{t(`audit.source.${entry.source}`)}</span>

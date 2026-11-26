@@ -188,6 +188,11 @@ final class RoleGuard
     }
 
     /**
+     * Callers lock the accounts the change touches first (lockAccounts):
+     * the count "before" is read inside the transaction after those locks,
+     * so a concurrent role change or lock of the same account has committed
+     * and is counted, or waits for this one.
+     *
      * Runs $change and keeps at least one active operator (role operator,
      * not locked). Covers demoting, removing the role, deleting and locking.
      * The change is rolled back and LastOperatorProtected thrown when none

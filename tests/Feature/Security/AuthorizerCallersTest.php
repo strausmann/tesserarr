@@ -5,6 +5,7 @@
 
 declare(strict_types=1);
 
+use App\Models\User;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Tests\Support\Spies\AuthorizerSpy;
@@ -65,4 +66,22 @@ it('fails for a protected route without a check', function () {
     $route = collect(protectedRoutes())->first(fn (Route $r) => $r->uri() === '_unchecked');
 
     expect($route)->not->toBeNull()->and(callWithLeastPrivilege($route)->status())->toBe(200);
+});
+
+it('lets an account authorise only its own broadcast channel', function () {
+    // The null broadcaster skips the channel callbacks; the reverb driver runs them.
+    config([
+        'broadcasting.default' => 'reverb',
+        'broadcasting.connections.reverb.key' => 'test-key',
+        'broadcasting.connections.reverb.secret' => 'test-secret',
+        'broadcasting.connections.reverb.app_id' => 'test-app',
+        'broadcasting.connections.reverb.options.host' => 'localhost',
+    ]);
+    $owner = User::factory()->withRole('user')->create();
+    $other = User::factory()->withRole('user')->create();
+    $ask = fn (User $of) => ['socket_id' => '1234.5678', 'channel_name' => "private-App.Models.User.{$of->id}"];
+
+    $this->post('/broadcasting/auth', $ask($owner))->assertForbidden();
+    $this->actingAs($owner)->post('/broadcasting/auth', $ask($owner))->assertOk();
+    $this->actingAs($owner)->post('/broadcasting/auth', $ask($other))->assertForbidden();
 });

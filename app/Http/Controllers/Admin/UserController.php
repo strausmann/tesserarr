@@ -83,7 +83,6 @@ final class UserController extends Controller
         ]);
         /** @var Role $role */
         $role = Role::findByName((string) $validated['role'], Roles::GUARD);
-        $previous = $user->getRoleNames()->values()->all();
         $by = Actor::user($actor);
 
         try {
@@ -91,6 +90,7 @@ final class UserController extends Controller
                 // Locks first (the accounts, then the role and the account's
                 // permissions), then every check on what is locked, then the change.
                 $this->guard->lockAccounts([$user], [$actor]);
+                $previous = $user->unsetRelation('roles')->getRoleNames()->values()->all();
                 $locked = $this->guard->lockRole($role, forUpdate: false);
                 $this->guard->lockPermissionsOf($user);
                 // Giving a role needs its permissions; taking one away needs
@@ -98,6 +98,8 @@ final class UserController extends Controller
                 $this->guard->assertCanGrant($by, RoleGuard::permissionsOfRole($locked));
                 $this->guard->assertCanGrant($by, $user->grantedPermissions());
                 $this->guard->assertKeepsAnOperator(fn () => $user->syncRoles([$locked]));
+                // In the transaction: no change without its entry.
+                $this->audit->record(AuditAction::RoleAssigned, $by, $user, ['role' => $locked->name, 'previous' => $previous]);
             }, 3);
         } catch (PrivilegeEscalation $e) {
             $this->audit->record(AuditAction::RoleAssigned, $by, $user, ['role' => $role->name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
@@ -108,8 +110,6 @@ final class UserController extends Controller
 
             return $this->refuse($request, 'last_operator', 409, 'role', $e->getMessage());
         }
-
-        $this->audit->record(AuditAction::RoleAssigned, $by, $user, ['role' => $role->name, 'previous' => $previous]);
 
         return to_route('users.index');
     }
@@ -134,7 +134,7 @@ final class UserController extends Controller
         $action = $locked ? AuditAction::UserLocked : AuditAction::UserUnlocked;
 
         try {
-            DB::transaction(function () use ($by, $actor, $user, $locked): void {
+            DB::transaction(function () use ($by, $actor, $user, $locked, $action): void {
                 $this->guard->lockAccounts([$user], [$actor]);
                 $this->guard->lockPermissionsOf($user);
                 // Nobody locks (or unlocks) an account that can do more than they can.
@@ -145,6 +145,7 @@ final class UserController extends Controller
                     // Unlocking never lowers the number of active operators.
                     $user->forceFill(['locked_at' => null])->save();
                 }
+                $this->audit->record($action, $by, $user);
             }, 3);
         } catch (PrivilegeEscalation $e) {
             $this->audit->record($action, $by, $user, ['refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
@@ -155,8 +156,6 @@ final class UserController extends Controller
 
             return $this->refuse($request, 'last_operator', 409, 'lock', $e->getMessage());
         }
-
-        $this->audit->record($action, $by, $user);
 
         return to_route('users.index');
     }

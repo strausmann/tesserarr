@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Audit\AuditEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
@@ -75,4 +76,21 @@ test('there is no route to delete the own account', function () {
     $this->actingAs($user)->delete('/settings/profile')->assertMethodNotAllowed();
 
     expect($user->fresh())->not->toBeNull();
+});
+
+test('a username taken between the check and the save is a validation error', function () {
+    $user = User::factory()->create(['username' => 'before']);
+    // Another request takes the name after the validation has passed.
+    User::updating(function (User $updating) use ($user) {
+        if ($updating->is($user)) {
+            DB::table('users')->insert(['username' => 'after', 'display_name' => '']);
+        }
+    });
+
+    $this->actingAs($user)->from(route('profile.edit'))
+        ->patch(route('profile.update'), ['username' => 'after', 'display_name' => ''])
+        ->assertRedirect(route('profile.edit'))
+        ->assertSessionHasErrors('username');
+
+    expect($user->fresh()?->username)->toBe('before');
 });

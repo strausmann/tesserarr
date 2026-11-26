@@ -131,7 +131,11 @@ return [
      * this will refresh permissions on every TickTerminated, TaskTerminated and RequestTerminated
      * NOTE: This should not be needed in most cases, but an Octane/Vapor combination benefited from it.
      */
-    'register_octane_reset_listener' => false,
+    // Tesserarr: on (worker-safe code, task 4c). The Authorizer reads roles
+    // and permissions from the database and never from spatie's in-memory
+    // collection, but spatie's own lookups by name (syncRoles, syncPermissions)
+    // use it; clearing it after each request keeps no state between requests.
+    'register_octane_reset_listener' => true,
 
     /*
      * Events will fire when a role or permission is assigned/unassigned:

@@ -12,6 +12,7 @@ use App\Audit\AuditAction;
 use App\Audit\AuditLogger;
 use App\Console\Commands\Concerns\FindsAccounts;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 final class UserUnlock extends Command
 {
@@ -32,9 +33,10 @@ final class UserUnlock extends Command
         $actor = Actor::console();
 
         // Unlocking never lowers the number of active operators: no guard needed.
-        $user->forceFill(['locked_at' => null])->save();
-
-        $audit->record(AuditAction::UserUnlocked, $actor, $user);
+        DB::transaction(function () use ($audit, $actor, $user): void {
+            $user->forceFill(['locked_at' => null])->save();
+            $audit->record(AuditAction::UserUnlocked, $actor, $user);
+        });
         $this->info(sprintf('Account %s unlocked.', $this->describe($user)));
 
         return self::SUCCESS;

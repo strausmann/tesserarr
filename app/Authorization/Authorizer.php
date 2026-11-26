@@ -69,6 +69,12 @@ class Authorizer
             return AuthorizationDecision::deny(AuthorizationDecision::TOKEN_MISSING);
         }
 
+        // A wildcard ability ("*", Sanctum's default for createToken without
+        // abilities) is no permission: a token names what it may do.
+        if ($credential instanceof PersonalAccessToken && in_array('*', (array) $credential->getAttribute('abilities'), true)) {
+            return AuthorizationDecision::deny(AuthorizationDecision::TOKEN_LACKS_PERMISSION);
+        }
+
         return $credential->can($permission->value)
             ? AuthorizationDecision::allow()
             : AuthorizationDecision::deny(AuthorizationDecision::TOKEN_LACKS_PERMISSION);

@@ -19,7 +19,7 @@ use Inertia\Response;
  * The operator's start page (Dashboard.dc.html). It needs no permission of
  * its own: each of its sections is filled by the task that builds it and
  * asks for that section's permission. A friend (no administrative
- * permission) is sent to their own home.
+ * permission) is sent to "/", which knows the right home.
  */
 #[SelfService]
 final class DashboardController extends Controller
@@ -27,7 +27,7 @@ final class DashboardController extends Controller
     public function __invoke(#[CurrentUser] User $user): Response|RedirectResponse
     {
         if (Audience::of($user) !== Audience::Operator) {
-            return redirect()->route('friend.home');
+            return redirect()->route('home');
         }
 
         return Inertia::render('Dashboard');

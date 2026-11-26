@@ -75,7 +75,11 @@ final class Demote implements RaceScenario
             "select count(*) from pg_locks where locktype = 'advisory' and granted and mode = 'ShareLock' and classid = 0 and objid = ? and objsubid = 1",
             [$key],
         );
-        $waiting = (int) $signal->scalar("select count(*) from pg_locks where locktype = 'advisory' and not granted");
+        // Only a wait at the operator lock of RoleGuard (pg_advisory_xact_lock(hashtext(...))).
+        $waiting = (int) $signal->scalar(
+            "select count(*) from pg_locks where locktype = 'advisory' and not granted and objsubid = 1 and ((classid::bigint << 32) | objid::bigint) = hashtext(?)::bigint",
+            [RoleGuard::OPERATORS_LOCK],
+        );
 
         return $counted >= 2 || $waiting >= 1;
     }

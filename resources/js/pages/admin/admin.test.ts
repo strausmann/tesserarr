@@ -585,3 +585,72 @@ describe('Audit, form and entries without a subject', () => {
         );
     });
 });
+
+describe('worst-case data', () => {
+    const longName =
+        'Aleksandra Wiśniewska-Kowalczyk von der Heide-Brandenburg';
+
+    it('keeps the lock button short and names the account for screen readers', async () => {
+        await render(
+            Users,
+            {
+                users: [
+                    {
+                        id: 2,
+                        username:
+                            'aleksandra.wisniewska-kowalczyk.von-der-heide-brandenburg',
+                        display_name: longName,
+                        contact_email: null,
+                        locked_at: null,
+                        role: 'user',
+                        identities: [],
+                        self: false,
+                    },
+                ],
+                roles: ['operator', 'user'],
+            },
+            {
+                permissions: ['users.manage'],
+                translations: {
+                    'users.lock': 'Lock :name',
+                    'users.lock_short': 'Lock',
+                },
+            },
+        );
+
+        const lock = [...document.querySelectorAll('button')].find(
+            (b) => b.textContent?.trim() === 'Lock',
+        )!;
+        expect(lock.getAttribute('aria-label')).toBe(`Lock ${longName}`);
+        expect(document.querySelector('.tr-role-cell select')).not.toBeNull();
+    });
+
+    it('counts one member in the singular', async () => {
+        await render(
+            Roles,
+            {
+                roles,
+                groups,
+                grantable: ['users.view', 'users.manage', 'audit.view'],
+            },
+            {
+                permissions: ['users.manage'],
+                translations: {
+                    'roles.members': ':count accounts',
+                    'roles.members_one': ':count account',
+                },
+            },
+        );
+
+        const headers = [...document.querySelectorAll('thead th')].map(
+            (h) => h.textContent ?? '',
+        );
+        expect(
+            headers.some(
+                (h) => h.includes('1 account') && !h.includes('1 accounts'),
+            ),
+        ).toBe(true);
+        expect(headers.some((h) => h.includes('2 accounts'))).toBe(true);
+        expect(document.querySelector('table.tr-matrix')).not.toBeNull();
+    });
+});

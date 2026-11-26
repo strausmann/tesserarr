@@ -120,6 +120,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                                 </th>
                                 <td>
                                     {#if canManage}
+                                        <div class="tr-role-cell">
                                         <label class="sr-only" for="role-{account.id}">
                                             {t('users.role_of', { name: shownName(account) })}
                                         </label>
@@ -140,6 +141,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                                         >
                                             {t('users.save_role')}
                                         </button>
+                                        </div>
                                     {:else}
                                         {roleLabel(account.role)}
                                     {/if}
@@ -169,17 +171,19 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                                                 <button
                                                     type="button"
                                                     class="tr-button"
+                                                    aria-label={t('users.unlock', { name: shownName(account) })}
                                                     onclick={() => setLock(account, false)}
                                                 >
-                                                    {t('users.unlock', { name: shownName(account) })}
+                                                    {t('users.unlock_short')}
                                                 </button>
                                             {:else}
                                                 <button
                                                     type="button"
                                                     class="tr-button tr-button--danger"
+                                                    aria-label={t('users.lock', { name: shownName(account) })}
                                                     onclick={() => setLock(account, true)}
                                                 >
-                                                    {t('users.lock', { name: shownName(account) })}
+                                                    {t('users.lock_short')}
                                                 </button>
                                             {/if}
                                         {/if}

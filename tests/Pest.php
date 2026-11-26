@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\ConcurrencyTestCase;
 use Tests\Support\Worker\StateLeak;
 use Tests\Support\Worker\UserRequest;
 use Tests\TestCase;
@@ -26,7 +27,7 @@ pest()->extend(TestCase::class)
     ->in('Feature', 'Unit/Authorization');
 
 // Races between child processes: they only see committed rows.
-pest()->extend(TestCase::class)
+pest()->extend(ConcurrencyTestCase::class)
     ->use(DatabaseTruncation::class)
     ->in('Concurrency');
 

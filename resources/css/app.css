@@ -1117,6 +1117,46 @@
         background: var(--tr-sunken);
     }
 
+    /* A tag is never squeezed into two lines by a narrow column. */
+    .tr-tag {
+        flex: none;
+        white-space: nowrap;
+    }
+
+    .tr-nowrap {
+        white-space: nowrap;
+    }
+
+    /* The role select and its save button sit side by side, and a long role
+       name does not widen the whole table. */
+    .tr-role-cell {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--tr-space-2);
+    }
+
+    .tr-role-cell .tr-select {
+        max-width: 16rem;
+    }
+
+    /* The permission matrix keeps its first column in view while many role
+       columns scroll sideways, and role names wrap instead of widening a column. */
+    .tr-matrix thead th {
+        min-width: 8rem;
+        max-width: 14rem;
+        white-space: normal;
+    }
+
+    .tr-matrix thead th:first-child,
+    .tr-matrix tbody th[scope='row'] {
+        position: sticky;
+        inset-inline-start: 0;
+        z-index: 1;
+        min-width: 14rem;
+        background: var(--tr-surface);
+    }
+
     .tr-tag--bad {
         color: var(--tr-bad);
     }

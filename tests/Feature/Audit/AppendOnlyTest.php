@@ -14,6 +14,7 @@ use App\Audit\SecretInAuditContext;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Role;
 
 it('rejects UPDATE on an existing audit row at database level', function () {
     app(AuditLogger::class)->record(AuditAction::RoleChanged, Actor::cli('ops'));
@@ -86,3 +87,63 @@ it('names the origin of each kind of actor', function () {
         ->and(Actor::console()->type)->toBe('cli')
         ->and(Actor::console()->label)->not->toBe('');
 });
+
+it('rejects TRUNCATE of the audit log at database level', function () {
+    app(AuditLogger::class)->record(AuditAction::RoleChanged, Actor::cli('ops'));
+
+    expect(fn () => DB::transaction(fn () => DB::statement('truncate audit_entries')))
+        ->toThrow(QueryException::class, 'audit_entries is append-only');
+    expect(AuditEntry::query()->count())->toBe(1);
+});
+
+it('rolls a change back when its audit entry cannot be written', function (string $action, Closure $change) {
+    // The audit insert of exactly this action fails; the change must go with it.
+    DB::statement("alter table audit_entries add constraint test_refuse_action check (action <> '{$action}' or outcome <> 'done')");
+
+    $unchanged = $change($this);
+
+    expect($unchanged())->toBeTrue();
+})->with([
+    'role of an account (web)' => ['role.assign', function ($test) {
+        $target = User::factory()->withRole('user')->create();
+        $test->actingAs(User::factory()->operator()->create())->putJson("/users/{$target->id}/role", ['role' => 'operator'])->assertStatus(500);
+
+        return fn () => $target->fresh()->getRoleNames()->all() === ['user'];
+    }],
+    'lock (web)' => ['user.lock', function ($test) {
+        $target = User::factory()->withRole('user')->create();
+        $test->actingAs(User::factory()->operator()->create())->postJson("/users/{$target->id}/lock")->assertStatus(500);
+
+        return fn () => $target->fresh()->locked_at === null;
+    }],
+    'role permissions (web)' => ['role.update', function ($test) {
+        $role = Role::create(['name' => 'helpers', 'guard_name' => 'web']);
+        $test->actingAs(User::factory()->operator()->create())->putJson("/roles/{$role->id}", ['permissions' => ['audit.view']])->assertStatus(500);
+
+        return fn () => $role->fresh()->permissions->isEmpty();
+    }],
+    'role created (web)' => ['role.create', function ($test) {
+        $test->actingAs(User::factory()->operator()->create())->postJson('/roles', ['name' => 'helpers', 'permissions' => []])->assertStatus(500);
+
+        return fn () => ! Role::query()->where('name', 'helpers')->exists();
+    }],
+    'role deleted (web)' => ['role.delete', function ($test) {
+        Role::create(['name' => 'helpers', 'guard_name' => 'web']);
+        $test->actingAs(User::factory()->operator()->create())->deleteJson('/roles/'.Role::findByName('helpers', 'web')->id)->assertStatus(500);
+
+        return fn () => Role::query()->where('name', 'helpers')->exists();
+    }],
+    'role of an account (CLI)' => ['role.assign', function ($test) {
+        $target = User::factory()->withRole('user')->create(['username' => 'bob']);
+        expect(fn () => $test->artisan('tesserarr:role:assign', ['username' => 'bob', 'role' => 'operator'])->run())->toThrow(QueryException::class);
+
+        return fn () => $target->fresh()->getRoleNames()->all() === ['user'];
+    }],
+    'lock (CLI)' => ['user.lock', function ($test) {
+        User::factory()->operator()->create();
+        $target = User::factory()->withRole('user')->create(['username' => 'bob']);
+        expect(fn () => $test->artisan('tesserarr:user:lock', ['username' => 'bob'])->run())->toThrow(QueryException::class);
+
+        return fn () => $target->fresh()->locked_at === null;
+    }],
+]);

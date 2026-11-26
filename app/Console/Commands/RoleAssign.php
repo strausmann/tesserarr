@@ -52,15 +52,17 @@ final class RoleAssign extends Command
         }
 
         $actor = Actor::console();
-        $previous = $user->getRoleNames()->values()->all();
 
         try {
-            DB::transaction(function () use ($guard, $actor, $user, $role): void {
-                // Locks first, then the checks on what is locked, then the change.
-                $guard->lockAccount($user);
+            DB::transaction(function () use ($guard, $audit, $actor, $user, $role): void {
+                // Locks first, then what the change reads and checks, then the
+                // change and its audit entry, all in one transaction.
+                $guard->lockAccounts([$user]);
+                $previous = $user->unsetRelation('roles')->getRoleNames()->values()->all();
                 $locked = $guard->lockRole($role, forUpdate: false);
                 $guard->assertCanGrant($actor, RoleGuard::permissionsOfRole($locked));
                 $guard->assertKeepsAnOperator(fn () => $user->syncRoles([$locked]));
+                $audit->record(AuditAction::RoleAssigned, $actor, $user, ['role' => $locked->name, 'previous' => $previous]);
             }, 3);
         } catch (PrivilegeEscalation $e) {
             $audit->record(AuditAction::RoleAssigned, $actor, $user, ['role' => $role->name, 'refused' => Permission::values($e->permissions)], AuditOutcome::Denied);
@@ -74,7 +76,6 @@ final class RoleAssign extends Command
             return self::FAILURE;
         }
 
-        $audit->record(AuditAction::RoleAssigned, $actor, $user, ['role' => $role->name, 'previous' => $previous]);
         $this->info(sprintf('Role %s given to %s.', TerminalText::safe((string) $role->name), $this->describe($user)));
 
         return self::SUCCESS;

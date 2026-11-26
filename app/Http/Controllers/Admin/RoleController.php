@@ -102,6 +102,7 @@ final class RoleController extends Controller
                 /** @var Role $role */
                 $role = Role::create(['name' => $name, 'guard_name' => Roles::GUARD]);
                 $role->syncPermissions(Permission::values($permissions));
+                $this->audit->record(AuditAction::RoleCreated, $by, $role, ['role' => $name, 'permissions' => Permission::values($permissions)]);
 
                 return $role;
             }, 3);
@@ -113,8 +114,6 @@ final class RoleController extends Controller
             // Two roles of the same name at once: the index on lower(name) keeps one.
             throw ValidationException::withMessages(['name' => __('validation.role.taken')]);
         }
-
-        $this->audit->record(AuditAction::RoleCreated, $by, $role, ['role' => $name, 'permissions' => Permission::values($permissions)]);
 
         return to_route('roles.index');
     }
@@ -128,7 +127,7 @@ final class RoleController extends Controller
         $after = Permission::ordered(Permission::fromValues($validated['permissions'] ?? []));
 
         try {
-            $before = DB::transaction(function () use ($by, $actor, $role, $after): array {
+            DB::transaction(function () use ($by, $actor, $role, $after, $name): void {
                 // Every check after the locks (the actor's account, then the
                 // role), on the role as it is now.
                 $this->guard->lockAccounts([], [$actor]);
@@ -138,8 +137,12 @@ final class RoleController extends Controller
                 $this->guard->assertMayChangePermissions($by, $locked);
                 $this->guard->assertCanGrant($by, $after);
                 $locked->syncPermissions(Permission::values($after));
-
-                return $before;
+                // In the transaction: no change without its entry.
+                $this->audit->record(AuditAction::RoleChanged, $by, $locked, [
+                    'role' => $name,
+                    'added' => Permission::values(array_values(array_diff_key(self::keyed($after), self::keyed($before)))),
+                    'removed' => Permission::values(array_values(array_diff_key(self::keyed($before), self::keyed($after)))),
+                ]);
             }, 3);
         } catch (BuiltInRoleImmutable $e) {
             $this->audit->record(AuditAction::RoleChanged, $by, $role, ['role' => $name], AuditOutcome::Denied);
@@ -150,12 +153,6 @@ final class RoleController extends Controller
 
             return $this->refuse($request, 'privilege_escalation', 403, 'permissions', $e->getMessage(), $e->permissions);
         }
-
-        $this->audit->record(AuditAction::RoleChanged, $by, $role, [
-            'role' => $name,
-            'added' => Permission::values(array_values(array_diff_key(self::keyed($after), self::keyed($before)))),
-            'removed' => Permission::values(array_values(array_diff_key(self::keyed($before), self::keyed($after)))),
-        ]);
 
         return to_route('roles.index');
     }
@@ -169,7 +166,7 @@ final class RoleController extends Controller
         $name = (string) $role->getAttribute('name');
 
         try {
-            $members = $this->deletion->delete($by, $role);
+            $this->deletion->delete($by, $role);
         } catch (BuiltInRoleImmutable $e) {
             $this->audit->record(AuditAction::RoleDeleted, $by, $role, ['role' => $name], AuditOutcome::Denied);
 
@@ -179,8 +176,6 @@ final class RoleController extends Controller
 
             return $this->refuse($request, 'privilege_escalation', 403, 'role', $e->getMessage(), $e->permissions);
         }
-
-        $this->audit->record(AuditAction::RoleDeleted, $by, null, ['role' => $name, 'members' => $members]);
 
         return to_route('roles.index');
     }

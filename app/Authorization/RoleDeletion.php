@@ -8,6 +8,8 @@ declare(strict_types=1);
 namespace App\Authorization;
 
 use App\Audit\Actor;
+use App\Audit\AuditAction;
+use App\Audit\AuditLogger;
 use App\Models\User;
 use Illuminate\Database\ConnectionInterface;
 use Spatie\Permission\Models\Role;
@@ -34,6 +36,7 @@ final class RoleDeletion
     public function __construct(
         private readonly RoleGuard $guard,
         private readonly ConnectionInterface $db,
+        private readonly AuditLogger $audit,
     ) {}
 
     /**
@@ -70,6 +73,8 @@ final class RoleDeletion
                 $member->syncRoles([Roles::USER]);
             }
             $roleNow->delete();
+            // In the transaction: no deletion without its entry.
+            $this->audit->record(AuditAction::RoleDeleted, $by, null, ['role' => (string) $roleNow->getAttribute('name'), 'members' => $members->count()]);
 
             return $members->count();
         }, self::ATTEMPTS);
