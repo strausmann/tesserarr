@@ -227,7 +227,7 @@ python3 scripts/lockfile_sources.py            # locked downloads only from the 
 php artisan scramble:export                    # then `git status website/openapi`: nothing may change
 python3 scripts/openapi_quality.py             # every exported operation documented (see "API documentation")
 php artisan list --format=json > /tmp/artisan-list.json && python3 scripts/cli_reference.py /tmp/artisan-list.json
-npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 22)
+npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 26)
 node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
 python3 scripts/privacy_scan.py website/src website/public website/openapi
 python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
@@ -461,8 +461,8 @@ still available as the artifact `website-dist`.
 - The `real-data scan` job (`scripts/privacy_scan.py`) fails on private IPv4 addresses (the carrier-grade NAT range of Tailscale included), host
   names of an installation and personal e-mail addresses in `website/src`, `website/public` and `website/openapi`; the
   `build` job runs it again over the pages and the sitemap of the built site in `website/dist`.
-- The website needs Node 22.23.4 or newer (Astro's minimum), pinned in `website/.nvmrc`. The `NODE_IMAGE` of
-  `docker/base-images.env` builds the app's assets only and may be older.
+- The website needs Node 22.23.4 or newer (Astro's minimum); `website/.nvmrc` pins the Node 26 line that CI uses. The
+  `NODE_IMAGE` of `docker/base-images.env` builds the app's assets with the same Node 26 line.
 
 ## API documentation
 
