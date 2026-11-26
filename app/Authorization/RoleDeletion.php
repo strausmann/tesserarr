@@ -46,6 +46,13 @@ final class RoleDeletion
             $locked = $this->guard->lockRole($role, forUpdate: true);
             $this->guard->assertMayChangePermissions($by, $locked);
 
+            // Lock the members' accounts (in id order), then read the members
+            // again: an account whose role was changed meanwhile (that path
+            // locks the account first) is no member any more and keeps its
+            // new role; one changed later waits for this transaction.
+            foreach (User::role($locked)->orderBy('id')->get(['id']) as $candidate) {
+                $this->guard->lockAccount($candidate);
+            }
             $members = User::role($locked)->get();
             if ($members->isNotEmpty()) {
                 $this->guard->assertCanGrant($by, Roles::permissionsOf(Roles::USER));

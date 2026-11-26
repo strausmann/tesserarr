@@ -133,3 +133,34 @@ it('checks a permission that is added to the role while the role is deleted', fu
         ->and((string) ($deleted['result']['refused'] ?? ''))->toContain('users.manage')
         ->and(Role::query()->where('name', 'helpers')->exists())->toBeTrue();
 });
+
+it('keeps a role an account was given while its old role is deleted', function () {
+    User::factory()->operator()->create(['username' => 'race-op']);
+    Role::create(['name' => 'helpers', 'guard_name' => 'web'])->syncPermissions([Permission::AuditView->value]);
+    User::factory()->withRole('helpers')->create(['username' => 'race-bob']);
+
+    $key = crc32('role-deletion-reassign-race');
+    config(['database.connections.race_lock' => config('database.connections.'.config('database.default'))]);
+    $lock = DB::connection('race_lock');
+    $lock->select('select pg_advisory_lock(?)', [$key]);
+
+    try {
+        // Bob becomes an operator; the change is written, not yet committed.
+        $assign = raceChild($key, 'AssignRole', ['race-bob', 'operator']);
+        waitUntil(fn () => (int) $lock->scalar("select count(*) from pg_locks where locktype = 'advisory' and not granted and objid = ?", [$key]) === 1, 'the assignment waits at the barrier');
+
+        $delete = raceChild($key, 'DeleteRole', ['race-op', 'helpers']);
+        waitUntil(fn () => (int) $lock->scalar("select count(*) from pg_locks where locktype <> 'advisory' and not granted") >= 1, 'the deletion waits for the assignment');
+    } finally {
+        $lock->select('select pg_advisory_unlock(?)', [$key]);
+    }
+
+    $assigned = raceResult($assign->wait());
+    $deleted = raceResult($delete->wait());
+    $lock->disconnect();
+
+    expect($assigned['ok'] ?? null)->toBeTrue(json_encode($assigned))
+        ->and($deleted['result']['deleted'] ?? null)->toBeTrue(json_encode($deleted))
+        ->and($deleted['result']['members'] ?? null)->toBe(0)
+        ->and(User::query()->where('username', 'race-bob')->sole()->getRoleNames()->all())->toBe(['operator']);
+});

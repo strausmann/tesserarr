@@ -9,6 +9,7 @@ namespace Tests\Support\RaceScenarios;
 
 use App\Authorization\RoleGuard;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -26,7 +27,11 @@ final class AssignRole implements RaceScenario
         $user = User::query()->where('username', $arguments[0])->firstOrFail();
         $role = Role::query()->where('name', $arguments[1])->firstOrFail();
 
-        $this->guard->assertKeepsAnOperator(fn () => $user->syncRoles([$role]));
+        // As tesserarr:role:assign and the user list do: the account first.
+        DB::transaction(function () use ($user, $role): void {
+            $this->guard->lockAccount($user);
+            $this->guard->assertKeepsAnOperator(fn () => $user->syncRoles([$role]));
+        });
 
         return ['assigned' => true];
     }
