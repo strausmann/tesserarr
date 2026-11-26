@@ -52,7 +52,8 @@ If you are about to make a non-trivial change without having read those, stop an
 
 - A new dependency: say why in the pull request description, and check its licence against `licence-policy.yml`.
 - A new API endpoint: it comes with its OpenAPI export (`website/openapi/openapi.json`) and its documentation page in
-  English and German.
+  English and German. Declare its permission with the `can:<permission>` route middleware and document it with Scramble's
+  attributes until `scripts/openapi_quality.py` passes ([CONTRIBUTING.md](CONTRIBUTING.md#api-documentation)).
 - A new file over about 400 lines: ask whether it should be split.
 - An architecture change: propose it as a decision record under `docs/decisions/` before implementing.
 - Weakening a gate (a lower threshold, `|| true`, `continue-on-error`, a skipped test): never. Fix the cause or ask.
@@ -79,6 +80,7 @@ If you are about to make a non-trivial change without having read those, stop an
 | Live updates | `app/Broadcasting/` |
 | Console commands (`tesserarr:*`) | `app/Console/Commands/` |
 | Routes | `routes/web.php` (session), `routes/api_app.php` (`/api/v1/app`), `routes/api.php` (`/api/v1`, token) |
+| OpenAPI export (route selection, Scramble extensions) | `app/OpenApi/`, `config/scramble.php`; API reference in the app: `config/scalar.php` |
 | Interface | `resources/js/pages/`, `components/`, `layouts/`, `lib/` |
 | Image, entrypoint, Caddyfile | `docker/` |
 | User documentation (English and German) | `website/` |

@@ -1,0 +1,40 @@
+---
+title: Tesserarr
+description: Share parts of your media library with friends over an existing Syncthing link, by invitation only.
+template: splash
+hero:
+  tagline: Share parts of your media library with friends over an existing Syncthing link. By invitation only, without torrents and without a public index.
+  actions:
+    - text: Install it
+      link: /tesserarr/install/
+      icon: right-arrow
+    - text: How it works
+      link: /tesserarr/developers/architecture/
+      variant: minimal
+---
+
+Tesserarr is in development. The first release, 0.1.0, brings accounts, sign-in, shares, the catalogue and the
+connections to Sonarr, Radarr, Prowlarr, Syncthing and Plex. Files start to travel with 0.2.0. Every page says what it
+covers today and what follows.
+
+## What it does
+
+- **You decide who sees what.** Friends get an account only through an invitation. You grant them folders of your media
+  shares, as deep as you like.
+- **Your friends ask the way they already do.** From 0.3.0 their Sonarr or Radarr finds your catalogue like any other
+  indexer; without arr apps they request a title in the web interface.
+- **Files travel over Syncthing.** The link between your homelab and theirs already exists, or Tesserarr sets it up.
+  Hardlinks come first, so a title shared with several friends takes its space once.
+- **One centre, optional satellites.** The central instance holds the users, the rules and the audit log. A satellite
+  next to your media storage only does the file work, and has no database.
+
+## Where to start
+
+| You want to | Read |
+| --- | --- |
+| Run Tesserarr | [Install](/tesserarr/install/) |
+| Use it as a friend | [Using Tesserarr](/tesserarr/using/) |
+| Run it for others | [Administration](/tesserarr/admin/) |
+| Connect Sonarr, Radarr, Prowlarr, Syncthing or Plex | [Integrations](/tesserarr/integrations/) |
+| Look up a command or the API | [Reference](/tesserarr/reference/) |
+| Work on the code | [Developers](/tesserarr/developers/) |

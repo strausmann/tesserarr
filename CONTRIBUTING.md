@@ -196,11 +196,18 @@ scripts/e2e/run.sh                             # Playwright against the built im
 python -m pytest scripts/                      # release guard and registry rules (standard library only)
 python3 scripts/base_images.py check           # base image pins on the allowlist, matching docker/Dockerfile
 python3 scripts/lockfile_sources.py            # locked downloads only from the expected hosts
+php artisan scramble:export                    # then `git status website/openapi`: nothing may change
+python3 scripts/openapi_quality.py             # every exported operation documented (see "API documentation")
+php artisan list --format=json > /tmp/artisan-list.json && python3 scripts/cli_reference.py /tmp/artisan-list.json
+npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 22)
+node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
+python3 scripts/privacy_scan.py website/src website/public website/openapi
+python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
 ```
 
 | Check                               | Job in CI                                  |
 | ----------------------------------- | ------------------------------------------ |
-| Pint, Larastan, audit, migrations, Pest, coverage gate | `PHP — lint, static analysis, test` |
+| Pint, Larastan, audit, migrations, Pest, coverage gate, API spec, API quality, CLI reference | `PHP — lint, static analysis, test` |
 | svelte-check, lint, tests, build    | `Web — typecheck, lint, test, build`       |
 | Image build and smoke tests         | `Docker — build smoke test`                |
 | Licences of every dependency        | `Licence gate (composer, npm)`             |
@@ -214,6 +221,7 @@ python3 scripts/lockfile_sources.py            # locked downloads only from the 
 | SPDX header or annotation per file  | `REUSE — licensing of every file`          |
 | Vale on the English docs            | `Prose`                                    |
 | Pull request title                  | `commitlint`                               |
+| Website parity, real-data scan, build | `website / locale parity`, `website / real-data scan`, `website / build` |
 
 Pull requests into `main` additionally need the checks of the ruleset `main: licence gate`:
 `Licence gate (composer, npm)`, `release-impact` and `Docker — build smoke test` (and `license/cla` once the repository is
@@ -405,10 +413,68 @@ error when the two differ.
 
 ## Website
 
-The user documentation lives in [`website/`](website/) (Astro Starlight) and is published from `main`. Pull requests only
-build it. English and German are maintained together: a change to a page under `website/src/content/docs/` is complete
-only when the English and the German page change in the same pull request, and a parity check fails when a page exists in
-one language only. Every feature comes with its page.
+The user documentation lives in [`website/`](website/) (Astro Starlight, its own `package.json` and `package-lock.json`)
+and is published from `main` to GitHub Pages (`.github/workflows/website.yml`). Pull requests and milestone pushes only
+build and check it. The site is **public**, also while the repository is private. Deploying needs GitHub Pages switched
+on with the source "GitHub Actions" (repository settings); until then the `deploy` job fails and the built site is
+still available as the artifact `website-dist`.
+
+- English and German are maintained together: a change to a page under `website/src/content/docs/` is complete only when
+  the English and the German page change in the same pull request. The `locale parity` job fails when a page exists in one
+  language only.
+- Every feature comes with its page, in the pull request that builds it.
+- Internal links start with the base path, `/tesserarr/…/` with the trailing slash, as long as the site sits under the
+  repository name on GitHub Pages. `starlight-links-validator` fails the build on a broken internal link and on a relative
+  one.
+- Two pages are generated and checked in the PHP job: `reference/cli.md` (both languages) from
+  `php artisan list --format=json` by `scripts/cli_reference.py` ("CLI reference is up to date"), and the API reference
+  from `website/openapi/openapi.json` ("API spec is up to date", see "API documentation"). Change the command or the
+  route, regenerate, commit.
+- The `real-data scan` job (`scripts/privacy_scan.py`) fails on private IPv4 addresses (the carrier-grade NAT range of Tailscale included), host
+  names of an installation and personal e-mail addresses in `website/src`, `website/public` and `website/openapi`; the
+  `build` job runs it again over the pages and the sitemap of the built site in `website/dist`.
+- The website needs Node 22.23.4 or newer (Astro's minimum), pinned in `website/.nvmrc`. The `NODE_IMAGE` of
+  `docker/base-images.env` builds the app's assets only and may be older.
+
+## API documentation
+
+The token API under `/api/v1` is described by an OpenAPI document that [Scramble](https://scramble.dedoc.co/) generates
+from the code. Only `/api/v1` is exported, never the session API under `/api/v1/app` (`App\OpenApi\PublicApiRouteResolver`).
+The document is committed as `website/openapi/openapi.json`; the website renders it, and so does the API reference in the
+app at `/docs/api` (Scalar, for signed-in users, without a CDN). Scramble's own pages are switched off.
+
+Every operation needs, and the `API quality gate` (`scripts/openapi_quality.py`) fails without:
+
+| Item | How |
+| ---- | --- |
+| A unique `operationId` | the route name or `#[Endpoint(operationId: '…')]` |
+| Summary and description | the PHPDoc of the controller method (first line, then the rest) or `#[Endpoint(title: …, description: …)]` |
+| A description for every parameter | a PHPDoc comment on the validation rule, or `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
+| Examples for the request body and every 2xx response | `@example` in the PHPDoc comment of each validation rule (see below), `example:` on the parameter attributes, `#[Response(200, '…', examples: [...])]` |
+| At least one 4xx response, each with its meaning | `#[Response(403, 'The token lacks …')]`, and the ones Scramble infers from `validate()` (422) and from `authorize()` or `abort(403)` (403); Scramble writes those as references into `components/responses`, which the gate resolves |
+| The token ability | the route's `can:<permission>` middleware; `App\OpenApi\TokenAbilityExtension` writes it as the scope of the `apiToken` security requirement, from the same middleware that checks it |
+
+A body example is required, also for a body that only comes from `validate()`. Give each rule a PHPDoc comment with its
+meaning and an `@example`:
+
+```php
+$request->validate([
+    /**
+     * Why the invitation is revoked.
+     *
+     * @example no longer needed
+     */
+    'reason' => ['required', 'string'],
+]);
+```
+
+**`authorize()` alone does not satisfy the gate.** A check inside the controller (`$this->authorize()`, `Gate::authorize()`)
+is invisible to the export; the permission of a `/api/v1` route must also be its `can:<permission>` middleware, or the gate
+reports "no token ability". An empty security alternative (`{}`) is refused, and `operationId`s are compared without
+case.
+
+A pull request that adds or changes a route under `/api/v1` runs `php artisan scramble:export` and commits the document.
+"API spec is up to date" fails when the committed file differs from the export, is missing or is new.
 
 ## Writing
 

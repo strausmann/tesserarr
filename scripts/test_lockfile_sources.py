@@ -855,6 +855,33 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("is not published on Packagist", err.getvalue())
 
+    def test_a_lockfile_in_a_subdirectory_is_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "package-lock.json").write_text(json.dumps(npm_lock(**{"node_modules/a": npm_pkg()})))
+            (root / "package.json").write_text(json.dumps({"dependencies": {"a": "^1"}}))
+            (root / "website").mkdir()
+            (root / "website" / "package-lock.json").write_text(
+                json.dumps(npm_lock(**{"node_modules/a": npm_pkg("https://evil.example/a.tgz")}))
+            )
+            code, _, err = self.run_main(root)
+        self.assertEqual(code, 1)
+        self.assertIn("::error::website/package-lock.json: node_modules/a", err)
+
+    def test_lockfiles_of_installed_packages_are_not_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "package-lock.json").write_text(json.dumps(npm_lock(**{"node_modules/a": npm_pkg()})))
+            (root / "package.json").write_text(json.dumps({"dependencies": {"a": "^1"}}))
+            for installed in ("node_modules/a", "vendor/b/c", "website/node_modules/d"):
+                (root / installed).mkdir(parents=True)
+                (root / installed / "package-lock.json").write_text(
+                    json.dumps(npm_lock(**{"node_modules/a": npm_pkg("https://evil.example/a.tgz")}))
+                )
+            code, out, err = self.run_main(root)
+        self.assertEqual(code, 0, err)
+        self.assertIn("lockfile sources ok: package-lock.json", out)
+
     def test_no_lockfile_at_all_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             code, _, err = self.run_main(Path(tmp))
@@ -865,6 +892,7 @@ class CliTest(unittest.TestCase):
         code, out, err = self.run_main(ROOT)
         self.assertEqual(code, 0, err)
         self.assertIn(".github/release-tools/package-lock.json", out)
+        self.assertIn("website/package-lock.json", out)
 
 
 if __name__ == "__main__":
