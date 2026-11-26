@@ -219,6 +219,13 @@ class PrMetadataWorkflowTest(unittest.TestCase):
         for block in run_blocks(self.text()):
             self.assertNotIn("${{", block)
 
+    def test_a_milestone_change_reruns_the_check(self) -> None:
+        # Without these types a milestone set by hand leaves the check red, and a removed one leaves it green.
+        types = re.search(r"(?m)^    types: \[(.*)\]$", self.text())
+        assert types is not None
+        for name in ("milestoned", "demilestoned", "labeled", "unlabeled", "synchronize", "edited"):
+            self.assertIn(name, [t.strip() for t in types.group(1).split(",")])
+
     def test_the_labeler_is_pinned_to_a_commit(self) -> None:
         self.assertRegex(self.text(), r"uses: actions/labeler@[0-9a-f]{40} # v\d+\.\d+\.\d+")
 

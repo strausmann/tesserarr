@@ -39,9 +39,12 @@ name: PR metadata
 # Whether the check is required is a repository ruleset setting, see
 # CONTRIBUTING.md, "Pull request metadata".
 
+# `milestoned` and `demilestoned` are documented activity types of the event, but actionlint
+# up to 1.7.7 rejects them. Without them, setting the milestone by hand after a red check
+# would not rerun it.
 on:
   pull_request_target:
-    types: [opened, reopened, edited, synchronize, ready_for_review, converted_to_draft, labeled, unlabeled]
+    types: [opened, reopened, edited, synchronize, ready_for_review, converted_to_draft, labeled, unlabeled, milestoned, demilestoned]
 
 permissions: {}
 
