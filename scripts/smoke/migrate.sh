@@ -64,11 +64,13 @@ dump_major="$(docker run --rm --entrypoint pg_dump "$image" --version | sed -E '
 echo "ok: PostgreSQL 18 server, pg_dump 18 in the image"
 
 app_key="base64:$(head -c 32 /dev/urandom | base64)"
+pii_key="base64:$(head -c 32 /dev/urandom | base64)"
+blind_index_key="base64:$(head -c 32 /dev/urandom | base64)"
 migrate() { # backup-dir [extra docker args...]
     local dir="$1"
     shift
     docker run --rm --network "$network" "$@" \
-        -e APP_KEY="$app_key" -e TESSERARR_ROLE=central -e DB_CONNECTION=pgsql \
+        -e APP_KEY="$app_key" -e TESSERARR_PII_KEY="$pii_key" -e TESSERARR_BLIND_INDEX_KEY="$blind_index_key" -e TESSERARR_ROLE=central -e DB_CONNECTION=pgsql \
         -e DB_HOST="$run_id-db" -e DB_PORT=5432 -e DB_DATABASE=tesserarr \
         -e DB_USERNAME=tesserarr -e DB_PASSWORD=tesserarr -e CACHE_STORE=array \
         -v "$dir":/var/lib/tesserarr/backups \

@@ -11,6 +11,7 @@ use App\Audit\Actor;
 use App\Audit\AuditAction;
 use App\Audit\AuditLogger;
 use App\Audit\AuditOutcome;
+use App\Audit\AuditPresenter;
 use App\Authorization\LastOperatorProtected;
 use App\Authorization\Permission;
 use App\Authorization\PrivilegeEscalation;
@@ -19,6 +20,12 @@ use App\Authorization\Roles;
 use App\Http\Controllers\Controller;
 use App\Identity\Identity;
 use App\Models\User;
+use App\Privacy\AccountEmailPolicy;
+use App\Privacy\AccountEmailState;
+use App\Privacy\EmailAlreadyClaimed;
+use App\Privacy\EmailClaimThrottled;
+use App\Privacy\EmailConfirmation;
+use App\Privacy\EmailEntryDisabled;
 use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -42,9 +49,14 @@ final class UserController extends Controller
 {
     use RefusesGuardedChanges;
 
+    public const RECENT_ENTRIES = 10;
+
     public function __construct(
         private readonly RoleGuard $guard,
         private readonly AuditLogger $audit,
+        private readonly EmailConfirmation $confirmation,
+        private readonly AccountEmailPolicy $policy,
+        private readonly AuditPresenter $presenter,
     ) {}
 
     public function index(#[CurrentUser] User $actor): Response
@@ -61,7 +73,7 @@ final class UserController extends Controller
                 'display_name' => $user->display_name,
                 // The contact address of the account, labelled as such; the
                 // addresses of the sign-in providers are listed per identity.
-                'contact_email' => $user->email,
+                'contact_email' => $user->confirmedEmail(),
                 'locked_at' => $user->locked_at?->toIso8601String(),
                 'role' => $user->roles->first()?->getAttribute('name'),
                 'identities' => $user->identities->map(fn (Identity $identity) => [
@@ -74,6 +86,90 @@ final class UserController extends Controller
             // Whether the actions show is read from the shared prop `permissions`.
             'roles' => Role::query()->where('guard_name', Roles::GUARD)->orderBy('id')->pluck('name')->all(),
         ]);
+    }
+
+    /**
+     * One account (User-Detail.dc.html): role, sign-in methods with the
+     * provider addresses, the account address with its confirmation state,
+     * the latest log entries about it. Task 8a builds the contact section and
+     * the entries; invitations (10), second factors (12) and grants (21a)
+     * join with their tasks.
+     */
+    public function show(User $user, #[CurrentUser] User $actor): Response
+    {
+        $user->load(['roles:id,name', 'identities']);
+
+        return Inertia::render('admin/UserDetail', [
+            'account' => [
+                'id' => $user->id,
+                'username' => $user->username,
+                'display_name' => $user->display_name,
+                'role' => $user->roles->first()?->getAttribute('name'),
+                'locked_at' => $user->locked_at?->toIso8601String(),
+                'self' => $user->id === $actor->id,
+            ],
+            'email' => AccountEmailState::of($user, $this->policy),
+            'identities' => $user->identities->map(fn (Identity $identity) => [
+                'id' => $identity->id,
+                'method' => $identity->method,
+                'provider_key' => $identity->provider_key,
+                'provider_email' => $identity->email,
+            ])->values()->all(),
+            'entries' => $this->presenter->present(
+                AuditPresenter::involving($user)->orderByDesc('id')->limit(self::RECENT_ENTRIES)->get(),
+            ),
+        ]);
+    }
+
+    /**
+     * The operator enters an account address for somebody (task 8a). It
+     * counts once its owner opened the link; a confirmed old address stays
+     * valid until then and is told about the change. Like every change of an
+     * account, it needs the permissions the account holds.
+     */
+    public function updateEmail(Request $request, User $user, #[CurrentUser] User $actor): JsonResponse|RedirectResponse
+    {
+        $valid = $request->validate(['email' => ['required', 'string', 'max:254', 'email:rfc,strict']]);
+        $by = Actor::user($actor);
+
+        try {
+            // The check runs under its locks in the transaction of the change.
+            $this->confirmation->request($user, (string) $valid['email'], $by, function () use ($by, $actor, $user): void {
+                $this->guard->lockAccounts([$user], [$actor]);
+                $this->guard->lockPermissionsOf($user);
+                $this->guard->assertCanGrant($by, $user->grantedPermissions());
+            });
+        } catch (PrivilegeEscalation $e) {
+            return $this->refuse($request, 'privilege_escalation', 403, 'email', $e->getMessage(), $e->permissions);
+        } catch (EmailEntryDisabled $e) {
+            return $this->refuse($request, 'email_entry_disabled', 409, 'email', $e->getMessage());
+        } catch (EmailAlreadyClaimed $e) {
+            return $this->refuse($request, 'email_taken', 409, 'email', $e->getMessage());
+        } catch (EmailClaimThrottled $e) {
+            return $this->refuse($request, 'email_throttled', 429, 'email', $e->getMessage());
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('account.email.link_sent')]);
+
+        return back();
+    }
+
+    /** Frees the reserved, unconfirmed address of an account at once (logged). */
+    public function releaseEmail(Request $request, User $user, #[CurrentUser] User $actor): JsonResponse|RedirectResponse
+    {
+        $by = Actor::user($actor);
+
+        try {
+            $this->confirmation->release($user, $by, function () use ($by, $actor, $user): void {
+                $this->guard->lockAccounts([$user], [$actor]);
+                $this->guard->lockPermissionsOf($user);
+                $this->guard->assertCanGrant($by, $user->grantedPermissions());
+            });
+        } catch (PrivilegeEscalation $e) {
+            return $this->refuse($request, 'privilege_escalation', 403, 'email', $e->getMessage(), $e->permissions);
+        }
+
+        return back();
     }
 
     public function updateRole(Request $request, User $user, #[CurrentUser] User $actor): JsonResponse|RedirectResponse

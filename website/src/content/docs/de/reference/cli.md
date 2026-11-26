@@ -7,6 +7,16 @@ description: Jeder tesserarr-Befehl von artisan, mit seinen Argumenten und Optio
 
 Führe einen Befehl über den Einstiegspunkt `artisan` des Images aus, zum Beispiel `docker compose run --rm --no-deps web artisan list tesserarr`. Die Beschreibungen stammen aus dem Code und sind englisch.
 
+## `tesserarr:email:release-expired`
+
+Free account addresses whose 24-hour reservation ran out without confirmation
+
+### Aufruf
+
+```text
+tesserarr:email:release-expired
+```
+
 ## `tesserarr:migrate`
 
 Back up the database, then run the pending migrations
@@ -22,6 +32,22 @@ tesserarr:migrate [--lock-timeout [LOCK-TIMEOUT]]
 | Option | Beschreibung | Standard |
 | --- | --- | --- |
 | `--lock-timeout` | seconds to wait for another tesserarr:migrate | `300` |
+
+## `tesserarr:pii:rotate`
+
+Re-encrypt personal data with TESSERARR_PII_KEY and recompute the blind index after a key change
+
+### Aufruf
+
+```text
+tesserarr:pii:rotate [--dry-run]
+```
+
+### Optionen
+
+| Option | Beschreibung | Standard |
+| --- | --- | --- |
+| `--dry-run` | count what would change, write nothing |  |
 
 ## `tesserarr:release-check`
 

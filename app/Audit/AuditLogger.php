@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace App\Audit;
 
 use App\Models\User;
+use App\Privacy\EmailNormalizer;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Permission\Models\Role;
 
@@ -19,6 +20,10 @@ use Spatie\Permission\Models\Role;
  * A context key that names a secret stops the entry with SecretInAuditContext
  * before anything is written; the check runs on every level of a nested
  * context. The value itself is never inspected or repeated.
+ *
+ * A context value (or key) that looks like an e-mail address stops it with
+ * PiiInAuditContext (task 8a): people are named by id, and the names are
+ * looked up when the log is shown (AuditPresenter).
  */
 final class AuditLogger
 {
@@ -45,10 +50,12 @@ final class AuditLogger
      * @param  array<string, mixed>  $context
      *
      * @throws SecretInAuditContext
+     * @throws PiiInAuditContext
      */
     public function record(AuditAction $action, Actor $actor, ?Model $subject = null, array $context = [], AuditOutcome $outcome = AuditOutcome::Done): AuditEntry
     {
         self::assertNoSecretKeys($context);
+        self::assertNoAddresses($context);
 
         return AuditEntry::query()->create([
             'action' => $action->value,
@@ -70,6 +77,28 @@ final class AuditLogger
             $subject instanceof Role => 'role',
             default => $subject->getMorphClass(),
         };
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $context
+     *
+     * @throws PiiInAuditContext
+     */
+    private static function assertNoAddresses(array $context, string $prefix = ''): void
+    {
+        foreach ($context as $key => $value) {
+            // A key that is itself an address is named as "[key]".
+            $name = EmailNormalizer::containsAddress((string) $key) ? '[key]' : (string) $key;
+            $path = $prefix === '' ? $name : $prefix.'.'.$name;
+
+            if ($name === '[key]' || (is_string($value) && EmailNormalizer::containsAddress($value))) {
+                throw new PiiInAuditContext($path);
+            }
+
+            if (is_array($value)) {
+                self::assertNoAddresses($value, $path);
+            }
+        }
     }
 
     /**

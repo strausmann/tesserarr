@@ -7,6 +7,7 @@
 #   cp .env.example .env
 #   docker compose --env-file docker/base-images.env -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show
 #   (put the key into .env as APP_KEY)
+#   echo "base64:$(openssl rand -base64 32)"   (twice: TESSERARR_PII_KEY and TESSERARR_BLIND_INDEX_KEY in .env)
 #   docker compose --env-file docker/base-images.env -f compose.dev.yaml up --build
 #
 # --env-file docker/base-images.env supplies the base image pins the build

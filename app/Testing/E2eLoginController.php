@@ -36,7 +36,6 @@ final class E2eLoginController extends Controller
             [
                 'display_name' => 'E2E '.ucfirst($role),
                 'password' => Str::password(32),
-                'email_verified_at' => now(),
             ],
         );
         $user->syncRoles([self::ROLES[$role]]);

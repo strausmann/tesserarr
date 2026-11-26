@@ -74,6 +74,7 @@ export default defineConfig({
           { slug: "admin/login-methods" },
           { slug: "admin/mfa-and-recovery" },
           { slug: "admin/users" },
+          { slug: "admin/privacy" },
           { slug: "admin/roles-and-tokens" },
           { slug: "admin/media-shares-and-grants" },
           { slug: "admin/audit-log" },

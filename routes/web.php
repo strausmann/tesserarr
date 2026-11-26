@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Account\AccountController;
+use App\Http\Controllers\Account\EmailConfirmationController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\GeneralSettingsController;
 use App\Http\Controllers\Admin\RoleController;
@@ -19,6 +21,11 @@ use Scalar\Controllers\ScalarController;
 // Sends a guest to the sign-in and a signed-in account to its home.
 Route::get('/', HomeController::class)->name('home');
 
+// The link of the confirmation mail (task 8a): public, the token is the proof.
+// Opening it shows a button; only the POST uses the token.
+Route::get('email/confirm/{token}', [EmailConfirmationController::class, 'show'])->name('email.confirm.show');
+Route::post('email/confirm/{token}', [EmailConfirmationController::class, 'confirm'])->middleware('throttle:10,1')->name('email.confirm');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     // The operator's start page; a friend is sent on to /shared.
     Route::get('dashboard', DashboardController::class)->name('dashboard');
@@ -26,8 +33,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // shares and tokens in it arrive with tasks 21a and 9.
     Route::inertia('shared', 'friend/Home')->middleware('can:catalog.browse')->name('friend.home');
 
-    // Administration (Users.dc.html, Roles.dc.html, Audit.dc.html).
+    // My account (Account.dc.html, task 8a): self-service, no permission.
+    Route::get('account', [AccountController::class, 'show'])->name('account');
+    Route::get('account/activity', [AccountController::class, 'activity'])->name('account.activity');
+    Route::put('account/email', [AccountController::class, 'updateEmail'])->name('account.email');
+    Route::post('account/email/resend', [AccountController::class, 'resendEmail'])->name('account.email.resend');
+
+    // Administration (Users.dc.html, User-Detail.dc.html, Roles.dc.html, Audit.dc.html).
     Route::get('users', [UserController::class, 'index'])->middleware('can:users.view')->name('users.index');
+    Route::get('users/{user}', [UserController::class, 'show'])->middleware('can:users.view')->name('users.show');
+    Route::put('users/{user}/email', [UserController::class, 'updateEmail'])->middleware('can:users.manage')->name('users.email');
+    Route::delete('users/{user}/email/pending', [UserController::class, 'releaseEmail'])->middleware('can:users.manage')->name('users.email.release');
     Route::put('users/{user}/role', [UserController::class, 'updateRole'])->middleware('can:users.manage')->name('users.role');
     Route::post('users/{user}/lock', [UserController::class, 'lock'])->middleware('can:users.manage')->name('users.lock');
     Route::delete('users/{user}/lock', [UserController::class, 'unlock'])->middleware('can:users.manage')->name('users.unlock');

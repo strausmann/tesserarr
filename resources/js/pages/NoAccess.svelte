@@ -28,7 +28,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         <h2 id="h-noaccess" class="tr-panel-title">{t('noaccess.empty.title')}</h2>
         <EmptyState title={t('noaccess.empty.title')} body={t('noaccess.empty.body')} />
         <div>
-            <Link href="/settings/profile" class="tr-button">{t('friend.account.manage')}</Link>
+            <Link href="/account" class="tr-button">{t('friend.account.manage')}</Link>
         </div>
     </section>
 </div>

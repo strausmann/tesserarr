@@ -67,6 +67,7 @@ cp .env.example .env
 mkdir -p .dev/backups && sudo chown 10001:10001 .dev/backups   # the image runs as UID 10001
 docker compose --env-file docker/base-images.env -f compose.dev.yaml build
 docker compose --env-file docker/base-images.env -f compose.dev.yaml run --rm --no-deps web artisan key:generate --show   # put the key into .env as APP_KEY
+echo "base64:$(openssl rand -base64 32)"   # twice: TESSERARR_PII_KEY and TESSERARR_BLIND_INDEX_KEY in .env
 docker compose --env-file docker/base-images.env -f compose.dev.yaml up
 ```
 

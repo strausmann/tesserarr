@@ -160,7 +160,7 @@ test.describe('app frame, narrow', () => {
         await drawer(page)
             .getByRole('link', { name: /Mein Konto/ })
             .click();
-        await expect(page).toHaveURL(/\/settings\/profile$/);
+        await expect(page).toHaveURL(/\/account$/);
         await expect(drawer(page)).toHaveCount(0);
     });
 });

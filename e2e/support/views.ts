@@ -7,6 +7,7 @@
  * of the artboard in the mockup canvas and what that artboard shows.
  */
 
+import { account } from './artboards/account';
 import { audit } from './artboards/audit';
 import { dashboard } from './artboards/dashboard';
 import { friendHome } from './artboards/friend-home';
@@ -165,6 +166,31 @@ export const gatedViews: GatedView[] = [
                 'button:Je Dienst abweichend',
             ]),
             states: ['filled'],
+        },
+    },
+    // Task 8a. My account as the frame page: the address, the sign-in methods
+    // and the language. Passkeys, the authenticator app and the recovery
+    // codes (their headings and buttons) move in with tasks 11 and 12; until
+    // then the page links to the security page of the starter kit.
+    {
+        name: 'My account',
+        path: '/account',
+        as: 'friend',
+        artboard: account.artboard,
+        locale: 'de-DE',
+        expect: {
+            headings: without(account.expect.headings, [
+                'Passkeys',
+                'Authenticator-App (TOTP)',
+                'Wiederherstellungscodes',
+            ]),
+            controls: without(account.expect.controls, [
+                'button:Passkey hinzufügen',
+                'button:Neu einrichten',
+                'button:Entfernen',
+                'button:Neue Codes erzeugen',
+            ]),
+            states: ['empty'],
         },
     },
     {

@@ -14,6 +14,21 @@ there, not here. Each release adds the variables of its features to this page.
 | `APP_KEY` | Key for sessions and encrypted values. Generate it once with `artisan key:generate --show` and keep it: without it, encrypted values cannot be read again. Secret. |
 | `APP_URL` | The address the web interface is opened at, for example `https://media.example.org`. |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | The PostgreSQL 18 database of the central instance. `DB_PASSWORD` is secret. |
+| `TESSERARR_PII_KEY` | Key for personal data (the e-mail addresses and PGP keys): 32 bytes, raw or as `base64:` followed by 32 bytes in Base64, for example from `echo "base64:$(openssl rand -base64 32)"`. Must differ from `APP_KEY`; the central instance does not start without it. Secret. See [Personal data](/tesserarr/admin/privacy/). |
+| `TESSERARR_BLIND_INDEX_KEY` | Key of the blind index by which an address is found: at least 32 bytes, generated like `TESSERARR_PII_KEY` but a different value. Changing it needs `tesserarr:pii:rotate`. Secret. |
+
+## Changing the keys for personal data
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TESSERARR_PII_PREVIOUS_KEYS` | empty | Old values of `TESSERARR_PII_KEY`, comma-separated, still used to read until `tesserarr:pii:rotate` rewrote everything. Secret. |
+| `TESSERARR_BLIND_INDEX_PREVIOUS_KEY` | empty | The old `TESSERARR_BLIND_INDEX_KEY`; while it is set, `tesserarr:pii:rotate` computes the blind index again. Secret. |
+
+## Mail
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MAIL_MAILER` | none (`log` in the local environment only) | The mailer for confirmation links. Without a mailer no account address can be entered. The `log` mailer, which writes messages with their addresses into the log, exists only with `APP_ENV=local`. |
 
 ## Roles and network
 

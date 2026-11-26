@@ -14,6 +14,21 @@ setzt du dort, nicht hier. Jede Version ergänzt die Variablen ihrer Funktionen 
 | `APP_KEY` | Schlüssel für Sitzungen und verschlüsselte Werte. Erzeuge ihn einmal mit `artisan key:generate --show` und bewahre ihn auf: ohne ihn lassen sich verschlüsselte Werte nicht mehr lesen. Geheim. |
 | `APP_URL` | Die Adresse, unter der die Weboberfläche geöffnet wird, zum Beispiel `https://media.example.org`. |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Die PostgreSQL-18-Datenbank der Zentrale. `DB_PASSWORD` ist geheim. |
+| `TESSERARR_PII_KEY` | Schlüssel für Personendaten (die E-Mail-Adressen und PGP-Schlüssel): 32 Bytes, roh oder als `base64:` gefolgt von 32 Bytes in Base64, zum Beispiel von `echo "base64:$(openssl rand -base64 32)"`. Muss sich von `APP_KEY` unterscheiden; ohne ihn startet die Zentrale nicht. Geheim. Siehe [Personendaten](/tesserarr/de/admin/privacy/). |
+| `TESSERARR_BLIND_INDEX_KEY` | Schlüssel des Blindindex, über den eine Adresse gefunden wird: mindestens 32 Bytes, erzeugt wie `TESSERARR_PII_KEY`, aber ein anderer Wert. Ein Wechsel braucht `tesserarr:pii:rotate`. Geheim. |
+
+## Schlüssel für Personendaten wechseln
+
+| Variable | Standard | Bedeutung |
+| --- | --- | --- |
+| `TESSERARR_PII_PREVIOUS_KEYS` | leer | Alte Werte von `TESSERARR_PII_KEY`, durch Komma getrennt; damit wird weiter gelesen, bis `tesserarr:pii:rotate` alles neu geschrieben hat. Geheim. |
+| `TESSERARR_BLIND_INDEX_PREVIOUS_KEY` | leer | Der alte `TESSERARR_BLIND_INDEX_KEY`; solange er gesetzt ist, berechnet `tesserarr:pii:rotate` den Blindindex neu. Geheim. |
+
+## Mail
+
+| Variable | Standard | Bedeutung |
+| --- | --- | --- |
+| `MAIL_MAILER` | keiner (`log` nur in der lokalen Umgebung) | Der Mailer für Bestätigungslinks. Ohne Mailer lässt sich keine Konto-Adresse eintragen. Den `log`-Mailer, der Nachrichten samt Adressen ins Protokoll schreibt, gibt es nur mit `APP_ENV=local`. |
 
 ## Rollen und Netz
 

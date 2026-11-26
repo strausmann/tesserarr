@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 </script>
 
 <script lang="ts">
-    import { page, router } from '@inertiajs/svelte';
+    import { Link, page, router } from '@inertiajs/svelte';
     import AppHead from '@/components/AppHead.svelte';
     import EmptyState from '@/components/EmptyState.svelte';
     import { t } from '@/lib/i18n';
@@ -109,7 +109,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                         {#each users as account (account.id)}
                             <tr>
                                 <th scope="row">
-                                    <span class="font-bold">{shownName(account)}</span>
+                                    <Link href="/users/{account.id}" class="tr-row-link font-bold">{shownName(account)}</Link>
                                     <span class="tr-sub">
                                         {account.username}{#if account.self}
                                             · {t('users.you')}{/if}

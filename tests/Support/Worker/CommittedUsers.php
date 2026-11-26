@@ -65,8 +65,9 @@ final class CommittedUsers
                     'id' => $user->getKey(),
                     'username' => $user->getAttribute('username'),
                     'display_name' => $user->getAttribute('display_name'),
-                    'email' => $user->getAttribute('email'),
-                    'email_verified_at' => $user->getAttributes()['email_verified_at'] ?? null,
+                    // Raw: the address is ciphertext already (workerUser()).
+                    'email' => $user->getAttributes()['email'] ?? null,
+                    'email_confirmed_at' => $user->getAttributes()['email_confirmed_at'] ?? null,
                     'password' => 'not-a-password-hash',
                 ]);
                 if ($role !== null) {

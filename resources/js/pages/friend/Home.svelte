@@ -43,7 +43,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         <h2 id="h-account" class="tr-panel-title">{t('friend.account.title')}</h2>
         <p class="text-ink-2">{t('friend.account.text')}</p>
         <div>
-            <Link href="/settings/profile" class="tr-button">
+            <Link href="/account" class="tr-button">
                 {t('friend.account.manage')}
             </Link>
         </div>

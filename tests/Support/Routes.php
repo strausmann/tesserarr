@@ -40,6 +40,8 @@ const PUBLIC_ROUTES = [
     'api/v1/app/version',
     // Where a password manager finds the passkey pages (well-known URI).
     '.well-known/passkey-endpoints',
+    // The link of the address confirmation mail; the token is the proof (task 8a, K9).
+    'email/confirm/*',
 ];
 
 /**

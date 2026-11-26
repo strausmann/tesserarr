@@ -35,6 +35,14 @@ const components = [
     // Task 8b.
     'resources/js/pages/admin/settings/General.svelte',
     'resources/js/components/ui/Segmented.svelte',
+    // Task 8a.
+    'resources/js/components/account/AccountEmailForm.svelte',
+    'resources/js/components/account/ActivityList.svelte',
+    'resources/js/pages/account/Index.svelte',
+    'resources/js/pages/account/Activity.svelte',
+    'resources/js/pages/account/Security.svelte',
+    'resources/js/pages/admin/UserDetail.svelte',
+    'resources/js/pages/auth/ConfirmEmail.svelte',
 ];
 
 export default defineConfig({

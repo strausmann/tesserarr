@@ -53,6 +53,9 @@
         <env name="DB_USERNAME" value="tesserarr"/>
         <env name="DB_PASSWORD" value="tesserarr"/>
         <env name="DB_URL" value=""/>
+        <!-- Test keys for personal data (task 8a), obviously not secret. -->
+        <env name="TESSERARR_PII_KEY" value="tesserarr-test-pii-key-32-bytes!"/>
+        <env name="TESSERARR_BLIND_INDEX_KEY" value="tesserarr-test-blind-index-key-0032"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

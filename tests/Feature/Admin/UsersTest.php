@@ -17,7 +17,7 @@ use Spatie\Permission\Models\Role;
 
 it('shows provider email and account email as separate, labelled fields', function () {
     $operator = User::factory()->operator()->create(['username' => 'alice']);
-    $friend = User::factory()->withRole(Roles::USER)->create(['username' => 'bob', 'email' => 'bob@example.org']);
+    $friend = User::factory()->withRole(Roles::USER)->withConfirmedEmail('bob@example.org')->create(['username' => 'bob']);
     Identity::create([
         'user_id' => $friend->id, 'method' => 'oidc', 'provider_key' => 'example', 'subject' => 's-1', 'email' => 'bob@idp.example.net',
     ]);
@@ -30,6 +30,10 @@ it('shows provider email and account email as separate, labelled fields', functi
         ->where('users.1.identities.0.method', 'oidc')
         ->missing('users.1.email')
         ->missing('users.1.identities.0.email'));
+
+    // An address that is not confirmed yet is not the account address (task 8a).
+    $carol = User::factory()->withRole(Roles::USER)->create(['username' => 'carol', 'email' => 'carol@example.org']);
+    $this->actingAs($operator)->get('/users')->assertInertia(fn (Assert $page) => $page->where('users.2.username', 'carol')->where('users.2.contact_email', null));
 
     $page = (string) file_get_contents(resource_path('js/pages/admin/Users.svelte'));
     expect($page)->toContain("t('users.contact_email')")->toContain("t('users.provider_email')");

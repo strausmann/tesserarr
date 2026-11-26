@@ -55,6 +55,23 @@ return [
     ],
 
     /*
+    | The keys for personal data (task 8a, App\Privacy\PiiKeys): the e-mail
+    | addresses of accounts and identities and the PGP keys are encrypted with
+    | TESSERARR_PII_KEY (32 bytes, raw or "base64:…", never APP_KEY) and found
+    | through an HMAC keyed with TESSERARR_BLIND_INDEX_KEY. The previous keys
+    | serve `tesserarr:pii:rotate`. From the environment only (Infisical in
+    | production), never from the database; the central instance does not
+    | start without them.
+    */
+
+    'pii' => [
+        'key' => Env::getRepository()->get('TESSERARR_PII_KEY'),
+        'previous_keys' => Env::getRepository()->get('TESSERARR_PII_PREVIOUS_KEYS'),
+        'blind_index_key' => Env::getRepository()->get('TESSERARR_BLIND_INDEX_KEY'),
+        'blind_index_previous_key' => Env::getRepository()->get('TESSERARR_BLIND_INDEX_PREVIOUS_KEY'),
+    ],
+
+    /*
     | Whether a newer release of Tesserarr has been published. Off unless
     | TESSERARR_RELEASE_CHECK=true: then the scheduler of the central instance
     | asks GitHub every six hours (artisan tesserarr:release-check) with

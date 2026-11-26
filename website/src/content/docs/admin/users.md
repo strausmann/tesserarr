@@ -12,10 +12,12 @@ Every person who uses Tesserarr has one account. New accounts come in through an
   username never contains `@`, so it cannot be mistaken for an e-mail address. `Max` and `max` are the same name.
   Everyone can change their own username under *Account*; the change is logged.
 - **Display name.** The name others see. Control characters are refused.
-- **Account address.** An optional contact address of the account. It never identifies an account and is not a sign-in
-  name.
+- **Account address.** Optional. It counts once its owner opened the link sent to it, and it is unique: one address,
+  one account. It is encrypted at rest. An operator can enter one on the user's page (*Save and send confirmation
+  link*); see [Personal data](/tesserarr/admin/privacy/) for the rules.
 - **Address at the provider.** When someone signs in through a provider (OIDC, Plex), Tesserarr keeps the address the
-  provider reported with that sign-in method. The user list shows it separately from the account address.
+  provider reported with that sign-in method. The user list shows it separately from the account address. It is not
+  unique, and no sign-in changes the account address.
 
 When a provider sends an e-mail-shaped name (for example the user principal name of Entra ID), Tesserarr proposes a
 username from the part before the `@` and numbers it when the name is taken: `bob`, `bob2`.
