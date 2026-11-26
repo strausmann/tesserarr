@@ -108,7 +108,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
     function keydown(event: KeyboardEvent): void {
         if (event.key === 'Escape') {
-            if (!event.defaultPrevented) {
+            // Escape while an input method composes a word ends the
+            // composition, not the dialog.
+            if (!event.defaultPrevented && !event.isComposing) {
                 event.preventDefault();
                 close();
             }

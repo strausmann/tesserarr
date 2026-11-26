@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     COLLAPSED_URL,
     isCollapsed,
+    latestWins,
     saveCollapsed,
     xsrfToken,
 } from './collapsed';
@@ -80,5 +81,59 @@ describe('saveCollapsed', () => {
             throw new TypeError('Failed to fetch');
         });
         await expect(saveCollapsed('a', true, send)).resolves.toBe(false);
+    });
+});
+
+describe('latestWins', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('sends only the last of quick changes', async () => {
+        vi.useFakeTimers();
+        const send = vi.fn(async () => true);
+        const store = latestWins(send, 300);
+        store.set(true);
+        store.set(false);
+        store.set(true);
+        await vi.advanceTimersByTimeAsync(299);
+        expect(send).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(send).toHaveBeenCalledOnce();
+        expect(send).toHaveBeenCalledWith(true);
+    });
+
+    it('waits for the request on its way before it sends the next, so the last state arrives last', async () => {
+        vi.useFakeTimers();
+        const order: boolean[] = [];
+        let release: () => void = () => {};
+        const send = vi.fn((value: boolean) => {
+            order.push(value);
+            return value
+                ? new Promise<void>((r) => (release = r))
+                : Promise.resolve();
+        });
+        const store = latestWins(send, 300);
+        store.set(true);
+        await vi.advanceTimersByTimeAsync(300);
+        store.set(false);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(order).toEqual([true]);
+        release();
+        await vi.runAllTimersAsync();
+        expect(order).toEqual([true, false]);
+    });
+
+    it('sends a waiting change at once on flush and survives a failed request', async () => {
+        vi.useFakeTimers();
+        const send = vi.fn(async () => {
+            throw new TypeError('Failed to fetch');
+        });
+        const store = latestWins(send, 300);
+        store.set(false);
+        store.flush();
+        await vi.runAllTimersAsync();
+        expect(send).toHaveBeenCalledWith(false);
+        store.set(true);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(send).toHaveBeenCalledTimes(2);
     });
 });

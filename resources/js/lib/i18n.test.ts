@@ -76,6 +76,13 @@ describe('translate', () => {
         ).toBe('Alex has 3 new');
     });
 
+    it('does not replace inside a value that was put in', () => {
+        expect(interpolate('Hello :name', { name: ':count', count: 3 })).toBe(
+            'Hello :count',
+        );
+        expect(interpolate('Hello :nobody', {})).toBe('Hello :nobody');
+    });
+
     it('replaces the longer placeholder first', () => {
         expect(
             interpolate(':count of :countdown', { count: 1, countdown: 9 }),

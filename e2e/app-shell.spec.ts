@@ -121,7 +121,7 @@ test.describe('app frame, narrow', () => {
         await expect(menuButton(page)).toBeFocused();
     });
 
-    test('shows account, sign-out, version and the update notice in the drawer', async ({
+    test('shows account, sign-out and the version in the drawer', async ({
         page,
     }) => {
         await menuButton(page).click();
@@ -135,9 +135,10 @@ test.describe('app frame, narrow', () => {
         await expect(
             open.getByText(/^Tesserarr \S+ · Über und Lizenzen$/),
         ).toBeVisible();
-        // The update notice belongs to task 7a; the drawer has its place
-        // (AppNavigation `notice`), the check of its content follows there.
     });
+
+    // The update notice comes with task 7a into the `notice` slot of
+    // AppNavigation.svelte; 7a adds its own check here.
 
     test('shows the open menu of its artboard', async ({ page }) => {
         await menuButton(page).click();

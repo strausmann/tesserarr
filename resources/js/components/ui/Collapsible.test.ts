@@ -43,17 +43,29 @@ describe('Collapsible', () => {
         expect(document.getElementById(button().getAttribute('aria-controls')!)?.hidden).toBe(false);
     });
 
-    it('stores the new state at once when toggled and shows the summary', () => {
+    it('shows the new state at once, stores the last one shortly after and shows the summary', async () => {
+        vi.useFakeTimers();
         const save = render();
         button().click();
         flushSync();
         expect(button().getAttribute('aria-expanded')).toBe('false');
-        expect(save).toHaveBeenCalledWith('dashboard.attention', true);
         expect(document.getElementById(button().getAttribute('aria-controls')!)?.hidden).toBe(true);
         expect(document.body.textContent).toContain('3 items');
         button().click();
+        button().click();
         flushSync();
-        expect(save).toHaveBeenLastCalledWith('dashboard.attention', false);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(save).toHaveBeenCalledOnce();
+        expect(save).toHaveBeenCalledWith('dashboard.attention', true);
+        vi.useRealTimers();
+    });
+
+    it('stores a waiting change when the section goes away', () => {
+        const save = render();
+        button().click();
+        void unmount(app!);
+        app = undefined;
+        expect(save).toHaveBeenCalledWith('dashboard.attention', true);
     });
 
     it('starts from the stored value of the page props', () => {

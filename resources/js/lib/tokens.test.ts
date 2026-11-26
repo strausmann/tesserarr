@@ -4,6 +4,7 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { THEME_COLORS } from './theme.svelte';
 
 // The colours of tokens.css, pinned. They are the colours of the artboard
 // "Stil & Logo" (Main.dc.html) of the approved 0.1.0 mockup canvas, which are
@@ -171,5 +172,20 @@ describe('design tokens', () => {
         expect(light.get('focus-offset')).toBe('2px');
         expect(light.get('control-height')).toBe('44px');
         expect(light.get('icon-button-hit')).toBe('44px');
+    });
+});
+
+describe('the browser bar colour', () => {
+    // theme.svelte.ts and app.blade.php repeat --tr-surface for the
+    // theme-color tags, which cannot read CSS variables.
+    it('is --tr-surface, light and dark', () => {
+        expect(THEME_COLORS.light).toBe(tokensLight.surface);
+        expect(THEME_COLORS.dark).toBe(tokensDark.surface);
+        const blade = readFileSync(
+            `${process.cwd()}/resources/views/app.blade.php`,
+            'utf8',
+        );
+        expect(blade).toContain(`content="${THEME_COLORS.light}"`);
+        expect(blade).toContain(`content="${THEME_COLORS.dark}"`);
     });
 });

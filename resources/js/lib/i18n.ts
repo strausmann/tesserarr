@@ -17,14 +17,14 @@ export type Translations = Record<string, string>;
 export type Params = Record<string, string | number>;
 export type Report = (key: string) => void;
 
-/** Puts the params into the string; longer names first, so `:count` does not eat `:countdown`. */
+/**
+ * Puts the params into the string in one pass, so a value that itself
+ * contains `:name` is never replaced again. A name without a param stays.
+ */
 export function interpolate(line: string, params: Params = {}): string {
-    return Object.keys(params)
-        .sort((a, b) => b.length - a.length)
-        .reduce(
-            (out, name) => out.replaceAll(`:${name}`, String(params[name])),
-            line,
-        );
+    return line.replace(/:([A-Za-z_]+)/g, (whole, name: string) =>
+        Object.hasOwn(params, name) ? String(params[name]) : whole,
+    );
 }
 
 /** The string of `key` in `lines`, or the key itself (and a report) when there is none. */

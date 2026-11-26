@@ -397,7 +397,10 @@ input:
 - **Empty views** show `resources/js/components/EmptyState.svelte`: one sentence of what is missing, and the action that
   fixes it where there is one.
 - **Navigation** is `resources/js/lib/navigation.ts`, separately for a friend and for the operator; the server says
-  which one a user gets (`App\Http\Ui\Audience`).
+  which one a user gets (`App\Http\Ui\Audience`). `tests/Feature/NavigationTargetsTest.php` checks that every target
+  has a page. A target whose page a later task builds goes into its list `NAVIGATION_PENDING` with that task, and the
+  task that builds the page removes it. The list must be empty before a release: the test fails in every run that
+  goes to `main` (the milestone pull request, `GITHUB_BASE_REF=main`, and runs on `main` itself).
 
 ### Browser tests
 

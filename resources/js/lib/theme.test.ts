@@ -139,3 +139,24 @@ describe('updateAppearance', () => {
         expect(state.resolvedAppearance()).toBe('light');
     });
 });
+
+describe('applyThemeColor', () => {
+    it('gives the browser bar the colour of the chosen appearance', async () => {
+        document.head.innerHTML =
+            '<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fdfcf9">' +
+            '<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#201e1b">';
+        const { applyThemeColor, THEME_COLORS } =
+            await import('./theme.svelte');
+        applyThemeColor(true);
+        const colors = [
+            ...document.querySelectorAll('meta[name="theme-color"]'),
+        ].map((m) => m.getAttribute('content'));
+        expect(colors).toEqual([THEME_COLORS.dark, THEME_COLORS.dark]);
+        applyThemeColor(false);
+        expect(
+            document
+                .querySelector('meta[name="theme-color"]')
+                ?.getAttribute('content'),
+        ).toBe(THEME_COLORS.light);
+    });
+});

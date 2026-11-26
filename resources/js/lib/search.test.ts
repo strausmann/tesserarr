@@ -54,7 +54,7 @@ describe('Search', () => {
         await vi.runAllTimersAsync();
 
         expect(search.results).toEqual(['Matrix']);
-        expect(search.loading).toBe(false);
+        expect(search.status).toBe('done');
     });
 
     it('drops an answer that arrives while the next query is still waiting for its delay', async () => {
@@ -70,16 +70,32 @@ describe('Search', () => {
         expect(search.results).toEqual([]);
     });
 
-    it('shows no results after a failed lookup', async () => {
+    it('reports a failed lookup as an error, not as no results', async () => {
         const { lookup, pending } = controlled();
         const search = new Search(lookup);
         search.type('x');
         await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
-        expect(search.loading).toBe(true);
+        expect(search.status).toBe('waiting');
         pending[0].reject(new TypeError('Failed to fetch'));
         await vi.runAllTimersAsync();
         expect(search.results).toEqual([]);
-        expect(search.loading).toBe(false);
+        expect(search.status).toBe('error');
+    });
+
+    it('waits from the first keystroke on and drops the old results at once', async () => {
+        const { lookup, pending } = controlled();
+        const search = new Search(lookup);
+        search.type('ma');
+        expect(search.status).toBe('waiting');
+        await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
+        pending[0].resolve(['Mad Max', 'Matrix']);
+        await vi.runAllTimersAsync();
+        expect(search.status).toBe('done');
+
+        search.type('mat');
+        await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS - 1);
+        expect(search.status).toBe('waiting');
+        expect(search.results).toEqual([]);
     });
 
     it('closes the list on Escape first and leaves the second Escape to the dialog', () => {
@@ -110,5 +126,6 @@ describe('Search', () => {
         search.stop();
         await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
         expect(lookup).not.toHaveBeenCalled();
+        expect(search.status).toBe('idle');
     });
 });

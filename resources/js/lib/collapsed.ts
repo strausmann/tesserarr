@@ -59,3 +59,47 @@ export async function saveCollapsed(
         return false;
     }
 }
+
+/** How long a toggle waits for the next one before it is stored. */
+export const COLLAPSED_SAVE_DELAY_MS = 300;
+
+/**
+ * Sends only the last of quick changes, and one request at a time: a change
+ * that comes while a request is on its way is sent after it. So two requests
+ * can never arrive in the wrong order and leave the server with a state the
+ * user no longer sees. `flush` sends a waiting change at once (the page is
+ * left).
+ */
+export function latestWins<T>(
+    send: (value: T) => Promise<unknown>,
+    delay: number,
+): { set: (value: T) => void; flush: () => void } {
+    let wanted: { value: T } | null = null;
+    let sending = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function drain(): Promise<void> {
+        if (sending) {
+            return;
+        }
+        sending = true;
+        while (wanted) {
+            const { value } = wanted;
+            wanted = null;
+            await send(value).catch(() => undefined);
+        }
+        sending = false;
+    }
+
+    return {
+        set(value: T) {
+            wanted = { value };
+            clearTimeout(timer);
+            timer = setTimeout(() => void drain(), delay);
+        },
+        flush() {
+            clearTimeout(timer);
+            void drain();
+        },
+    };
+}

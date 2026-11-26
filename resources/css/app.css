@@ -218,7 +218,7 @@
 
     .tr-skip {
         position: absolute;
-        left: var(--tr-space-4);
+        inset-inline-start: var(--tr-space-4);
         top: -100px;
         z-index: 60;
         padding: var(--tr-space-2) var(--tr-space-4);
@@ -241,6 +241,9 @@
         min-height: 56px;
         padding: 6px 12px;
         padding-top: max(6px, env(safe-area-inset-top, 0px));
+        /* A phone on its side: keep the menu button out of the notch. */
+        padding-left: max(12px, env(safe-area-inset-left, 0px));
+        padding-right: max(12px, env(safe-area-inset-right, 0px));
         background: var(--tr-surface);
         border-bottom: 1px solid var(--tr-line);
     }
@@ -263,22 +266,25 @@
             display: none;
         }
 
+        /* The list scrolls, the foot (account, sign-out, version) stays in
+           sight at every height. */
         .tr-sidebar {
             position: sticky;
             top: 0;
             display: flex;
             flex-direction: column;
             height: var(--vvh, 100%);
-            overflow-y: auto;
-            overscroll-behavior: contain;
+            overflow: hidden;
             background: var(--tr-surface);
-            border-right: 1px solid var(--tr-line);
+            border-inline-end: 1px solid var(--tr-line);
         }
     }
 
     .tr-main {
         min-width: 0;
         padding: var(--tr-space-6) var(--tr-space-4) 64px;
+        padding-left: max(var(--tr-space-4), env(safe-area-inset-left, 0px));
+        padding-right: max(var(--tr-space-4), env(safe-area-inset-right, 0px));
     }
 
     .tr-main:focus {
@@ -304,9 +310,13 @@
 
     .tr-nav {
         display: flex;
+        flex: 1 1 auto;
         flex-direction: column;
         gap: 2px;
+        min-height: 0;
         padding: 0 12px 16px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .tr-nav-group {
@@ -383,7 +393,7 @@
         background: none;
         font: inherit;
         color: var(--tr-ink-2);
-        text-align: left;
+        text-align: start;
         cursor: pointer;
     }
 
@@ -490,12 +500,13 @@
     .tr-dialog-close {
         position: absolute;
         top: 12px;
-        right: 12px;
+        inset-inline-end: 12px;
     }
 
     .tr-dialog-title {
         margin: 0;
-        padding: 20px 64px 0 20px;
+        padding-block: 20px 0;
+        padding-inline: 20px 64px;
         font-size: var(--tr-text-section);
         font-weight: var(--tr-weight-bold);
         line-height: var(--tr-leading-title);
@@ -535,6 +546,7 @@
         height: 100%;
         max-height: none;
         border-radius: 0;
+        padding-left: env(safe-area-inset-left, 0px);
         transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
 
         @starting-style {
@@ -543,10 +555,19 @@
         }
     }
 
+    /* Right to left, the drawer comes from the right. */
+    .tr-dialog-layer[data-variant='drawer'] .tr-dialog:dir(rtl) {
+        @starting-style {
+            transform: translateX(100%);
+        }
+    }
+
+    /* The navigation scrolls inside, the foot stays at the bottom. */
     .tr-dialog-layer[data-variant='drawer'] .tr-dialog-body {
         padding: 0;
         gap: 0;
         flex: 1 1 auto;
+        overflow: hidden;
     }
 
     .tr-dialog-layer[data-variant='drawer'] .tr-dialog-close {
@@ -555,7 +576,7 @@
 
     /* In the drawer the logo sits beside the close button, not under it. */
     .tr-dialog-layer[data-variant='drawer'] .tr-nav-brand {
-        margin-right: calc(12px + var(--tr-icon-button-hit));
+        margin-inline-end: calc(12px + var(--tr-icon-button-hit));
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -592,7 +613,7 @@
     }
 
     .tr-field-input[data-clearable='true'] {
-        padding-right: var(--tr-icon-button-hit);
+        padding-inline-end: var(--tr-icon-button-hit);
     }
 
     .tr-field-input[aria-invalid='true'] {
@@ -602,7 +623,7 @@
     .tr-field-clear {
         position: absolute;
         top: 50%;
-        right: 0;
+        inset-inline-end: 0;
         transform: translateY(-50%);
         color: var(--tr-ink-2);
     }
@@ -644,7 +665,9 @@
         background: transparent;
         color: var(--tr-ink);
         font: inherit;
-        text-align: left;
+        text-align: start;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 
     @media (hover: hover) and (pointer: fine) {
@@ -653,9 +676,15 @@
         }
     }
 
-    .tr-search-empty {
+    .tr-search-empty,
+    .tr-search-waiting {
         margin: 0;
         color: var(--tr-ink-2);
+    }
+
+    .tr-search-error {
+        margin: 0;
+        color: var(--tr-bad);
     }
 
     /* Pages */
@@ -749,8 +778,14 @@
         background: none;
         color: inherit;
         font: inherit;
-        text-align: left;
+        text-align: start;
         cursor: pointer;
+    }
+
+    /* A long, unbreakable title wraps instead of pushing the chevron out. */
+    .tr-collapsible-switch > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 
     .tr-collapsible-chevron {
@@ -760,6 +795,11 @@
 
     .tr-collapsible-switch[aria-expanded='false'] .tr-collapsible-chevron {
         transform: rotate(-90deg);
+    }
+
+    .tr-collapsible-switch[aria-expanded='false']:dir(rtl)
+        .tr-collapsible-chevron {
+        transform: rotate(90deg);
     }
 
     @media (prefers-reduced-motion: reduce) {

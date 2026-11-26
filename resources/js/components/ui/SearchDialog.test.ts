@@ -12,7 +12,8 @@ vi.mock('@inertiajs/svelte', () => ({
                 'search.open': 'Open search',
                 'field.clear': 'Clear input',
                 'dialog.close': 'Close',
-                'search.count.none': 'No results',
+                'search.waiting': 'Searching …',
+                'search.error': 'The search failed. Try again.',
                 'search.count.one': 'One result',
                 'search.count.other': ':count results',
                 'search.empty': 'Nothing matches “:query”.',
@@ -32,12 +33,16 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-async function openWith(found: string[]) {
+async function openWith(found: string[] | Error, wait = 250) {
     document.body.innerHTML = '';
     const onpick = vi.fn();
+    const lookup = async () => {
+        if (found instanceof Error) throw found;
+        return found;
+    };
     app = mount(SearchDialog, {
         target: document.body,
-        props: { label: 'Search the shares', lookup: async () => found, item, onpick },
+        props: { label: 'Search the shares', lookup, item, onpick },
     });
     $('button[aria-label="Open search"]')!.click();
     flushSync();
@@ -46,7 +51,7 @@ async function openWith(found: string[]) {
     const input = $('input[type=search]') as HTMLInputElement;
     input.value = 'mat';
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(wait);
     flushSync();
 
     return { input, onpick };
@@ -85,6 +90,35 @@ describe('SearchDialog', () => {
         hit.click();
         flushSync();
         expect(onpick).toHaveBeenCalledWith('Matrix');
+        expect($('[role=dialog]')).toBeNull();
+    });
+
+    it('says it is searching and claims nothing within the 250 ms', async () => {
+        await openWith([], 249);
+        expect($('.tr-search-waiting')!.textContent?.trim()).toBe('Searching …');
+        expect($('.tr-search-empty')).toBeNull();
+        expect($('[aria-live]')!.textContent?.trim()).toBe('');
+        await vi.advanceTimersByTimeAsync(1);
+        flushSync();
+        expect($('.tr-search-empty')).not.toBeNull();
+    });
+
+    it('shows an error, not "no results", when the lookup fails', async () => {
+        await openWith(new TypeError('Failed to fetch'));
+        expect($('.tr-search-error')!.textContent?.trim()).toBe('The search failed. Try again.');
+        expect($('.tr-search-empty')).toBeNull();
+        expect($('[aria-live]')!.textContent?.trim()).toBe('The search failed. Try again.');
+    });
+
+    it('closes the list first also when the focus is on a result', async () => {
+        await openWith(['Matrix']);
+        $('.tr-search-hit')!.focus();
+        escape();
+        flushSync();
+        expect($('[role=dialog]')).not.toBeNull();
+        expect($('.tr-search-results')).toBeNull();
+        escape();
+        flushSync();
         expect($('[role=dialog]')).toBeNull();
     });
 

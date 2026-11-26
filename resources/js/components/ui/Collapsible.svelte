@@ -6,13 +6,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     import { page } from '@inertiajs/svelte';
     import ChevronDown from '@lucide/svelte/icons/chevron-down';
     import type { Snippet } from 'svelte';
-    import { isCollapsed, saveCollapsed } from '@/lib/collapsed';
+    import { onDestroy } from 'svelte';
+    import { COLLAPSED_SAVE_DELAY_MS, isCollapsed, latestWins, saveCollapsed } from '@/lib/collapsed';
 
     /**
      * A section the user can fold away. The heading is the switch
      * (aria-expanded, at least 44 px high); folded, the section shows only
      * `summary`. The state is stored per user on the server (`ui.collapsed`,
-     * every device) at once when it is toggled, without a reload; without a
+     * every device) shortly after it is toggled, without a reload; quick
+     * toggles send only the last state, one request at a time; without a
      * stored value the page's default holds. `section` must be a case of
      * App\Http\Ui\CollapsibleSection, the server refuses other keys.
      */
@@ -48,9 +50,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     let collapsed = $state(initial());
     const bodyId = $derived(`tr-collapsible-${section.replaceAll('.', '-')}`);
 
+    // svelte-ignore state_referenced_locally
+    const store = latestWins((value: boolean) => save(section, value), COLLAPSED_SAVE_DELAY_MS);
+    onDestroy(() => store.flush());
+
     function toggle(): void {
         collapsed = !collapsed;
-        void save(section, collapsed);
+        store.set(collapsed);
     }
 </script>
 

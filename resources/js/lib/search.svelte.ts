@@ -6,15 +6,21 @@
  * 250 ms after the last keystroke, then asks; an answer that arrives after a
  * newer question was asked is dropped, and the older request is aborted. So
  * a slow answer to "ma" never replaces the list for "mat".
+ *
+ * `status` says what the list may claim: `waiting` from the keystroke until
+ * the answer (the old results are gone, nothing is announced), `done` once
+ * there is an answer (only now may "no results" be said), `error` when the
+ * lookup failed (not the same as no results).
  */
 export const SEARCH_DELAY_MS = 250;
 
 export type Lookup<T> = (query: string, signal: AbortSignal) => Promise<T[]>;
+export type SearchStatus = 'idle' | 'waiting' | 'done' | 'error';
 
 export class Search<T> {
     query = $state('');
     results = $state<T[]>([]);
-    loading = $state(false);
+    status = $state<SearchStatus>('idle');
     /** The list is open while there is a query; Escape closes it first (two steps). */
     open = $state(false);
 
@@ -29,43 +35,38 @@ export class Search<T> {
         this.#delay = delay;
     }
 
-    /** The field changed: ask again after the delay. */
+    /** The field changed: drop what is on its way, ask again after the delay. */
     type(query: string): void {
         this.query = query;
         clearTimeout(this.#timer);
-        // Whatever is still on its way answers an older query: drop it now,
-        // not only when the next question is asked after the delay.
         this.#controller?.abort();
         this.#asked++;
+        this.results = [];
         if (query.trim() === '') {
-            this.results = [];
-            this.loading = false;
+            this.status = 'idle';
             this.open = false;
 
             return;
         }
+        this.status = 'waiting';
         this.open = true;
         this.#timer = setTimeout(() => void this.#ask(query), this.#delay);
     }
 
     async #ask(query: string): Promise<void> {
-        this.#controller?.abort();
         const controller = new AbortController();
         this.#controller = controller;
         const ticket = ++this.#asked;
-        this.loading = true;
         try {
             const found = await this.#lookup(query, controller.signal);
             if (ticket === this.#asked) {
                 this.results = found;
+                this.status = 'done';
             }
         } catch {
             if (ticket === this.#asked) {
                 this.results = [];
-            }
-        } finally {
-            if (ticket === this.#asked) {
-                this.loading = false;
+                this.status = 'error';
             }
         }
     }
@@ -89,6 +90,8 @@ export class Search<T> {
         clearTimeout(this.#timer);
         this.#controller?.abort();
         this.#asked++;
-        this.loading = false;
+        if (this.status === 'waiting') {
+            this.status = 'idle';
+        }
     }
 }
