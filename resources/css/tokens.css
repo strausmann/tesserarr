@@ -23,7 +23,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
  * sets it, also for the appearance "system"), the same switch as the
  * `dark:` variant in app.css.
  *
- * resources/js/lib/tokens.test.ts pins every value below against the canvas.
+ * Three values are darker (lighter in dark mode) than in the canvas and in
+ * Labelyard, to reach WCAG AA (docs/designs/0.1.0/README.md, "Contrast"):
+ * --tr-ok and --tr-warn as text (4.5:1) and --tr-line-strong, the border of
+ * fields and buttons (3:1, WCAG 1.4.11). Hue unchanged, only lightness.
+ *
+ * resources/js/lib/tokens.test.ts pins every value below and checks the
+ * contrast of every text and border pair.
  */
 
 :root {
@@ -33,7 +39,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     --tr-paper-50: #f6f4ef;
     --tr-paper-100: #efebe3;
     --tr-paper-200: #e3ded3;
-    --tr-paper-300: #cfc8ba;
+    --tr-paper-500: #8d8678;
     --tr-paper-0: #fdfcf9;
     --tr-ink-900: #1f1d1a;
     --tr-ink-700: #4a463f;
@@ -42,8 +48,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     --tr-amber-950: #2b1d06;
     --tr-amber-100: #f6e6c8;
     --tr-stamp-600: #2f4e8f;
-    --tr-green-600: #2e7a4e;
-    --tr-orange-600: #b5651b;
+    --tr-green-700: #2d784d;
+    --tr-orange-700: #9f5918;
     --tr-red-600: #b0352b;
 
     /* 2. semantic roles, light */
@@ -51,7 +57,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     --tr-surface: var(--tr-paper-0);
     --tr-sunken: var(--tr-paper-100);
     --tr-line: var(--tr-paper-200);
-    --tr-line-strong: var(--tr-paper-300);
+    --tr-line-strong: var(--tr-paper-500);
     --tr-ink: var(--tr-ink-900);
     --tr-ink-2: var(--tr-ink-700);
     --tr-ink-3: var(--tr-ink-500);
@@ -59,8 +65,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     --tr-accent-ink: var(--tr-amber-950);
     --tr-accent-soft: var(--tr-amber-100);
     --tr-link: var(--tr-stamp-600);
-    --tr-ok: var(--tr-green-600);
-    --tr-warn: var(--tr-orange-600);
+    --tr-ok: var(--tr-green-700);
+    --tr-warn: var(--tr-orange-700);
     --tr-bad: var(--tr-red-600);
 
     /* type: Atkinson Hyperlegible, scale title 28/700, section 20/700,
@@ -113,7 +119,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     --tr-surface: #201e1b;
     --tr-sunken: #29261f;
     --tr-line: #35312a;
-    --tr-line-strong: #4a443a;
+    --tr-line-strong: #756f65;
     --tr-ink: #f1eee7;
     --tr-ink-2: #c4beb2;
     --tr-ink-3: #958e81;
