@@ -5,14 +5,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// The colours of the artboard "Stil & Logo" (Main.dc.html) of the approved
-// 0.1.0 mockup canvas, which are the Labelyard tokens. A change here is a
-// design decision: it needs a new approval in docs/designs/.
-//
-// Three values depart from the canvas to reach WCAG AA (maintainer decision,
-// docs/designs/0.1.0/README.md, "Contrast"); the canvas value is in the
-// comment. The contrast test below keeps them there.
-const canvasLight: Record<string, string> = {
+// The colours of tokens.css, pinned. They are the colours of the artboard
+// "Stil & Logo" (Main.dc.html) of the approved 0.1.0 mockup canvas, which are
+// the Labelyard tokens, except for four values that were raised to WCAG AA
+// (maintainer decision of 26 November 2026, docs/designs/0.1.0/README.md,
+// "Contrast"): light ok, warn and line-strong, dark line-strong. The canvas
+// value of each is in the comment next to it. A change here is a design
+// decision: it needs a new approval in docs/designs/.
+const tokensLight: Record<string, string> = {
     bg: '#f6f4ef',
     surface: '#fdfcf9',
     sunken: '#efebe3',
@@ -30,7 +30,7 @@ const canvasLight: Record<string, string> = {
     bad: '#b0352b',
 };
 
-const canvasDark: Record<string, string> = {
+const tokensDark: Record<string, string> = {
     bg: '#171614',
     surface: '#201e1b',
     sunken: '#29261f',
@@ -136,20 +136,20 @@ describe('design tokens', () => {
         });
     }
 
-    it('has the light colours of the canvas', () => {
-        for (const [role, hex] of Object.entries(canvasLight)) {
+    it('has the pinned light colours', () => {
+        for (const [role, hex] of Object.entries(tokensLight)) {
             expect(resolve(light, role), `--tr-${role} (light)`).toBe(hex);
         }
     });
 
-    it('has the dark colours of the canvas', () => {
-        for (const [role, hex] of Object.entries(canvasDark)) {
+    it('has the pinned dark colours', () => {
+        for (const [role, hex] of Object.entries(tokensDark)) {
             expect(dark.get(role), `--tr-${role} (dark)`).toBe(hex);
         }
     });
 
     it('overrides every colour role in dark mode and nothing else', () => {
-        expect([...dark.keys()].sort()).toEqual(Object.keys(canvasDark).sort());
+        expect([...dark.keys()].sort()).toEqual(Object.keys(tokensDark).sort());
     });
 
     it('has the type, radii, grid and focus ring of the canvas', () => {
