@@ -16,8 +16,15 @@ vi.mock('@inertiajs/svelte', () => ({
     },
 }));
 
-const { interpolate, locale, reportMissing, resetReported, t, translate } =
-    await import('./i18n');
+const {
+    applyDocumentLanguage,
+    interpolate,
+    locale,
+    reportMissing,
+    resetReported,
+    t,
+    translate,
+} = await import('./i18n');
 
 const readLang = (name: string): Record<string, string> =>
     JSON.parse(
@@ -118,5 +125,22 @@ describe('t', () => {
         props.value = {};
         expect(t('nav.home')).toBe('nav.home');
         expect(locale()).toBe('en');
+    });
+});
+
+describe('applyDocumentLanguage', () => {
+    it('sets the lang attribute to the language of the page', () => {
+        const root = document.createElement('html');
+        root.lang = 'de';
+        applyDocumentLanguage('en', root);
+        expect(root.lang).toBe('en');
+    });
+
+    it('leaves the attribute alone without a language', () => {
+        const root = document.createElement('html');
+        root.lang = 'de';
+        applyDocumentLanguage(undefined, root);
+        applyDocumentLanguage('', root);
+        expect(root.lang).toBe('de');
     });
 });

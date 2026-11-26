@@ -1,8 +1,9 @@
-import { createInertiaApp } from '@inertiajs/svelte';
+import { createInertiaApp, router } from '@inertiajs/svelte';
 import AppLayout from '@/layouts/AppLayout.svelte';
 import AuthLayout from '@/layouts/AuthLayout.svelte';
 import SettingsLayout from '@/layouts/settings/Layout.svelte';
 import { initializeFlashToast } from '@/lib/flash-toast';
+import { applyDocumentLanguage } from '@/lib/i18n';
 import { initializeTheme } from '@/lib/theme.svelte';
 import { trackVisibleViewport } from '@/lib/viewport';
 
@@ -37,3 +38,13 @@ initializeFlashToast();
 // The visible area as --vvh and --vv-top, for everything fixed or sized to the
 // screen (lib/viewport.ts), on every page, including the sign-in.
 trackVisibleViewport();
+
+// <html lang> follows the language after Inertia visits too (lib/i18n.ts):
+// `navigate` for visits that change the page, `success` for a form that
+// redirects back to it (the language setting).
+router.on('navigate', (event) =>
+    applyDocumentLanguage(event.detail.page.props.locale),
+);
+router.on('success', (event) =>
+    applyDocumentLanguage(event.detail.page.props.locale),
+);

@@ -33,9 +33,11 @@ export class Search<T> {
     type(query: string): void {
         this.query = query;
         clearTimeout(this.#timer);
+        // Whatever is still on its way answers an older query: drop it now,
+        // not only when the next question is asked after the delay.
+        this.#controller?.abort();
+        this.#asked++;
         if (query.trim() === '') {
-            this.#controller?.abort();
-            this.#asked++;
             this.results = [];
             this.loading = false;
             this.open = false;

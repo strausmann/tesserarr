@@ -195,6 +195,8 @@ test.describe('language', () => {
             page.waitForResponse((r) => r.url().endsWith('/settings/language')),
             page.getByRole('radio', { name: 'English' }).check(),
         ]);
+        // The Inertia visit swaps the props; <html lang> follows without a reload.
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en');
         await page.goto('/dashboard');
         await expect(
             page.getByRole('heading', { name: 'Home', level: 1 }),

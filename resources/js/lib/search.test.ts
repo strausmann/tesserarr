@@ -57,6 +57,19 @@ describe('Search', () => {
         expect(search.loading).toBe(false);
     });
 
+    it('drops an answer that arrives while the next query is still waiting for its delay', async () => {
+        const { lookup, pending } = controlled();
+        const search = new Search(lookup);
+        search.type('ma');
+        await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
+        search.type('mat');
+        pending[0].resolve(['Mad Max']);
+        await vi.advanceTimersByTimeAsync(10);
+
+        expect(pending[0].signal.aborted).toBe(true);
+        expect(search.results).toEqual([]);
+    });
+
     it('shows no results after a failed lookup', async () => {
         const { lookup, pending } = controlled();
         const search = new Search(lookup);

@@ -73,3 +73,17 @@ export function t(key: string, params?: Params): string {
 export function locale(): string {
     return (page.props as { locale?: string }).locale ?? 'en';
 }
+
+/**
+ * Keeps `<html lang>` on the language of the page. The server writes it on a
+ * full load; an Inertia visit (a language change in the settings) only swaps
+ * the props, so screen readers and hyphenation would keep the old language.
+ */
+export function applyDocumentLanguage(
+    lang: unknown,
+    root: HTMLElement = document.documentElement,
+): void {
+    if (typeof lang === 'string' && lang !== '' && root.lang !== lang) {
+        root.lang = lang;
+    }
+}
