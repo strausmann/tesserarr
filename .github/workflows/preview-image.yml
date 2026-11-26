@@ -143,7 +143,8 @@ jobs:
   # stdin, so neither shows up in a process list.
   redeploy:
     needs: publish
-    if: needs.publish.result == 'success'
+    # Only when this build moved the rolling tag: a rerun of an older rc must not redeploy.
+    if: needs.publish.result == 'success' && needs.publish.outputs.rolling-applied == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

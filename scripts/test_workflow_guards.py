@@ -191,13 +191,13 @@ class PreviewRedeployTest(unittest.TestCase):
         text = self.text()
         job = text[text.index("  redeploy:\n") :]
         self.assertIn("needs: publish", job)
-        self.assertIn("if: needs.publish.result == 'success'", job)
+        self.assertIn("needs.publish.result == 'success' && needs.publish.outputs.rolling-applied == 'true'", job)
 
     def test_rolling_tag_is_gated_and_validated(self) -> None:
         text = (WORKFLOWS / "docker-publish.yml").read_text()
         lines = [line for line in text.splitlines() if "inputs.rolling-tag ||" in line]
         self.assertEqual(len(lines), 1)
-        self.assertIn("steps.tag.outputs.flavor == 'release' && inputs.rolling-tag != ''", lines[0])
+        self.assertIn("steps.tag.outputs.flavor == 'release' && inputs.rolling-tag != '' && steps.rolling.outputs.apply == 'true'", lines[0])
         self.assertTrue(any('"$ROLLING_TAG" == "${INPUT_TAG%-rc.*}-preview"' in b for b in run_blocks(text)))
 
 

@@ -15,6 +15,7 @@ CLI (tags are read from stdin, one per line):
     python3 scripts/ghcr_rules.py keep-regex
     python3 scripts/ghcr_rules.py next-preview <version-or-milestone>
     python3 scripts/ghcr_rules.py preview-plan <ref-or-version> [--skip-released]   # GITHUB_OUTPUT lines
+    python3 scripts/ghcr_rules.py rolling-allowed <rc-tag>   # prints true/false; tags on stdin
     python3 scripts/ghcr_rules.py released               # the x.y.z tags among stdin
     python3 scripts/ghcr_rules.py select-deletions --released <file>
     python3 scripts/ghcr_rules.py dockerhub-tags        # env: DOCKERHUB_ADMIN_USERNAME (login), DOCKERHUB_TOKEN_ADMIN, HUB_NAMESPACE, HUB_REPOSITORY
@@ -168,6 +169,21 @@ def preview_plan(ref_or_version: str, tags: list[str], skip_released: bool = Fal
         return {"skip": "true", "reason": f"{version} is already released"}
     tag = next_preview_tag(version, tags, released)
     return {"skip": "false", "tag": tag, "rolling": f"{tag.split('-rc.')[0]}-preview"}
+
+
+def rolling_allowed(tag: str, tags: list[str]) -> bool:
+    """May ``tag`` (x.y.z-rc.N) move the rolling x.y.z-preview?
+
+    Only while no higher rc of the same version exists: a rerun of an older
+    build must not move the tag backwards. Raises ValueError for a non-rc tag.
+    """
+    match = _PREVIEW.match(tag)
+    if match is None:
+        raise ValueError(f"'{tag}' is not an x.y.z-rc.N tag")
+    version, number = match.group(1), int(match.group(5))
+    return all(
+        int(m.group(5)) <= number for t in tags if (m := _PREVIEW.match(t)) and m.group(1) == version
+    )
 
 
 def released_versions(tags: list[str]) -> list[str]:
@@ -367,6 +383,13 @@ def main(argv: list[str], stdin: Any = None, stdout: Any = None) -> int:
             print(f"::error::{err}", file=sys.stderr)
             return 1
         stdout.write("".join(f"{k}={v}\n" for k, v in plan.items()))
+        return 0
+    if len(argv) == 2 and argv[0] == "rolling-allowed":
+        try:
+            stdout.write(("true" if rolling_allowed(argv[1], _read_tags(stdin)) else "false") + "\n")
+        except ValueError as err:
+            print(f"::error::{err}", file=sys.stderr)
+            return 1
         return 0
     if argv == ["released"]:
         stdout.write("".join(f"{t}\n" for t in dict.fromkeys(released_versions(_read_tags(stdin)))))

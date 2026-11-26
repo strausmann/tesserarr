@@ -254,6 +254,31 @@ class RollingPreviewTest(unittest.TestCase):
         self.assertLessEqual(count, SAFE_REGEX_REPETITION_LIMIT, pattern)
 
 
+class RollingAllowedTest(unittest.TestCase):
+    def test_newest_rc_may_move_the_tag(self) -> None:
+        self.assertTrue(g.rolling_allowed("0.1.0-rc.3", ["0.1.0-rc.1", "0.1.0-rc.2"]))
+        self.assertTrue(g.rolling_allowed("0.1.0-rc.1", []))
+
+    def test_a_rerun_of_an_older_rc_may_not(self) -> None:
+        self.assertFalse(g.rolling_allowed("0.1.0-rc.1", ["0.1.0-rc.1", "0.1.0-rc.2"]))
+
+    def test_other_versions_do_not_count(self) -> None:
+        self.assertTrue(g.rolling_allowed("0.1.0-rc.1", ["0.2.0-rc.9", "0.1.0-preview"]))
+
+    def test_ten_is_higher_than_nine(self) -> None:
+        self.assertFalse(g.rolling_allowed("0.1.0-rc.9", ["0.1.0-rc.10"]))
+
+    def test_a_non_rc_tag_is_an_error(self) -> None:
+        with self.assertRaises(ValueError):
+            g.rolling_allowed("0.1.0", [])
+
+    def test_cli_prints_the_answer(self) -> None:
+        out = io.StringIO()
+        self.assertEqual(g.main(["rolling-allowed", "0.1.0-rc.1"], stdin=io.StringIO("0.1.0-rc.2\n"), stdout=out), 0)
+        self.assertEqual(out.getvalue(), "false\n")
+        self.assertEqual(g.main(["rolling-allowed", "0.1.0"], stdin=io.StringIO(""), stdout=io.StringIO()), 1)
+
+
 class PreviewPlanTest(unittest.TestCase):
     def test_milestone_version_from_ref(self) -> None:
         self.assertEqual(g.milestone_version("refs/heads/milestone/0.1.0"), "0.1.0")
