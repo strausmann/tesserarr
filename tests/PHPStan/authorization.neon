@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# The authorisation rules of ADR-0016 and Spec 16.16, included by phpstan.neon:
+# no permission check outside the Authorizer, no account found by its e-mail
+# address. Their tests are in tests/PHPStan/Rules/Authorization/.
+
+services:
+    -
+        class: Tests\PHPStan\Rules\Authorization\NoDirectPermissionCheckRule
+        arguments:
+            allowedClasses:
+                - App\Authorization\Authorizer
+                - App\Authorization\RoleGuard
+                - App\Mfa\MfaPolicy
+            namespaces:
+                - App\
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Tests\PHPStan\Rules\Authorization\NoUserLookupByEmailRule
+        arguments:
+            userClasses:
+                - App\Models\User
+        tags:
+            - phpstan.rules.rule

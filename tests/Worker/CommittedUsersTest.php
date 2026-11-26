@@ -26,7 +26,7 @@ function profileFromDatabase(User ...$users): Closure
     return function (Application $app) use ($commit): Closure {
         $app->make('router')->get('/_worker/name-from-database', fn (Request $request) => 'Hello '.User::query()
             ->whereKey($request->user()?->getAuthIdentifier())
-            ->value('name'));
+            ->value('display_name'));
 
         return $commit($app);
     };

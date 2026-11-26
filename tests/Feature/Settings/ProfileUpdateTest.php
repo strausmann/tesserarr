@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Audit\AuditEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 
@@ -17,115 +20,77 @@ test('profile page is displayed', function () {
     $response->assertOk();
 });
 
-test('profile information can be updated', function () {
-    $user = User::factory()->create();
+test('username and display name can be updated, and the rename is logged', function () {
+    $user = User::factory()->create(['username' => 'before']);
 
-    $response = $this
-        ->actingAs($user)
-        ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
-
-    $response
+    $this->actingAs($user)
+        ->patch(route('profile.update'), ['username' => 'after', 'display_name' => 'Test User'])
         ->assertSessionHasNoErrors()
         ->assertRedirect(route('profile.edit'));
 
     $user->refresh();
+    $entry = AuditEntry::query()->where('action', 'user.rename')->sole();
 
-    expect($user->name)->toBe('Test User');
-    expect($user->email)->toBe('test@example.com');
-    expect($user->email_verified_at)->toBeNull();
+    expect($user->username)->toBe('after')
+        ->and($user->display_name)->toBe('Test User')
+        ->and($entry->context)->toEqual(['from' => 'before', 'to' => 'after']);
 });
 
-test('email is stored in lowercase so the user can still log in', function () {
-    $user = User::factory()->create();
+test('the user can sign in with the new username', function () {
+    $user = User::factory()->create(['username' => 'before']);
 
-    $this
-        ->actingAs($user)
-        ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => 'Test@Example.com',
-        ])
-        ->assertSessionHasNoErrors();
-
-    expect($user->refresh()->email)->toBe('test@example.com');
-
+    $this->actingAs($user)->patch(route('profile.update'), ['username' => 'After', 'display_name' => '']);
     $this->post(route('logout'));
-
-    $this->post(route('login.store'), [
-        'login' => 'Test@Example.com',
-        'password' => 'password',
-    ]);
+    $this->post(route('login.store'), ['login' => 'after', 'password' => 'password']);
 
     $this->assertAuthenticatedAs($user);
 });
 
-test('email must be unique regardless of case', function () {
-    User::factory()->create(['email' => 'taken@example.com']);
-
+test('the username must be unique', function () {
+    User::factory()->create(['username' => 'taken']);
     $user = User::factory()->create();
 
-    $response = $this
-        ->actingAs($user)
+    $this->actingAs($user)
         ->from(route('profile.edit'))
-        ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => 'Taken@Example.com',
-        ]);
-
-    $response
-        ->assertSessionHasErrors('email')
+        ->patch(route('profile.update'), ['username' => 'Taken', 'display_name' => ''])
+        ->assertSessionHasErrors('username')
         ->assertRedirect(route('profile.edit'));
 });
 
-test('email verification status is unchanged when the email address is unchanged', function () {
-    $user = User::factory()->create();
+test('the contact address cannot be changed here', function () {
+    $user = User::factory()->create(['email' => 'kept@example.org']);
 
-    $response = $this
-        ->actingAs($user)
-        ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => $user->email,
-        ]);
+    $this->actingAs($user)->patch(route('profile.update'), [
+        'username' => $user->username,
+        'display_name' => '',
+        'email' => 'other@example.org',
+    ])->assertSessionHasNoErrors();
 
-    $response
-        ->assertSessionHasNoErrors()
-        ->assertRedirect(route('profile.edit'));
-
-    expect($user->refresh()->email_verified_at)->not->toBeNull();
+    expect($user->refresh()->email)->toBe('kept@example.org');
 });
 
-test('user can delete their account', function () {
+test('there is no route to delete the own account', function () {
+    expect(Route::has('profile.destroy'))->toBeFalse();
+
     $user = User::factory()->create();
-
-    $response = $this
-        ->actingAs($user)
-        ->delete(route('profile.destroy'), [
-            'password' => 'password',
-        ]);
-
-    $response
-        ->assertSessionHasNoErrors()
-        ->assertRedirect(route('home'));
-
-    $this->assertGuest();
-    expect($user->fresh())->toBeNull();
-});
-
-test('correct password must be provided to delete account', function () {
-    $user = User::factory()->create();
-
-    $response = $this
-        ->actingAs($user)
-        ->from(route('profile.edit'))
-        ->delete(route('profile.destroy'), [
-            'password' => 'wrong-password',
-        ]);
-
-    $response
-        ->assertSessionHasErrors('password')
-        ->assertRedirect(route('profile.edit'));
+    $this->actingAs($user)->delete('/settings/profile')->assertMethodNotAllowed();
 
     expect($user->fresh())->not->toBeNull();
+});
+
+test('a username taken between the check and the save is a validation error', function () {
+    $user = User::factory()->create(['username' => 'before']);
+    // Another request takes the name after the validation has passed.
+    User::updating(function (User $updating) use ($user) {
+        if ($updating->is($user)) {
+            DB::table('users')->insert(['username' => 'after', 'display_name' => '']);
+        }
+    });
+
+    $this->actingAs($user)->from(route('profile.edit'))
+        ->patch(route('profile.update'), ['username' => 'after', 'display_name' => ''])
+        ->assertRedirect(route('profile.edit'))
+        ->assertSessionHasErrors('username');
+
+    expect($user->fresh()?->username)->toBe('before');
 });

@@ -3,6 +3,8 @@ includes:
     - vendor/nesbot/carbon/extension.neon
     # Worker-safe code (CONTRIBUTING.md): own rules and disallowed calls.
     - tests/PHPStan/worker-safety.neon
+    # One authorisation function, no account looked up by address.
+    - tests/PHPStan/authorization.neon
 
 parameters:
     paths:

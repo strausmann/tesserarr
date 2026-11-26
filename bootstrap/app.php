@@ -8,6 +8,7 @@ use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\LimitRequestBody;
 use App\Http\Middleware\SetLocale;
+use App\Http\Middleware\SignOutLockedAccount;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
 use Illuminate\Foundation\Application;
@@ -40,6 +41,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->group('token-api', []);
 
         $middleware->web(append: [
+            // Before anything reads the account: a locked one is signed out.
+            SignOutLockedAccount::class,
             HandleAppearance::class,
             // After the session (the user's profile), before the page props.
             SetLocale::class,

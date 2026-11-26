@@ -18,17 +18,14 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /** Target => the task of 0.1.0 that builds its page. */
 const NAVIGATION_PENDING = [
-    '/audit' => 'task 8 (audit log)',
     '/catalog' => 'task 21 (catalogue)',
     '/connections' => 'task 19 (connections)',
     '/media-shares' => 'task 17 (media shares)',
-    '/roles' => 'task 8 (roles and permissions)',
     '/satellites' => 'task 18 (satellites)',
     '/settings/general' => 'task 8b (general settings)',
     '/settings/sign-in' => 'task 13 (sign-in methods)',
     '/status' => 'task 23 (status)',
     '/tokens' => 'task 9 (API tokens)',
-    '/users' => 'task 8 (users)',
 ];
 
 /**

@@ -52,7 +52,6 @@ path = [
   "app/Http/Middleware/HandleAppearance.php",
   "app/Http/Middleware/HandleInertiaRequests.php",
   "app/Http/Requests/Settings/PasswordUpdateRequest.php",
-  "app/Http/Requests/Settings/ProfileDeleteRequest.php",
   "app/Http/Requests/Settings/ProfileUpdateRequest.php",
   "app/Http/Requests/Settings/TwoFactorAuthenticationRequest.php",
   "app/Models/User.php",
@@ -99,7 +98,6 @@ path = [
   "resources/js/components/AlertError.svelte",
   "resources/js/components/AppearanceTabs.svelte",
   "resources/js/components/AppHead.svelte",
-  "resources/js/components/DeleteUser.svelte",
   "resources/js/components/Heading.svelte",
   "resources/js/components/InputError.svelte",
   "resources/js/components/ManagePasskeys.svelte",
@@ -129,7 +127,6 @@ path = [
   "resources/js/pages/settings/Appearance.svelte",
   "resources/js/pages/settings/Profile.svelte",
   "resources/js/pages/settings/Security.svelte",
-  "resources/js/pages/Welcome.svelte",
   "resources/js/types/auth.ts",
   "resources/js/types/global.d.ts",
   "resources/js/types/index.ts",
@@ -172,6 +169,27 @@ SPDX-License-Identifier = "MIT"
 # copies them from laravel/framework and laravel/reverb, both MIT).
 [[annotations]]
 path = ["config/broadcasting.php", "config/reverb.php"]
+precedence = "override"
+SPDX-FileCopyrightText = ["Taylor Otwell", "2026 Björn Strausmann and Tesserarr contributors"]
+SPDX-License-Identifier = "MIT"
+
+# Files published by spatie/laravel-permission (MIT) and laravel/sanctum (MIT)
+# with `artisan vendor:publish`; the Tesserarr settings in them are marked with
+# a comment.
+[[annotations]]
+path = [
+  "config/permission.php",
+  "database/migrations/2026_11_26_100000_create_permission_tables.php",
+]
+precedence = "override"
+SPDX-FileCopyrightText = ["Spatie bvba", "2026 Björn Strausmann and Tesserarr contributors"]
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+  "config/sanctum.php",
+  "database/migrations/2026_11_26_100100_create_personal_access_tokens_table.php",
+]
 precedence = "override"
 SPDX-FileCopyrightText = ["Taylor Otwell", "2026 Björn Strausmann and Tesserarr contributors"]
 SPDX-License-Identifier = "MIT"

@@ -64,8 +64,9 @@ return [
 
     'flatten_deep_query_parameters' => true,
 
-    // The document route (routes/web.php) sits in the web group already.
-    'middleware' => ['auth'],
+    // The document route (routes/web.php) sits in the web group already; the
+    // API reference is for accounts that may hold API tokens.
+    'middleware' => ['auth', 'can:tokens.manage_own'],
 
     'extensions' => [],
 

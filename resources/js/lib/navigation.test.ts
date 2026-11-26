@@ -43,6 +43,28 @@ describe('navigationFor', () => {
         }
     });
 
+    it('leaves out what the account may not open, and an empty group', () => {
+        const groups = navigationFor('operator', ['users.view', 'audit.view']);
+
+        expect(groups.map((g) => g.label)).toEqual([
+            'nav.group.overview',
+            'nav.group.administration',
+        ]);
+        expect(groups.flatMap((g) => g.items.map((i) => i.label))).toEqual([
+            'nav.home',
+            'nav.users',
+            'nav.audit',
+        ]);
+    });
+
+    it('keeps the friend items the role carries', () => {
+        expect(
+            navigationFor('friend', ['catalog.browse']).flatMap((g) =>
+                g.items.map((i) => i.label),
+            ),
+        ).toEqual(['nav.catalog', 'nav.account']);
+    });
+
     it('gives a guest no navigation', () => {
         expect(navigationFor('guest')).toEqual([]);
     });

@@ -38,13 +38,13 @@ function greetingRoutes(Application $app): void
     $app->make('greeter.singleton');
 
     $router = $app->make('router');
-    $router->get('/_worker/direct', fn (Request $request) => 'Hello '.($request->user()->name ?? 'guest'));
-    $router->get('/_worker/static', fn (Request $request) => StaticGreeting::for($request->user()->name ?? null));
-    $router->get('/_worker/singleton', fn (Request $request) => app('greeter.singleton')->greet($request->user()->name ?? null));
-    $router->get('/_worker/scoped', fn (Request $request) => app('greeter.scoped')->greet($request->user()->name ?? null));
+    $router->get('/_worker/direct', fn (Request $request) => 'Hello '.($request->user()->display_name ?? 'guest'));
+    $router->get('/_worker/static', fn (Request $request) => StaticGreeting::for($request->user()->display_name ?? null));
+    $router->get('/_worker/singleton', fn (Request $request) => app('greeter.singleton')->greet($request->user()->display_name ?? null));
+    $router->get('/_worker/scoped', fn (Request $request) => app('greeter.scoped')->greet($request->user()->display_name ?? null));
     $router->get('/_worker/nothing', fn () => 'Hello');
-    $router->get('/_worker/guest-first', fn (Request $request) => GuestGreeting::first($request->user()->name ?? null));
-    $router->get('/_worker/guest-last', fn (Request $request) => GuestGreeting::last($request->user()->name ?? null));
+    $router->get('/_worker/guest-first', fn (Request $request) => GuestGreeting::first($request->user()->display_name ?? null));
+    $router->get('/_worker/guest-last', fn (Request $request) => GuestGreeting::last($request->user()->display_name ?? null));
 }
 
 /**

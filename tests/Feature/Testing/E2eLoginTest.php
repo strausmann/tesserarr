@@ -57,15 +57,19 @@ it('does not register /_testing/login when the route file is missing', function 
     expect(Route::has('testing.login'))->toBeFalse();
 });
 
-it('signs in the fixture account of the role and redirects to the dashboard', function (string $role) {
+it('signs in the fixture account of the role with that role and redirects to its home', function (string $role, string $roleName, string $home) {
     bootE2eImage($this->root);
 
-    $this->get("/_testing/login/{$role}")->assertRedirect(route('dashboard'));
+    $this->get("/_testing/login/{$role}")->assertRedirect(route($home));
 
     $user = User::query()->sole();
-    expect($user->email)->toBe("e2e-{$role}@example.test");
+    expect($user->username)->toBe("e2e-{$role}")
+        ->and($user->getRoleNames()->all())->toBe([$roleName]);
     $this->assertAuthenticatedAs($user);
-})->with(['friend', 'operator']);
+})->with([
+    'friend' => ['friend', 'user', 'friend.home'],
+    'operator' => ['operator', 'operator', 'dashboard'],
+]);
 
 it('answers 404 on /_testing/login for an unknown role', function () {
     bootE2eImage($this->root);

@@ -29,7 +29,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     const audience = $derived(
         ((page.props as { audience?: Audience }).audience ?? 'guest') as Audience,
     );
-    const groups = $derived(navigationFor(audience));
+    const groups = $derived(
+        navigationFor(audience, (page.props as { permissions?: string[] }).permissions),
+    );
     const user = $derived(page.props.auth?.user ?? null);
     const version = $derived(
         String((page.props as { version?: string }).version ?? ''),
@@ -64,7 +66,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 {#if user}
     <div class="tr-nav-foot">
         <Link href="/settings/profile" class="tr-nav-account">
-            <span class="font-bold">{user.name}</span>
+            <span class="font-bold">{user.display_name || user.username}</span>
             <span class="text-ink-2"
                 >{t(audience === 'friend' ? 'nav.role.friend' : 'nav.role.operator')} · {t(
                     'nav.account',
