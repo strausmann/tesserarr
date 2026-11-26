@@ -68,6 +68,38 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         }
     }
 
+    // The boxes are one tab stop (roving tabindex): Tab reaches the matrix
+    // once, the arrow keys move inside it, Space ticks. Otherwise every box
+    // would be a stop of its own, a few dozen of them on the way to "Save".
+    const boxKey = (role: Role, permission: string) => `${role.id}:${permission}`;
+    const boxes = $derived(
+        groups.flatMap((g) =>
+            g.permissions.flatMap((p) =>
+                own.filter(() => grantable.includes(p)).map((r) => boxKey(r, p)),
+            ),
+        ),
+    );
+    let focused = $state<string | null>(null);
+    const current = $derived(focused !== null && boxes.includes(focused) ? focused : (boxes[0] ?? null));
+
+    function move(event: KeyboardEvent): void {
+        const at = current === null ? -1 : boxes.indexOf(current);
+        const step: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+        let next = at;
+        if (event.key in step) {
+            next = Math.min(boxes.length - 1, Math.max(0, at + step[event.key]));
+        } else if (event.key === 'Home') {
+            next = 0;
+        } else if (event.key === 'End') {
+            next = boxes.length - 1;
+        } else {
+            return;
+        }
+        event.preventDefault();
+        focused = boxes[next];
+        document.querySelector<HTMLInputElement>(`[data-box="${boxes[next]}"]`)?.focus();
+    }
+
     let creating = $state(false);
     let newName = $state('');
 
@@ -174,6 +206,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                                                         permission: t(`perm.${permission}`),
                                                         role: role.name,
                                                     })}
+                                                    data-box="{role.id}:{permission}"
+                                                    tabindex={boxKey(role, permission) === current ? 0 : -1}
+                                                    onfocus={() => (focused = boxKey(role, permission))}
+                                                    onkeydown={move}
                                                     onchange={(e) => toggle(role, permission, e.currentTarget.checked)}
                                                 />
                                             </label>

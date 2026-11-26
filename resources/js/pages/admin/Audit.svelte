@@ -144,7 +144,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         <EmptyState title={t('dashboard.audit.empty.title')} body={t('audit.empty.body')} />
     {/if}
 
-    <div class="tr-table-wrap" hidden={entries.length === 0}>
+    <!-- The table scrolls sideways on a phone; keyboard users reach the scroll area (axe scrollable-region-focusable). -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="tr-table-wrap" hidden={entries.length === 0} role="region" aria-label={t('audit.entries')} tabindex="0">
         <table class="tr-table" aria-label={t('audit.entries')}>
             <thead>
                 <tr>

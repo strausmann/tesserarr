@@ -28,6 +28,10 @@ const components = [
     'resources/js/components/ui/Dialog.svelte',
     'resources/js/components/ui/Field.svelte',
     'resources/js/components/ui/SearchDialog.svelte',
+    // Pages with logic of their own (task 8).
+    'resources/js/pages/admin/Audit.svelte',
+    'resources/js/pages/admin/Roles.svelte',
+    'resources/js/pages/admin/Users.svelte',
 ];
 
 export default defineConfig({
