@@ -61,6 +61,14 @@ on:
         type: string
         required: false
         default: ""
+      rolling-tag:
+        description: >-
+          Extra moving tag for a preview, x.y.z-preview, set by preview-image.yml
+          on a push to a milestone branch. Only valid together with a `tag`
+          x.y.z-rc.N of the same version.
+        type: string
+        required: false
+        default: ""
     secrets:
       DOCKERHUB_USERNAME:
         required: false
@@ -119,11 +127,18 @@ jobs:
       - name: Validate release tag input
         env:
           INPUT_TAG: ${{ inputs.tag }}
+          ROLLING_TAG: ${{ inputs.rolling-tag }}
         run: |
           set -eu
           semver='^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
           if [ -n "$INPUT_TAG" ] && ! [[ "$INPUT_TAG" =~ $semver ]]; then
             echo "::error::Invalid release tag input: not a semantic version"
+            exit 1
+          fi
+          # The rolling tag is x.y.z-preview of the rc tag being built, nothing else:
+          # it can never name a release, `latest` or another version.
+          if [ -n "$ROLLING_TAG" ] && ! [[ "$INPUT_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ && "$ROLLING_TAG" == "${INPUT_TAG%-rc.*}-preview" ]]; then
+            echo "::error::Invalid rolling tag input: it must be <version>-preview of the rc tag being built"
             exit 1
           fi
 
@@ -577,10 +592,13 @@ jobs:
           #   dev      dev                                 main-branch push
           #   release  {{version}}, {{major.minor}},       semver release
           #            {{major}}, latest (stable only)
+          #   preview  {{version}} (x.y.z-rc.N) and, from a milestone push,
+          #            the moving x.y.z-preview (inputs.rolling-tag)
           tags: |
             type=ref,event=branch,enable=${{ steps.tag.outputs.flavor == 'branch' }}
             type=raw,value=dev,enable=${{ steps.tag.outputs.flavor == 'dev' }}
             type=semver,pattern={{version}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' }}
+            type=raw,value=${{ inputs.rolling-tag || 'unused' }},enable=${{ steps.tag.outputs.flavor == 'release' && inputs.rolling-tag != '' }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.minor == 'true' }}
             type=semver,pattern={{major}},value=${{ steps.tag.outputs.tag }},enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.major == 'true' }}
             type=raw,value=latest,enable=${{ steps.tag.outputs.flavor == 'release' && !contains(steps.tag.outputs.tag, '-') && steps.floating.outputs.latest == 'true' }}
