@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Http\Ui\Audience;
+use App\Http\Ui\CollapsibleSection;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\App;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -37,13 +41,35 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+        $locale = App::getLocale();
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => [
                 'user' => $request->user(),
             ],
-            'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            // The language SetLocale chose and its strings (lang/<locale>.json),
+            // read per request: nothing here outlives it (worker-safe code).
+            'locale' => $locale,
+            'translations' => $this->translations($locale),
+            'audience' => Audience::of($user instanceof User ? $user : null)->value,
+            'version' => config('app.version'),
+            'ui' => [
+                'collapsed' => $user instanceof User ? CollapsibleSection::known($user->ui_collapsed ?? []) : [],
+            ],
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function translations(string $locale): array
+    {
+        /** @var array<string, string> $lines */
+        $lines = app('translator')->getLoader()->load($locale, '*', '*');
+
+        return $lines;
     }
 }

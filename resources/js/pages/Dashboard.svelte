@@ -1,44 +1,43 @@
+<!--
+SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
 <script module lang="ts">
-    import { dashboard } from '@/routes';
-
-    export const layout = {
-        breadcrumbs: [
-            {
-                title: 'Dashboard',
-                href: dashboard(),
-            },
-        ],
-    };
+    export const layout = { title: 'dashboard.title' };
 </script>
 
 <script lang="ts">
     import AppHead from '@/components/AppHead.svelte';
-    import PlaceholderPattern from '@/components/PlaceholderPattern.svelte';
+    import EmptyState from '@/components/EmptyState.svelte';
+    import { t } from '@/lib/i18n';
+
+    // The operator's home (Dashboard.dc.html) before there is anything to
+    // show: each section with its empty state. The setup checklist (task 22a),
+    // the health of satellites and connections (18, 19), open invitations (10)
+    // and the latest audit entries (8) fill the sections as they arrive.
+    const sections = [
+        { id: 'health', key: 'dashboard.health' },
+        { id: 'invitations', key: 'dashboard.invitations' },
+        { id: 'audit', key: 'dashboard.audit' },
+    ];
 </script>
 
-<AppHead title="Dashboard" />
+<AppHead title={t('dashboard.title')} />
 
-<div class="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-    <div class="grid auto-rows-min gap-4 md:grid-cols-3">
-        <div
-            class="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
-        >
-            <PlaceholderPattern />
-        </div>
-        <div
-            class="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
-        >
-            <PlaceholderPattern />
-        </div>
-        <div
-            class="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
-        >
-            <PlaceholderPattern />
-        </div>
-    </div>
-    <div
-        class="relative min-h-screen flex-1 rounded-xl border border-sidebar-border/70 md:min-h-min dark:border-sidebar-border"
-    >
-        <PlaceholderPattern />
-    </div>
+<div class="tr-page">
+    <header class="tr-page-header">
+        <h1 class="tr-page-title">{t('dashboard.title')}</h1>
+    </header>
+
+    {#each sections as section (section.id)}
+        <section class="tr-panel" aria-labelledby="h-{section.id}">
+            <h2 id="h-{section.id}" class="tr-panel-title">
+                {t(`${section.key}.title`)}
+            </h2>
+            <EmptyState
+                title={t(`${section.key}.empty.title`)}
+                body={t(`${section.key}.empty.body`)}
+            />
+        </section>
+    {/each}
 </div>

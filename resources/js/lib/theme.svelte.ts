@@ -47,7 +47,23 @@ const applyTheme = (value: Appearance): void => {
     const isDark = isDarkMode(value);
     document.documentElement.classList.toggle('dark', isDark);
     document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    applyThemeColor(isDark);
 };
+
+/** --tr-surface of tokens.css, the colour of the top bar, light and dark. */
+export const THEME_COLORS = { light: '#fdfcf9', dark: '#201e1b' } as const;
+
+/**
+ * The browser bar takes the colour of the top bar. The two theme-color tags
+ * in app.blade.php follow the system; once the appearance is chosen in the
+ * settings (or resolved for "system"), both get the colour actually shown.
+ */
+export function applyThemeColor(isDark: boolean): void {
+    const color = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
+    document
+        .querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+        .forEach((meta) => meta.setAttribute('content', color));
+}
 
 const getStoredAppearance = (): Appearance => {
     if (typeof window === 'undefined') {

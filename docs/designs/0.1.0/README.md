@@ -44,7 +44,8 @@ Where the repository departs from the canvas, and why:
 - **Token names carry the prefix `--tr-`.** The canvas names the roles `--bg`, `--accent` and so on. In the app, the
   starter-kit components still read variables of the same names with another meaning (`--accent` is their hover fill),
   so the roles are `--tr-bg`, `--tr-accent` and so on, as on the documentation website. `app.css` points the starter-kit
-  variables at the roles; the brand accent is reachable as `primary` until task 7 replaces those components.
+  variables at the roles. The Tesserarr components read the roles directly; in Tailwind the brand accent is `brand`
+  (`bg-brand`, `text-brand-ink`), while `accent` stays the hover fill of the starter-kit components that remain.
 - **`favicon.ico` shows the app symbol, not the bare mark.** The ICO file has no dark variant, and the ink tiles of the
   bare mark disappear on a dark tab bar. Browsers that read `favicon.svg` get the mark of the canvas.
 - **`apple-touch-icon.png` has square corners.** iOS rounds the icon itself and fills transparent corners with black.

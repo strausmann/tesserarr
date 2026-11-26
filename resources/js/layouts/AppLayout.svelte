@@ -1,17 +1,17 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
     import AppLayout from '@/layouts/app/AppSidebarLayout.svelte';
-    import type { BreadcrumbItem } from '@/types';
 
     let {
-        breadcrumbs = [],
+        title = '',
         children,
     }: {
-        breadcrumbs?: BreadcrumbItem[];
+        /** Key of the page title in lang/*.json (`export const layout = { title }` in the page). */
+        title?: string;
         children?: Snippet;
     } = $props();
 </script>
 
-<AppLayout {breadcrumbs}>
+<AppLayout {title}>
     {@render children?.()}
 </AppLayout>

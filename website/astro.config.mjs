@@ -63,6 +63,7 @@ export default defineConfig({
           { slug: "using" },
           { slug: "using/sign-in" },
           { slug: "using/account" },
+          { slug: "using/interface" },
           { slug: "using/catalog" },
         ]),
         group("Admin", [

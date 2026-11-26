@@ -15,6 +15,7 @@
     import AppearanceTabs from '@/components/AppearanceTabs.svelte';
     import AppHead from '@/components/AppHead.svelte';
     import Heading from '@/components/Heading.svelte';
+    import LanguageChoice from '@/components/LanguageChoice.svelte';
 </script>
 
 <AppHead title="Appearance settings" />
@@ -28,4 +29,5 @@
         description="Update the appearance settings for your account"
     />
     <AppearanceTabs />
+    <LanguageChoice />
 </div>

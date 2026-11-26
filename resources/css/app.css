@@ -61,8 +61,13 @@
     --color-sidebar-ring: var(--sidebar-ring);
 
     /* The roles of tokens.css under their Labelyard names (bg-surface,
-       text-ink-2, rounded-r2 …). The brand accent is `primary` for now:
-       `accent` still belongs to the starter-kit hover fill until task 7. */
+       text-ink-2, rounded-r2 …). The brand accent is `brand` (bg-brand,
+       text-brand-ink): `accent` is still the hover fill of the starter-kit
+       components the sign-in and settings pages use, until those pages are
+       rebuilt (tasks 11, 12). The Tesserarr components below read the
+       --tr- roles directly. */
+    --color-brand: var(--tr-accent);
+    --color-brand-ink: var(--tr-accent-ink);
     --color-page: var(--tr-bg);
     --color-surface: var(--tr-surface);
     --color-sunken: var(--tr-sunken);
@@ -148,5 +153,686 @@
     samp {
         font-family: var(--tr-font-mono);
         font-weight: var(--tr-weight-code);
+    }
+
+    /* Phones (CONTRIBUTING.md, "Web UI: the on-screen keyboard and inputs").
+       No tap flash, no font inflation in landscape; the page itself does
+       not bounce or pull-to-refresh, inner scroll areas keep their own. */
+    html {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-text-size-adjust: 100%;
+        overscroll-behavior: none;
+    }
+
+    /* 16 px at least, or iOS zooms the page into the field and stays there. */
+    input,
+    textarea,
+    select {
+        font-size: max(16px, 1em);
+    }
+
+    /* No 300 ms wait for a double tap; a long press on a control does not
+       select its label. */
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    label,
+    [role='button'] {
+        touch-action: manipulation;
+    }
+
+    button,
+    [role='button'] {
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    /* The clear button of Field.svelte replaces the native one of a search. */
+    input[type='search']::-webkit-search-cancel-button,
+    input[type='search']::-webkit-search-decoration {
+        -webkit-appearance: none;
+        appearance: none;
+    }
+}
+
+/* The Tesserarr components: the app frame, the dialog, fields, sections.
+   Sizes from tokens.css; everything fixed or sized to the screen uses --vvh
+   (lib/viewport.ts), never vh or dvh. */
+@layer components {
+    .tr-app {
+        min-height: var(--vvh, 100%);
+        background: var(--tr-bg);
+        color: var(--tr-ink);
+        font-size: var(--tr-text-body);
+        line-height: var(--tr-leading-body);
+    }
+
+    @media (min-width: 1024px) {
+        .tr-app {
+            display: grid;
+            grid-template-columns: 256px minmax(0, 1fr);
+        }
+    }
+
+    .tr-skip {
+        position: absolute;
+        inset-inline-start: var(--tr-space-4);
+        top: -100px;
+        z-index: 60;
+        padding: var(--tr-space-2) var(--tr-space-4);
+        border-radius: var(--tr-r-2);
+        background: var(--tr-surface);
+        color: var(--tr-ink);
+    }
+
+    .tr-skip:focus {
+        top: var(--tr-space-2);
+    }
+
+    .tr-topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 56px;
+        padding: 6px 12px;
+        padding-top: max(6px, env(safe-area-inset-top, 0px));
+        /* A phone on its side: keep the menu button out of the notch. */
+        padding-left: max(12px, env(safe-area-inset-left, 0px));
+        padding-right: max(12px, env(safe-area-inset-right, 0px));
+        background: var(--tr-surface);
+        border-bottom: 1px solid var(--tr-line);
+    }
+
+    .tr-topbar-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--tr-text-section);
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-sidebar {
+        display: none;
+    }
+
+    @media (min-width: 1024px) {
+        .tr-topbar {
+            display: none;
+        }
+
+        /* The list scrolls, the foot (account, sign-out, version) stays in
+           sight at every height. */
+        .tr-sidebar {
+            position: sticky;
+            top: 0;
+            display: flex;
+            flex-direction: column;
+            height: var(--vvh, 100%);
+            overflow: hidden;
+            background: var(--tr-surface);
+            border-inline-end: 1px solid var(--tr-line);
+        }
+    }
+
+    .tr-main {
+        min-width: 0;
+        padding: var(--tr-space-6) var(--tr-space-4) 64px;
+        padding-left: max(var(--tr-space-4), env(safe-area-inset-left, 0px));
+        padding-right: max(var(--tr-space-4), env(safe-area-inset-right, 0px));
+    }
+
+    .tr-main:focus {
+        outline: none;
+    }
+
+    @media (min-width: 768px) {
+        .tr-main {
+            padding: var(--tr-space-8) clamp(16px, 3vw, 48px) 64px;
+        }
+    }
+
+    /* Navigation, the same in the sidebar and in the drawer. */
+    .tr-nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 44px;
+        padding: 24px 24px 16px;
+        text-decoration: none;
+        color: var(--tr-ink);
+    }
+
+    .tr-nav {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        gap: 2px;
+        min-height: 0;
+        padding: 0 12px 16px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .tr-nav-group {
+        margin: 16px 0 0;
+        padding: 0 12px 4px;
+        font-size: var(--tr-text-small);
+        font-weight: var(--tr-weight-bold);
+        color: var(--tr-ink-3);
+    }
+
+    .tr-nav-item {
+        display: flex;
+        align-items: center;
+        min-height: 44px;
+        overflow-wrap: anywhere;
+        padding: 0 12px;
+        border-radius: var(--tr-r-2);
+        text-decoration: none;
+        color: var(--tr-ink-2);
+        transition: background-color 120ms ease;
+    }
+
+    .tr-nav-item[aria-current='page'] {
+        background: var(--tr-sunken);
+        color: var(--tr-ink);
+        font-weight: var(--tr-weight-bold);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        .tr-nav-item:hover {
+            background: var(--tr-sunken);
+            color: var(--tr-ink);
+        }
+    }
+
+    .tr-nav-notice {
+        margin-top: auto;
+        padding: 0 24px 16px;
+    }
+
+    .tr-nav-foot {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 16px 24px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--tr-line);
+        font-size: var(--tr-text-small);
+    }
+
+    .tr-nav-notice + .tr-nav-foot {
+        margin-top: 0;
+    }
+
+    .tr-nav-account {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-width: 0;
+        min-height: 44px;
+        /* users.name is up to 255 characters, with or without spaces. */
+        overflow-wrap: anywhere;
+        text-decoration: none;
+        color: var(--tr-ink);
+    }
+
+    .tr-nav-signout {
+        display: flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        background: none;
+        font: inherit;
+        color: var(--tr-ink-2);
+        text-align: start;
+        cursor: pointer;
+    }
+
+    .tr-nav-version {
+        display: flex;
+        align-items: center;
+        min-height: 44px;
+        margin: 0;
+        color: var(--tr-ink-2);
+    }
+
+    /* A 44 px hit area around a 32 px box without frame or fill. */
+    .tr-icon-button {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        width: var(--tr-icon-button-hit);
+        height: var(--tr-icon-button-hit);
+        padding: 0;
+        border: 0;
+        border-radius: var(--tr-r-2);
+        background: transparent;
+        color: var(--tr-ink);
+        cursor: pointer;
+        transition:
+            transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+            background-color 120ms ease;
+    }
+
+    .tr-icon-button:active {
+        transform: scale(0.94);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        .tr-icon-button:hover {
+            background: var(--tr-sunken);
+        }
+    }
+
+    .tr-button {
+        display: inline-flex;
+        align-items: center;
+        min-height: var(--tr-control-height);
+        padding: 0 16px;
+        border-radius: var(--tr-control-radius);
+        border: 1px solid var(--tr-line-strong);
+        background: var(--tr-surface);
+        color: var(--tr-ink);
+        font-size: var(--tr-text-small);
+        font-weight: var(--tr-weight-bold);
+        text-decoration: none;
+        transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .tr-button:active {
+        transform: scale(0.97);
+    }
+
+    /* Dialog.svelte: the layer is the visible area, not the layout viewport. */
+    .tr-dialog-layer {
+        position: fixed;
+        inset-inline: 0;
+        top: var(--vv-top, 0px);
+        height: var(--vvh, 100%);
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--tr-space-4);
+        background: rgb(0 0 0 / 0.4);
+        overscroll-behavior: contain;
+    }
+
+    /* A short visible area (keyboard open, phone in landscape): top-aligned,
+       so the field and the main buttons stay where the eye is. */
+    @media (max-height: 640px) {
+        .tr-dialog-layer[data-variant='center'] {
+            align-items: flex-start;
+        }
+    }
+
+    .tr-dialog {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: min(32rem, 100%);
+        max-height: calc(var(--vvh, 100%) - 2rem);
+        border-radius: var(--tr-r-3);
+        background: var(--tr-surface);
+        color: var(--tr-ink);
+        box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+        outline: none;
+        transition:
+            opacity 160ms cubic-bezier(0.23, 1, 0.32, 1),
+            transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+
+        @starting-style {
+            opacity: 0;
+            transform: scale(0.97);
+        }
+    }
+
+    .tr-dialog-close {
+        position: absolute;
+        top: 12px;
+        inset-inline-end: 12px;
+    }
+
+    .tr-dialog-title {
+        margin: 0;
+        padding-block: 20px 0;
+        padding-inline: 20px 64px;
+        font-size: var(--tr-text-section);
+        font-weight: var(--tr-weight-bold);
+        line-height: var(--tr-leading-title);
+    }
+
+    .tr-dialog-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-4);
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: var(--tr-space-4) 20px 20px;
+    }
+
+    .tr-dialog-body[data-below-close='true'] {
+        padding-top: calc(12px + var(--tr-icon-button-hit) + var(--tr-space-2));
+    }
+
+    .tr-dialog-footer {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: var(--tr-space-2);
+        padding: var(--tr-space-3) 20px 20px;
+        border-top: 1px solid var(--tr-line);
+    }
+
+    .tr-dialog-layer[data-variant='drawer'] {
+        justify-content: flex-start;
+        align-items: stretch;
+        padding: 0;
+    }
+
+    .tr-dialog-layer[data-variant='drawer'] .tr-dialog {
+        width: min(320px, 86vw);
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+        padding-left: env(safe-area-inset-left, 0px);
+        transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
+
+        @starting-style {
+            opacity: 1;
+            transform: translateX(-100%);
+        }
+    }
+
+    /* Right to left, the drawer comes from the right. */
+    .tr-dialog-layer[data-variant='drawer'] .tr-dialog:dir(rtl) {
+        @starting-style {
+            transform: translateX(100%);
+        }
+    }
+
+    /* The navigation scrolls inside, the foot stays at the bottom. */
+    .tr-dialog-layer[data-variant='drawer'] .tr-dialog-body {
+        padding: 0;
+        gap: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    .tr-dialog-layer[data-variant='drawer'] .tr-dialog-close {
+        top: 16px;
+    }
+
+    /* In the drawer the logo sits beside the close button, not under it. */
+    .tr-dialog-layer[data-variant='drawer'] .tr-nav-brand {
+        margin-inline-end: calc(12px + var(--tr-icon-button-hit));
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .tr-dialog,
+        .tr-dialog-layer[data-variant='drawer'] .tr-dialog {
+            transition: none;
+        }
+    }
+
+    /* Field.svelte */
+    .tr-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .tr-field-label {
+        font-size: var(--tr-text-small);
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-field-box {
+        position: relative;
+    }
+
+    .tr-field-input {
+        width: 100%;
+        min-height: var(--tr-control-height);
+        padding: 0 12px;
+        border: 1px solid var(--tr-line-strong);
+        border-radius: var(--tr-control-radius);
+        background: var(--tr-surface);
+        color: var(--tr-ink);
+    }
+
+    .tr-field-input[data-clearable='true'] {
+        padding-inline-end: var(--tr-icon-button-hit);
+    }
+
+    .tr-field-input[aria-invalid='true'] {
+        border-color: var(--tr-bad);
+    }
+
+    .tr-field-clear {
+        position: absolute;
+        top: 50%;
+        inset-inline-end: 0;
+        transform: translateY(-50%);
+        color: var(--tr-ink-2);
+    }
+
+    .tr-field-clear:active {
+        transform: translateY(-50%) scale(0.94);
+    }
+
+    .tr-field-hint {
+        margin: 0;
+        font-size: var(--tr-text-small);
+        color: var(--tr-ink-2);
+    }
+
+    .tr-field-error {
+        margin: 0;
+        font-size: var(--tr-text-small);
+        color: var(--tr-bad);
+    }
+
+    /* SearchDialog.svelte: the results follow the field inside the dialog. */
+    .tr-search-results {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .tr-search-hit {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 44px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: var(--tr-r-2);
+        background: transparent;
+        color: var(--tr-ink);
+        font: inherit;
+        text-align: start;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        .tr-search-hit:hover {
+            background: var(--tr-sunken);
+        }
+    }
+
+    .tr-search-empty,
+    .tr-search-waiting {
+        margin: 0;
+        color: var(--tr-ink-2);
+    }
+
+    .tr-search-error {
+        margin: 0;
+        color: var(--tr-bad);
+    }
+
+    /* Pages */
+    .tr-page {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-6);
+        max-width: 1120px;
+    }
+
+    .tr-page-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: var(--tr-space-4);
+    }
+
+    .tr-page-title {
+        margin: 0;
+        font-size: var(--tr-text-title);
+        font-weight: var(--tr-weight-bold);
+        line-height: var(--tr-leading-title);
+        overflow-wrap: anywhere;
+    }
+
+    .tr-panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-4);
+        padding: 20px;
+        border: 1px solid var(--tr-line);
+        border-radius: var(--tr-card-radius);
+        background: var(--tr-surface);
+    }
+
+    .tr-panel-title {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-size: var(--tr-text-section);
+        font-weight: var(--tr-weight-bold);
+        line-height: var(--tr-leading-title);
+    }
+
+    /* EmptyState.svelte: one sentence of what is missing, the action that fixes it. */
+    .tr-empty {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-1);
+        padding: var(--tr-space-4);
+        border-radius: var(--tr-r-2);
+        background: var(--tr-sunken);
+    }
+
+    .tr-empty-title {
+        margin: 0;
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-empty-body {
+        margin: 0;
+        color: var(--tr-ink-2);
+    }
+
+    .tr-empty-action {
+        margin-top: var(--tr-space-2);
+    }
+
+    /* Collapsible.svelte: the heading is the switch, 44 px high. */
+    .tr-collapsible {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-3);
+    }
+
+    .tr-collapsible-heading {
+        margin: 0;
+        font-size: var(--tr-text-section);
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-collapsible-switch {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--tr-space-3);
+        width: 100%;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: start;
+        cursor: pointer;
+    }
+
+    /* A long, unbreakable title wraps instead of pushing the chevron out. */
+    .tr-collapsible-switch > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .tr-collapsible-chevron {
+        flex: 0 0 auto;
+        transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .tr-collapsible-switch[aria-expanded='false'] .tr-collapsible-chevron {
+        transform: rotate(-90deg);
+    }
+
+    .tr-collapsible-switch[aria-expanded='false']:dir(rtl)
+        .tr-collapsible-chevron {
+        transform: rotate(90deg);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .tr-collapsible-chevron {
+            transition: none;
+        }
+    }
+
+    .tr-collapsible-summary {
+        margin: 0;
+        color: var(--tr-ink-2);
+    }
+
+    /* LanguageChoice.svelte */
+    .tr-choice {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-2);
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .tr-choice-option {
+        display: flex;
+        align-items: center;
+        gap: var(--tr-space-3);
+        min-height: 44px;
+    }
+
+    .tr-choice-option input {
+        width: 20px;
+        height: 20px;
+        accent-color: var(--tr-link);
     }
 }
