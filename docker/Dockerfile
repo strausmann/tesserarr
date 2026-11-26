@@ -80,9 +80,10 @@ COPY --from=vendor /app/resources/js/actions resources/js/actions
 COPY --from=vendor /app/resources/js/routes resources/js/routes
 COPY --from=vendor /app/resources/js/wayfinder resources/js/wayfinder
 ENV WAYFINDER_COMMAND=true
-# The version the bundle is built for (vite.config.ts): the same build
-# argument the server reads in the app stage, so both report one version.
+# The build the bundle belongs to (vite.config.ts): the same build arguments
+# the server reads in the app stage, so both name one build.
 ARG TESSERARR_VERSION=0.0.0-dev
+ARG REVISION=unknown
 RUN npm run build
 
 # -----------------------------------------------------------------------------
@@ -190,6 +191,7 @@ ARG TESSERARR_VERSION=0.0.0-dev
 LABEL org.opencontainers.image.version="${TESSERARR_VERSION}"
 
 ENV TESSERARR_VERSION="${TESSERARR_VERSION}" \
+    TESSERARR_REVISION="${REVISION}" \
     SERVER_NAME=":8080" \
     LOG_CHANNEL=stderr
 

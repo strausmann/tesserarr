@@ -147,6 +147,15 @@ export function dismissForVersion(): void {
     notice.dismiss();
 }
 
+/**
+ * The version to show for a build: without the `+<commit>` a published image
+ * adds (two builds under the rolling tag `dev` differ by it, but "dev" is
+ * what the user knows).
+ */
+export function displayVersion(build: string | null): string {
+    return (build ?? '').split('+')[0];
+}
+
 type HeaderBag = Headers | Record<string, string | undefined> | undefined;
 
 /** The version an answer names (fetch `Headers` or Inertia's lower-case record). */

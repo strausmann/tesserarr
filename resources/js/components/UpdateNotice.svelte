@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     import RotateCw from '@lucide/svelte/icons/rotate-cw';
     import { t } from '@/lib/i18n';
     import type { UpdateNotice } from '@/lib/updates.svelte';
-    import { notice as appNotice } from '@/lib/updates.svelte';
+    import { displayVersion, notice as appNotice } from '@/lib/updates.svelte';
 
     /**
      * "New version available" (lib/updates.svelte.ts, Dashboard.dc.html):
@@ -21,13 +21,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     }: { variant: 'box' | 'toast'; notice?: UpdateNotice } = $props();
 
     const state = $derived(notice.state);
+    const version = $derived(displayVersion(state.version));
 </script>
 
 {#if variant === 'box' && state.waiting}
     <div class="tr-update-box">
         <p class="tr-update-title">
             <RotateCw class="size-[18px] shrink-0" aria-hidden="true" />
-            <span>{t('update.ready', { version: state.version ?? '' })}</span>
+            <span>{t('update.ready', { version })}</span>
         </p>
         <p class="tr-update-hint">{t('update.ready_hint')}</p>
         <button
@@ -50,7 +51,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             <span class="flex min-w-0 flex-col">
                 <span class="font-bold">{t('update.available')}</span>
                 <span class="tr-update-version"
-                    >{t('update.version', { version: state.version ?? '' })}</span
+                    >{t('update.version', { version })}</span
                 >
             </span>
         </div>

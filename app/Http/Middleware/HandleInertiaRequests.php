@@ -25,9 +25,9 @@ class HandleInertiaRequests extends Middleware
     protected $rootView = 'app';
 
     /**
-     * The asset version: the running version (TESSERARR_VERSION), the same
-     * value the bundle is built with (vite.config.ts) and the header
-     * X-Tesserarr-Version names. A visit the user starts from a tab of another
+     * The asset version: the running build (TESSERARR_VERSION, plus the
+     * commit when the image knows it), the same value the bundle is built
+     * with (vite.config.ts) and the header X-Tesserarr-Version names. A visit the user starts from a tab of another
      * version becomes a full page load; a background request does not
      * (router.reload is async), the update notice covers that time.
      *
@@ -35,7 +35,7 @@ class HandleInertiaRequests extends Middleware
      */
     public function version(Request $request): string
     {
-        return AddVersionHeader::running();
+        return AddVersionHeader::build();
     }
 
     /**

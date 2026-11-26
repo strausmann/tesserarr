@@ -13,8 +13,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Names the running version (`TESSERARR_VERSION`, config `app.version`) in the
- * header `X-Tesserarr-Version` of every answer of the application: pages,
+ * Names the running build in the header `X-Tesserarr-Version` of every answer
+ * of the application: the version (`TESSERARR_VERSION`), and when the image
+ * knows its commit (`REVISION`), `+<commit>` as semver build metadata, so two
+ * builds under the rolling tag `dev` differ. Pages,
  * Inertia visits, the session API under /api/v1/app and the token API under
  * /api/v1, errors included. An open tab compares it with the version it was
  * built for and offers a reload (resources/js/lib/updates.svelte.ts).
@@ -36,7 +38,7 @@ final class AddVersionHeader
         $response = $next($request);
 
         if (! $response instanceof BinaryFileResponse) {
-            $response->headers->set(self::HEADER, self::running());
+            $response->headers->set(self::HEADER, self::build());
         }
 
         return $response;
@@ -46,5 +48,19 @@ final class AddVersionHeader
     public static function running(): string
     {
         return (string) config('app.version', '0.0.0-dev');
+    }
+
+    /**
+     * The running build: the version, plus `+<commit>` when the image was
+     * built with REVISION. The same value the bundle is built with
+     * (vite.config.ts) and the Inertia asset version.
+     */
+    public static function build(): string
+    {
+        $revision = (string) config('app.revision', 'unknown');
+
+        return $revision === '' || $revision === 'unknown'
+            ? self::running()
+            : self::running().'+'.$revision;
     }
 }

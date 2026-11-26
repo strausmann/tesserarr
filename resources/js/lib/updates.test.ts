@@ -9,6 +9,7 @@ import {
     BUILD_VERSION,
     checkVersion,
     DISMISSED_KEY,
+    displayVersion,
     readVersion,
     startVersionChecks,
     UpdateNotice,
@@ -276,6 +277,25 @@ describe('the update notice', () => {
         expect(reload).not.toHaveBeenCalled();
         expect(input.value).toBe('Alice');
         expect(document.activeElement).toBe(input);
+    });
+
+    it('tells two builds of the rolling tag dev apart and shows the version without the commit', () => {
+        const notice = new UpdateNotice({
+            buildVersion: 'dev+4f2a9c1',
+            reload,
+            storage: () => window.localStorage,
+        });
+        show(notice);
+
+        notice.note('dev+4f2a9c1');
+        expect(notice.state.waiting).toBe(false);
+        notice.note('dev+77be0d2');
+        flushSync();
+
+        expect(notice.state.version).toBe('dev+77be0d2');
+        expect(toast()?.textContent).toContain('Version dev');
+        expect(toast()?.textContent).not.toContain('77be0d2');
+        expect(displayVersion(null)).toBe('');
     });
 
     it('shows a version from outside as text, never as markup', () => {

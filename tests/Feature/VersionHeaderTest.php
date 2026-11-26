@@ -73,6 +73,23 @@ it('uses the running version as the Inertia asset version and page prop', functi
     expect($this->get('/login')->viewData('page')['version'])->toBe('1.2.3');
 });
 
+it('names the commit as well, so two builds of the rolling tag dev differ', function () {
+    config(['app.version' => 'dev', 'app.revision' => '4f2a9c1']);
+    $user = User::factory()->create();
+
+    $this->get('/login')
+        ->assertHeader(VERSION_HEADER, 'dev+4f2a9c1')
+        ->assertInertia(fn (Assert $page) => $page->where('version', 'dev'));
+    expect($this->get('/login')->viewData('page')['version'])->toBe('dev+4f2a9c1');
+    $this->actingAs($user)->getJson('/api/v1/app/version')
+        ->assertExactJson(['version' => 'dev'])
+        ->assertHeader(VERSION_HEADER, 'dev+4f2a9c1');
+
+    // A build without a known commit (a local or CI build) names the version alone.
+    config(['app.revision' => 'unknown']);
+    $this->get('/login')->assertHeader(VERSION_HEADER, 'dev');
+});
+
 it('tells only a signed-in user the version through the session API', function () {
     $this->getJson('/api/v1/app/version')
         ->assertUnauthorized()
