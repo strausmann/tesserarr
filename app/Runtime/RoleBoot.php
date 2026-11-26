@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 namespace App\Runtime;
 
 use Illuminate\Contracts\Foundation\Application;
@@ -63,6 +65,7 @@ final class RoleBoot
     {
         $config = $app->make('config');
 
+        // @phpstan-ignore disallowed.method (the role is fixed for the process: this runs once while the providers register, before the first request)
         $config->set([
             'cache.default' => 'array',
             'session.driver' => 'array',

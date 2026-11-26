@@ -29,6 +29,8 @@ If you are about to make a non-trivial change without having read those, stop an
 | **Conventional Commits** for every commit and pull request title; semantic-release depends on it | [CONTRIBUTING.md](CONTRIBUTING.md#5-commit-messages-conventional-commits) |
 | **TDD**: failing test first, then code, then the counter-test | [CONTRIBUTING.md](CONTRIBUTING.md#4-make-changes-with-tdd) |
 | **The satellite has no database and no queue.** Code that runs in the satellite role never opens a database connection, never dispatches to a queue and never touches the session | [README.md](README.md#roles) |
+| **Worker-safe code**: no state in `static` or `global`. `scoped()` instead of `singleton()` for anything request-bound; singletons write their properties only in the constructor. No public writable properties on services, no runtime `config()` writes, no `View::share()`, no `exit`/`die`. `App::setLocale()` only in a middleware, event listeners only in service providers, request state in models only inside closures. PHPStan checks most of it; CONTRIBUTING.md lists what it misses. Pages with user data get an `assertNoStateLeakBetweenUsers()` case | [CONTRIBUTING.md](CONTRIBUTING.md#worker-safe-code) |
+| **`declare(strict_types=1);`** in every PHP file, after the SPDX lines | [CONTRIBUTING.md](CONTRIBUTING.md#licence-headers) |
 | **One authorisation function.** Every permission decision goes through `App\Authorization\Authorizer`; no `Gate::allows`, `$user->can()` shortcut or role check of its own in controllers | [`docs/decisions/`](docs/decisions/) |
 | **Licence headers**: every new file carries the SPDX lines, or a `REUSE.toml` entry with a reason | [CONTRIBUTING.md](CONTRIBUTING.md#licence-headers) |
 
@@ -50,7 +52,8 @@ If you are about to make a non-trivial change without having read those, stop an
 
 - A new dependency: say why in the pull request description, and check its licence against `licence-policy.yml`.
 - A new API endpoint: it comes with its OpenAPI export (`website/openapi/openapi.json`) and its documentation page in
-  English and German.
+  English and German. Declare its permission with the `can:<permission>` route middleware and document it with Scramble's
+  attributes until `scripts/openapi_quality.py` passes ([CONTRIBUTING.md](CONTRIBUTING.md#api-documentation)).
 - A new file over about 400 lines: ask whether it should be split.
 - An architecture change: propose it as a decision record under `docs/decisions/` before implementing.
 - Weakening a gate (a lower threshold, `|| true`, `continue-on-error`, a skipped test): never. Fix the cause or ask.
@@ -77,12 +80,15 @@ If you are about to make a non-trivial change without having read those, stop an
 | Live updates | `app/Broadcasting/` |
 | Console commands (`tesserarr:*`) | `app/Console/Commands/` |
 | Routes | `routes/web.php` (session), `routes/api_app.php` (`/api/v1/app`), `routes/api.php` (`/api/v1`, token) |
+| OpenAPI export (route selection, Scramble extensions) | `app/OpenApi/`, `config/scramble.php`; API reference in the app: `config/scalar.php` |
 | Interface | `resources/js/pages/`, `components/`, `layouts/`, `lib/` |
 | Image, entrypoint, Caddyfile | `docker/` |
 | User documentation (English and German) | `website/` |
 | Decisions, designs, Docker Hub text, measurements | `docs/decisions/`, `docs/designs/`, `docs/dockerhub/`, `docs/measurements/` |
 | CI helper scripts | `scripts/` |
 | Tests | `tests/Unit/`, `tests/Feature/`, `tests/Concurrency/`, `tests/Contract/`; browser tests in `e2e/` |
+| Two-user tests through one Octane worker | `tests/Worker/` |
+| PHPStan rules of the project and their tests | `tests/PHPStan/` (configuration `tests/PHPStan/worker-safety.neon`) |
 
 ## When you don't know
 

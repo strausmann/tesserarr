@@ -15,8 +15,11 @@ A host check alone is not enough: a changed lockfile could point an entry at
 ANOTHER package on the same host, with the matching integrity. So the URL must
 also name the package and version of its entry.
 
-npm (package-lock.json, .github/release-tools/package-lock.json, lockfile
-version 2 or 3): every package resolves to exactly
+Every package-lock.json and composer.lock of the repository is checked, found
+by walking the tree (the root, .github/release-tools/, website/ and any later
+one), without the copies inside installed packages (node_modules/, vendor/).
+
+npm (package-lock.json, lockfile version 2 or 3): every package resolves to exactly
 https://registry.npmjs.org/<name>/-/<basename>-<version>.tgz (for a scoped
 package /@scope/name/-/name-<version>.tgz) with a sha512 integrity. A
 `link` entry is refused (the project has no workspaces; a link could put
@@ -115,6 +118,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import re
 from pathlib import Path, PurePosixPath
@@ -127,8 +131,10 @@ from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
-NPM_LOCKFILES = ("package-lock.json", ".github/release-tools/package-lock.json")
-COMPOSER_LOCKFILES = ("composer.lock",)
+NPM_LOCKFILE = "package-lock.json"
+COMPOSER_LOCKFILE = "composer.lock"
+# Installed packages carry lockfiles of their own; the repository's are elsewhere.
+SKIP_DIRS = frozenset({".git", "node_modules", "vendor", ".dev"})
 NPM_HOSTS = frozenset({"registry.npmjs.org"})
 COMPOSER_HOSTS = frozenset({"github.com", "api.github.com", "codeload.github.com", "repo.packagist.org"})
 
@@ -982,6 +988,19 @@ def composer_errors(
     return errors
 
 
+def discover_lockfiles(root: Path) -> tuple[list[str], list[str]]:
+    """The npm and Composer lockfiles under root, as sorted POSIX paths relative to it."""
+    npm: list[str] = []
+    composer: list[str] = []
+    for directory, subdirs, files in os.walk(root):
+        subdirs[:] = sorted(d for d in subdirs if d not in SKIP_DIRS)
+        rel_dir = PurePosixPath(Path(directory).relative_to(root).as_posix())
+        for name, found in ((NPM_LOCKFILE, npm), (COMPOSER_LOCKFILE, composer)):
+            if name in files:
+                found.append(str(rel_dir / name) if str(rel_dir) != "." else name)
+    return sorted(npm), sorted(composer)
+
+
 def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -1002,7 +1021,8 @@ def main(argv: list[str] | None = None, fetch: Fetch = fetch_json) -> int:
         return 1
     errors: list[str] = []
     checked: list[str] = []
-    for files, npm in ((NPM_LOCKFILES, True), (COMPOSER_LOCKFILES, False)):
+    npm_files, composer_files = discover_lockfiles(args.root)
+    for files, npm in ((npm_files, True), (composer_files, False)):
         for rel in files:
             path = args.root / rel
             if not path.exists():

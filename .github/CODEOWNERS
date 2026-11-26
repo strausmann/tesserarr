@@ -43,4 +43,5 @@
 /composer.lock
 /package-lock.json
 /.github/release-tools/package-lock.json
+/website/package-lock.json
 /docker/base-images.env

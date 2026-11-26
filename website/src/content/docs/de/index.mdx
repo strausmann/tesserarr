@@ -1,0 +1,40 @@
+---
+title: Tesserarr
+description: Gib Freunden Zugriff auf Teile deiner Mediensammlung, über eine bestehende Syncthing-Verbindung und nur mit Einladung.
+template: splash
+hero:
+  tagline: Gib Freunden Zugriff auf Teile deiner Mediensammlung, über eine bestehende Syncthing-Verbindung. Nur mit Einladung, ohne Torrents und ohne öffentlichen Index.
+  actions:
+    - text: Installieren
+      link: /tesserarr/de/install/
+      icon: right-arrow
+    - text: So funktioniert es
+      link: /tesserarr/de/developers/architecture/
+      variant: minimal
+---
+
+Tesserarr ist in Entwicklung. Die erste Version, 0.1.0, bringt Konten, Anmeldung, Freigaben, den Katalog und die
+Verbindungen zu Sonarr, Radarr, Prowlarr, Syncthing und Plex. Dateien wandern ab 0.2.0. Jede Seite sagt, was sie heute
+abdeckt und was folgt.
+
+## Was es tut
+
+- **Du entscheidest, wer was sieht.** Freunde bekommen ein Konto nur über eine Einladung. Du gibst ihnen Ordner deiner
+  Medienfreigaben frei, so tief du willst.
+- **Deine Freunde fragen so an, wie sie es schon tun.** Ab 0.3.0 findet ihr Sonarr oder Radarr deinen Katalog wie jeden
+  anderen Indexer; ohne Arr-Dienste fragen sie einen Titel in der Weboberfläche an.
+- **Dateien wandern über Syncthing.** Die Verbindung zwischen deinem Homelab und ihrem besteht schon, oder Tesserarr
+  richtet sie ein. Hardlinks kommen zuerst, damit ein Titel, den mehrere Freunde bekommen, nur einmal Platz belegt.
+- **Eine Zentrale, freiwillige Satelliten.** Die Zentrale hält Nutzer, Regeln und das Protokoll. Ein Satellit neben
+  deinem Medienspeicher erledigt nur die Dateiarbeit und hat keine Datenbank.
+
+## Wo du anfängst
+
+| Du willst | Lies |
+| --- | --- |
+| Tesserarr betreiben | [Installieren](/tesserarr/de/install/) |
+| Es als Freund benutzen | [Tesserarr benutzen](/tesserarr/de/using/) |
+| Es für andere betreiben | [Verwalten](/tesserarr/de/admin/) |
+| Sonarr, Radarr, Prowlarr, Syncthing oder Plex anbinden | [Integrationen](/tesserarr/de/integrations/) |
+| Einen Befehl oder die API nachschlagen | [Referenz](/tesserarr/de/reference/) |
+| Am Code arbeiten | [Entwickeln](/tesserarr/de/developers/) |

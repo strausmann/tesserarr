@@ -1,6 +1,8 @@
 includes:
     - vendor/larastan/larastan/extension.neon
     - vendor/nesbot/carbon/extension.neon
+    # Worker-safe code (CONTRIBUTING.md): own rules and disallowed calls.
+    - tests/PHPStan/worker-safety.neon
 
 parameters:
     paths:
@@ -10,5 +12,8 @@ parameters:
         - database/
         - routes/
         - scripts/
+        # The worker-safety rules and their tests, not the fixtures, which break
+        # the rules on purpose.
+        - tests/PHPStan/Rules/
 
     level: 8

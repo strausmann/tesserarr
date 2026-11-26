@@ -183,8 +183,8 @@ The CI jobs run the same commands. All of them are hard gates; none is warn-only
 
 ```bash
 composer validate --strict
-./vendor/bin/pint --test                       # formatting (Laravel preset)
-./vendor/bin/phpstan analyse                   # Larastan, level 8, no baseline
+./vendor/bin/pint --test                       # formatting (Laravel preset, strict types)
+./vendor/bin/phpstan analyse                   # Larastan, level 8, no baseline, worker-safe code
 composer audit --locked --abandoned=fail
 ./vendor/bin/pest --coverage --min=80 --coverage-clover=clover.xml
 php scripts/coverage_gate.php clover.xml       # per-directory minimums, as listed in .github/workflows/ci.yml
@@ -196,11 +196,18 @@ scripts/e2e/run.sh                             # Playwright against the built im
 python -m pytest scripts/                      # release guard and registry rules (standard library only)
 python3 scripts/base_images.py check           # base image pins on the allowlist, matching docker/Dockerfile
 python3 scripts/lockfile_sources.py            # locked downloads only from the expected hosts
+php artisan scramble:export                    # then `git status website/openapi`: nothing may change
+python3 scripts/openapi_quality.py             # every exported operation documented (see "API documentation")
+php artisan list --format=json > /tmp/artisan-list.json && python3 scripts/cli_reference.py /tmp/artisan-list.json
+npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 22)
+node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
+python3 scripts/privacy_scan.py website/src website/public website/openapi
+python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
 ```
 
 | Check                               | Job in CI                                  |
 | ----------------------------------- | ------------------------------------------ |
-| Pint, Larastan, audit, migrations, Pest, coverage gate | `PHP — lint, static analysis, test` |
+| Pint, Larastan, audit, migrations, Pest, coverage gate, API spec, API quality, CLI reference | `PHP — lint, static analysis, test` |
 | svelte-check, lint, tests, build    | `Web — typecheck, lint, test, build`       |
 | Image build and smoke tests         | `Docker — build smoke test`                |
 | Licences of every dependency        | `Licence gate (composer, npm)`             |
@@ -214,6 +221,7 @@ python3 scripts/lockfile_sources.py            # locked downloads only from the 
 | SPDX header or annotation per file  | `REUSE — licensing of every file`          |
 | Vale on the English docs            | `Prose`                                    |
 | Pull request title                  | `commitlint`                               |
+| Website parity, real-data scan, build | `website / locale parity`, `website / real-data scan`, `website / build` |
 
 Pull requests into `main` additionally need the checks of the ruleset `main: licence gate`:
 `Licence gate (composer, npm)`, `release-impact` and `Docker — build smoke test` (and `license/cla` once the repository is
@@ -227,6 +235,124 @@ directory that exists but has no lines in the report fails.
 
 **Mutation tests** run nightly (`pest --mutate --min=70`) on the directories that carry authorisation, invitations,
 second factors, execution and the catalogue.
+
+### Worker-safe code
+
+Tesserarr will run in FrankenPHP worker mode with Laravel Octane. A worker boots the application once and serves many
+requests, of different users, from the same memory. Whatever one request leaves behind, the next request of another user
+sees. For Tesserarr that is a data leak between friends. Code is written for worker mode now, before Octane arrives.
+
+Rules:
+
+- **No state in `static`.** No static property, no `static` variable in a function, no `global`. That covers caches too:
+  a static cache keyed by anything less than the full request context serves the first user's answer to the next.
+- **`scoped()`, not `singleton()`, for anything that depends on the request.** A singleton must not be built from the
+  request, the auth guard or the signed-in user, the session, the configuration or the locale. That holds for its
+  constructor and for the closure that builds it. Read such values per call, or bind the service with `scoped()`.
+- **A singleton writes its properties only in its constructor.** A memo of the current user, a list it appends to or a
+  counter on a singleton keeps what one request left there. Per-request state goes into a `scoped()` service or is
+  passed per call.
+- **No public property that anyone can write** on a service, a singleton, a controller or a middleware. Use `readonly`
+  or a private property. Eloquent models and queued jobs are exempt: each is one object per row or job.
+- **No runtime writes to the configuration**: no `config([...])`, `Config::set()` or `config()->set()` in request code.
+  Pass the value to the code that needs it.
+- **No `App::setLocale()` outside a middleware.** A middleware sets the locale for each request, and Octane resets it
+  after the request.
+- **Event listeners are registered in `register()` or `boot()` of a service provider.** Octane does not reset the event
+  dispatcher: a listener registered in a request is added again on every request and runs for every later user.
+- **No `View::share()` and no Inertia shared props from a boot method.** Shared Inertia props are built per request in
+  `HandleInertiaRequests::share()`.
+- **Models read request state inside the closure.** `boot()`, `booted()` and the `boot<Trait>()` methods run once per
+  worker, so a value read there and captured in a global scope or a model event is the first request's value. The same
+  holds for a scope class that reads it in its constructor.
+- **The rate limiter never uses the `array` cache store.** Octane empties it between requests, and the limits of the
+  sign-in would count nothing.
+- **No `exit` or `die`, no `register_shutdown_function()`**, and no calls that change the process for every later
+  request (`setlocale()`, `umask()`, `chdir()`, `putenv()`, `ini_set()`, `date_default_timezone_set()`,
+  `set_error_handler()`, `set_exception_handler()`, writes to `$_ENV`).
+
+```php
+// Leaks: the first user's shares are served to everyone after them.
+final class ShareList
+{
+    private static array $cache = [];
+
+    public function for(User $user): array
+    {
+        return self::$cache['shares'] ??= $user->shares()->get()->all();
+    }
+}
+
+// Leaks: the guard of the first request stays in the singleton.
+$this->app->singleton(ShareList::class, fn ($app) => new ShareList($app->make(Guard::class)));
+
+// Safe: built per request, and the user is passed per call.
+$this->app->scoped(ShareList::class);
+```
+
+**What PHPStan checks.** `phpstan analyse` runs the rules in `tests/PHPStan/worker-safety.neon` on `app/` and
+`routes/`: own rules in `tests/PHPStan/Rules/Worker/` and
+[spaze/phpstan-disallowed-calls](https://github.com/spaze/phpstan-disallowed-calls). Each rule has a test against a
+fixture in `tests/PHPStan/Fixtures/`. It reports:
+
+- static properties, `static` variables and `global` statements;
+- public properties that are not `readonly`, outside models, queued jobs, mailables and notifications;
+- `singleton()`, `singletonIf()`, `App::singleton()` and `#[Singleton]` bindings whose class takes request state, the
+  configuration or the container in its constructor, or whose closure reads request state;
+- singletons, bound with `singleton()` or `#[Singleton]`, that write `$this->property` outside the constructor (also
+  `$this->list[] = …` and `++`);
+- request state read in a model's `boot()`, `booted()` or `boot<Trait>()` outside a closure, and in the constructor of
+  a scope class;
+- `Event::listen()`, `Event::subscribe()` and `listen()`/`subscribe()` on the dispatcher outside `register()` and
+  `boot()` of a class in `App\Providers`;
+- `exit`/`die`, the process-wide calls listed above, `session_start()`, configuration writes, `View::share()`,
+  `App::setLocale()` outside a middleware, `$_ENV` and `$GLOBALS`.
+
+`tests/Feature/Runtime/RateLimiterStoreTest.php` checks that the rate limiter is not on the `array` store by default
+and in `.env.example`.
+
+**What PHPStan does not check.** These cases pass the gate. The two-user test and the review have to find them:
+
+- Inertia shared props or `View::share()` values built in a boot method rather than per request.
+- Transitive dependencies: a singleton whose constructor takes a service that takes the request. Only the direct
+  constructor parameters and the binding closure are read, not a factory method it calls.
+- State a singleton keeps by calling methods on an object it holds (`$this->items->push(…)`), and `bind(…, shared: true)`.
+- Static state of the framework or of libraries changed in request code (`static::$wrap = …` on a vendor parent,
+  `Model::preventLazyLoading()`, `Str::createUuidsUsing()`, `Carbon::setLocale()`).
+- Closures that capture by reference (`use (&$seen)`) in a boot method or a route file.
+- Request state reached through another name than the ones the rules know (a custom helper, a container alias).
+- A production `.env` that sets `CACHE_STORE=array`.
+
+**Exceptions.** An exception needs a reason in the code. For the static, global, public-property and singleton-binding
+rules, a comment that starts with `worker-safe:` and says why the value holds no request data. For every other rule,
+`// @phpstan-ignore <identifier> (<reason>)`; PHPStan refuses an ignore without a reason. A bare marker is not enough.
+
+**The two-user test.** Every page and controller that loads user-specific data gets a case with
+`assertNoStateLeakBetweenUsers()` (`tests/Pest.php`, cases in `tests/Worker/UserPagesTest.php`). It sends a request as
+user A, then as user B, then as a guest through one Octane worker, without booting in between, and the same with B
+first. It fails when A's response does not show A's data, because then the test proves nothing. It fails when B or the
+guest sees anything of A. A and B may open different pages, which catches a leak from one route into another. The
+helper wraps Octane's test worker (`tests/Support/Worker/OneWorker.php`), which Octane does not document, so an Octane
+update breaks it in one place.
+
+The users of the test exist in memory (`workerUser()`). The worker has its own database connection and cannot see rows
+a test writes inside its transaction. A page that reads the user's rows from the database therefore gets them committed.
+`CommittedUsers::boot()` inserts the users while the worker boots and deletes them after the last request
+(`tests/Worker/CommittedUsersTest.php`). Other rows of the page are written and removed the same way in the page's own
+boot closure.
+
+```php
+it('shows each user only their own shares', function () {
+    $alice = workerUser('Alice', 900_001);
+    $bob = workerUser('Bob', 900_002);
+
+    assertNoStateLeakBetweenUsers(
+        fn () => UserRequest::as($alice, Request::create('/shares'), 'Alice', 'Movies of Alice'),
+        fn () => UserRequest::as($bob, Request::create('/shares'), 'Bob', 'Series of Bob'),
+        CommittedUsers::boot($alice, $bob),
+    );
+});
+```
 
 ### Web UI: the on-screen keyboard and inputs
 
@@ -287,10 +413,68 @@ error when the two differ.
 
 ## Website
 
-The user documentation lives in [`website/`](website/) (Astro Starlight) and is published from `main`. Pull requests only
-build it. English and German are maintained together: a change to a page under `website/src/content/docs/` is complete
-only when the English and the German page change in the same pull request, and a parity check fails when a page exists in
-one language only. Every feature comes with its page.
+The user documentation lives in [`website/`](website/) (Astro Starlight, its own `package.json` and `package-lock.json`)
+and is published from `main` to GitHub Pages (`.github/workflows/website.yml`). Pull requests and milestone pushes only
+build and check it. The site is **public**, also while the repository is private. Deploying needs GitHub Pages switched
+on with the source "GitHub Actions" (repository settings); until then the `deploy` job fails and the built site is
+still available as the artifact `website-dist`.
+
+- English and German are maintained together: a change to a page under `website/src/content/docs/` is complete only when
+  the English and the German page change in the same pull request. The `locale parity` job fails when a page exists in one
+  language only.
+- Every feature comes with its page, in the pull request that builds it.
+- Internal links start with the base path, `/tesserarr/…/` with the trailing slash, as long as the site sits under the
+  repository name on GitHub Pages. `starlight-links-validator` fails the build on a broken internal link and on a relative
+  one.
+- Two pages are generated and checked in the PHP job: `reference/cli.md` (both languages) from
+  `php artisan list --format=json` by `scripts/cli_reference.py` ("CLI reference is up to date"), and the API reference
+  from `website/openapi/openapi.json` ("API spec is up to date", see "API documentation"). Change the command or the
+  route, regenerate, commit.
+- The `real-data scan` job (`scripts/privacy_scan.py`) fails on private IPv4 addresses (the carrier-grade NAT range of Tailscale included), host
+  names of an installation and personal e-mail addresses in `website/src`, `website/public` and `website/openapi`; the
+  `build` job runs it again over the pages and the sitemap of the built site in `website/dist`.
+- The website needs Node 22.23.4 or newer (Astro's minimum), pinned in `website/.nvmrc`. The `NODE_IMAGE` of
+  `docker/base-images.env` builds the app's assets only and may be older.
+
+## API documentation
+
+The token API under `/api/v1` is described by an OpenAPI document that [Scramble](https://scramble.dedoc.co/) generates
+from the code. Only `/api/v1` is exported, never the session API under `/api/v1/app` (`App\OpenApi\PublicApiRouteResolver`).
+The document is committed as `website/openapi/openapi.json`; the website renders it, and so does the API reference in the
+app at `/docs/api` (Scalar, for signed-in users, without a CDN). Scramble's own pages are switched off.
+
+Every operation needs, and the `API quality gate` (`scripts/openapi_quality.py`) fails without:
+
+| Item | How |
+| ---- | --- |
+| A unique `operationId` | the route name or `#[Endpoint(operationId: '…')]` |
+| Summary and description | the PHPDoc of the controller method (first line, then the rest) or `#[Endpoint(title: …, description: …)]` |
+| A description for every parameter | a PHPDoc comment on the validation rule, or `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
+| Examples for the request body and every 2xx response | `@example` in the PHPDoc comment of each validation rule (see below), `example:` on the parameter attributes, `#[Response(200, '…', examples: [...])]` |
+| At least one 4xx response, each with its meaning | `#[Response(403, 'The token lacks …')]`, and the ones Scramble infers from `validate()` (422) and from `authorize()` or `abort(403)` (403); Scramble writes those as references into `components/responses`, which the gate resolves |
+| The token ability | the route's `can:<permission>` middleware; `App\OpenApi\TokenAbilityExtension` writes it as the scope of the `apiToken` security requirement, from the same middleware that checks it |
+
+A body example is required, also for a body that only comes from `validate()`. Give each rule a PHPDoc comment with its
+meaning and an `@example`:
+
+```php
+$request->validate([
+    /**
+     * Why the invitation is revoked.
+     *
+     * @example no longer needed
+     */
+    'reason' => ['required', 'string'],
+]);
+```
+
+**`authorize()` alone does not satisfy the gate.** A check inside the controller (`$this->authorize()`, `Gate::authorize()`)
+is invisible to the export; the permission of a `/api/v1` route must also be its `can:<permission>` middleware, or the gate
+reports "no token ability". An empty security alternative (`{}`) is refused, and `operationId`s are compared without
+case.
+
+A pull request that adds or changes a route under `/api/v1` runs `php artisan scramble:export` and commits the document.
+"API spec is up to date" fails when the committed file differs from the export, is missing or is new.
 
 ## Writing
 
@@ -405,7 +589,12 @@ Put them at the top, after `<?php`, a shebang (`#!`) or a `<!doctype html>` line
 
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+declare(strict_types=1);
 ```
+
+Every PHP file declares strict types, after the SPDX lines where it has them. Pint enforces it (`declare_strict_types`
+in `pint.json`).
 
 ```yaml
 # SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors

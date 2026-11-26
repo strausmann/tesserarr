@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 namespace App\Runtime;
 
 use Illuminate\Support\Facades\Route;
@@ -22,7 +24,12 @@ final class E2eImage
 
     public const ROUTES = 'routes/testing.php';
 
-    /** Where marker and route file are looked up; null is the application root. */
+    /**
+     * Where marker and route file are looked up; null is the application root.
+     *
+     * worker-safe: a test seam set only by tests (useRoot()); every running
+     * instance keeps null and only reads it.
+     */
     private static ?string $root = null;
 
     /**
