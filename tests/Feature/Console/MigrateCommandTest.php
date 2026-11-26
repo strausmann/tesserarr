@@ -179,7 +179,7 @@ it('keeps the five newest dumps', function () {
 
 it('never logs table contents', function () {
     $marker = 'T4-ROW-'.bin2hex(random_bytes(4));
-    User::factory()->create(['name' => $marker]);
+    User::factory()->create(['display_name' => $marker]);
     pendingProbeMigration($this->migrationDir);
     useDumper(fn (string $path) => file_put_contents($path, "COPY users FROM stdin;\n{$marker}\n"));
 

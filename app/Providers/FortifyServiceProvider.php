@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Identity\Rules\Username;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -37,15 +38,21 @@ class FortifyServiceProvider extends ServiceProvider
     /**
      * Configure Fortify actions.
      *
-     * The login field is called "login" ("Username or email"). Until accounts
-     * have usernames it is matched against the email address only.
+     * The login field is called "login" ("Username or email"). It is matched
+     * against the username, in its stored form (lower case, NFC); the
+     * address as a sign-in name arrives with task 11 (LoginResolver), never
+     * as a lookup by users.email (NoUserLookupByEmailRule). A locked account
+     * cannot sign in.
      */
     private function configureActions(): void
     {
         Fortify::authenticateUsing(function (Request $request): ?User {
-            $user = User::query()->where('email', (string) $request->input(Fortify::username()))->first();
+            $user = User::query()
+                ->where('username', Username::normalise((string) $request->input(Fortify::username())))
+                ->whereNull('locked_at')
+                ->first();
 
-            return $user !== null && Hash::check((string) $request->input('password'), $user->password) ? $user : null;
+            return $user !== null && $user->password !== null && Hash::check((string) $request->input('password'), $user->password) ? $user : null;
         });
     }
 

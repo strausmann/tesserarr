@@ -15,12 +15,12 @@
     import { Form, page } from '@inertiajs/svelte';
     import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
     import AppHead from '@/components/AppHead.svelte';
-    import DeleteUser from '@/components/DeleteUser.svelte';
     import Heading from '@/components/Heading.svelte';
     import InputError from '@/components/InputError.svelte';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { Label } from '@/components/ui/label';
+    import { t } from '@/lib/i18n';
 
     const user = $derived(page.props.auth.user);
 </script>
@@ -33,7 +33,7 @@
     <Heading
         variant="small"
         title="Profile"
-        description="Update your name and email address"
+        description={t('profile.description')}
     />
 
     <Form
@@ -43,34 +43,32 @@
     >
         {#snippet children({ errors, processing })}
             <div class="grid gap-2">
-                <Label for="name">Name</Label>
+                <Label for="username">{t('profile.username')}</Label>
                 <Input
-                    id="name"
-                    name="name"
+                    id="username"
+                    name="username"
                     class="mt-1 block w-full"
-                    value={user.name}
+                    value={user.username}
                     required
-                    autocomplete="name"
-                    placeholder="Full name"
+                    autocomplete="username"
+                    autocapitalize="none"
+                    spellcheck={false}
                 />
-                <InputError class="mt-2" message={errors.name} />
+                <p class="text-ink-2 text-sm">{t('profile.username.hint')}</p>
+                <InputError class="mt-2" message={errors.username} />
             </div>
 
             <div class="grid gap-2">
-                <Label for="email">Email address</Label>
+                <Label for="display_name">{t('profile.display_name')}</Label>
                 <Input
-                    id="email"
-                    type="email"
-                    name="email"
+                    id="display_name"
+                    name="display_name"
                     class="mt-1 block w-full"
-                    value={user.email}
-                    required
-                    autocomplete="username"
-                    placeholder="Email address"
+                    value={user.display_name}
+                    autocomplete="name"
                 />
-                <InputError class="mt-2" message={errors.email} />
+                <InputError class="mt-2" message={errors.display_name} />
             </div>
-
 
             <div class="flex items-center gap-4">
                 <Button
@@ -83,4 +81,3 @@
     </Form>
 </div>
 
-<DeleteUser />

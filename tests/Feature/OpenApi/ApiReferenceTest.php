@@ -31,20 +31,20 @@ it('sends a guest from the api reference to the login', function (string $uri) {
 })->with(['/docs/api', '/docs/api/openapi.json']);
 
 it('shows the api reference to a signed-in user', function () {
-    $this->actingAs(User::factory()->create())
+    $this->actingAs(User::factory()->withRole('user')->create())
         ->get('/docs/api')
         ->assertOk()
         ->assertSee('<script src="/build/scalar/standalone.js"></script>', false);
 });
 
 it('points the api reference at the generated document', function () {
-    $html = (string) $this->actingAs(User::factory()->create())->get('/docs/api')->assertOk()->getContent();
+    $html = (string) $this->actingAs(User::factory()->withRole('user')->create())->get('/docs/api')->assertOk()->getContent();
 
     expect(scalarConfigurationOf($html)['url'] ?? null)->toBe('/docs/api/openapi.json');
 });
 
 it('serves the openapi document to a signed-in user', function () {
-    $this->actingAs(User::factory()->create())
+    $this->actingAs(User::factory()->withRole('user')->create())
         ->getJson('/docs/api/openapi.json')
         ->assertOk()
         ->assertJsonPath('info.title', 'Tesserarr API')
@@ -52,7 +52,7 @@ it('serves the openapi document to a signed-in user', function () {
 });
 
 it('loads nothing from a cdn and uses no scalar proxy, fonts or telemetry', function () {
-    $html = (string) $this->actingAs(User::factory()->create())->get('/docs/api')->assertOk()->getContent();
+    $html = (string) $this->actingAs(User::factory()->withRole('user')->create())->get('/docs/api')->assertOk()->getContent();
     $configuration = scalarConfigurationOf($html);
 
     expect($html)->not->toContain('cdn.jsdelivr.net')
@@ -64,5 +64,5 @@ it('loads nothing from a cdn and uses no scalar proxy, fonts or telemetry', func
 });
 
 it('registers neither the ui of scramble nor the default scalar route', function (string $uri) {
-    $this->actingAs(User::factory()->create())->get($uri)->assertNotFound();
+    $this->actingAs(User::factory()->withRole('user')->create())->get($uri)->assertNotFound();
 })->with(['/docs/api.json', '/scalar', '/_scramble/dev-tools/devtools.js']);

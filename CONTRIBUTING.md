@@ -354,6 +354,26 @@ it('shows each user only their own shares', function () {
 });
 ```
 
+A page that needs a permission asks the Authorizer, which reads the account and its roles from the database: commit the
+accounts with `CommittedUsers::operators($alice, $bob)` instead.
+
+### Permissions on routes
+
+Every permission decision goes through `App\Authorization\Authorizer` (ADR-0016), and every route says which check
+applies. A route is one of three kinds:
+
+| Kind | How it is declared | Examples |
+| --- | --- | --- |
+| Public | the fixed list `PUBLIC_ROUTES` in `tests/Support/Routes.php` | `/up`, `/login`, the passkey sign-in |
+| Self-service: a signed-in account, no permission | `#[App\Http\SelfService]` on the controller or the action, plus `auth` | the own profile, the start page |
+| Everything else | the `can:<permission>` route middleware, which asks the gate and with it the Authorizer | `/users` (`can:users.view`) |
+
+`tests/Feature/Security/AuthorizerCallersTest.php` calls every other route as an account without any role and expects
+a 403 with the reason `owner_lacks_permission` and a call of the Authorizer for that route; a new route without a check
+fails there with its URI. Do not call `hasRole()`, `hasPermissionTo()` or `Gate::allows()` in controllers; use the
+shared Inertia prop `permissions` to show or hide controls. Static analysis refuses spatie's checks outside the
+Authorizer and the RoleGuard, and any lookup of an account by its e-mail address (`tests/PHPStan/authorization.neon`).
+
 ### Web UI: the on-screen keyboard and inputs
 
 Tesserarr is used on phones. When a field has the focus and the on-screen keyboard is open, the field, its list and the

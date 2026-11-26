@@ -1015,4 +1015,186 @@
         height: 20px;
         accent-color: var(--tr-link);
     }
+
+    /* Buttons of the administration pages (Users, Roles, Audit). */
+    .tr-button--primary {
+        border-color: var(--tr-accent);
+        background: var(--tr-accent);
+        color: var(--tr-accent-ink);
+    }
+
+    .tr-button--danger {
+        border-color: var(--tr-bad);
+        color: var(--tr-bad);
+    }
+
+    .tr-button:disabled,
+    .tr-button[aria-disabled='true'] {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .tr-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--tr-space-2);
+    }
+
+    .tr-lead {
+        margin: var(--tr-space-1) 0 0;
+        max-width: 680px;
+        color: var(--tr-ink-2);
+    }
+
+    .tr-notes {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+        gap: var(--tr-space-3);
+    }
+
+    .tr-note {
+        margin: 0;
+        padding: 12px 16px;
+        border-radius: var(--tr-card-radius);
+        background: var(--tr-sunken);
+        font-size: var(--tr-text-small);
+    }
+
+    /* A table that scrolls sideways inside its card instead of widening the page. */
+    .tr-table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--tr-line);
+        border-radius: var(--tr-card-radius);
+        background: var(--tr-surface);
+    }
+
+    .tr-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--tr-text-small);
+    }
+
+    .tr-table th,
+    .tr-table td {
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--tr-line);
+        text-align: start;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+    }
+
+    .tr-table thead th {
+        color: var(--tr-ink-2);
+        white-space: nowrap;
+    }
+
+    .tr-table th[scope='colgroup'] {
+        padding-top: 16px;
+        background: var(--tr-bg);
+        color: var(--tr-ink-3);
+    }
+
+    .tr-table tbody th[scope='row'] {
+        font-weight: var(--tr-weight-regular, 400);
+    }
+
+    .tr-sub {
+        display: block;
+        color: var(--tr-ink-2);
+    }
+
+    .tr-code {
+        font-family: var(--tr-font-mono, monospace);
+        color: var(--tr-ink-2);
+    }
+
+    .tr-tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: var(--tr-r-1, 6px);
+        background: var(--tr-sunken);
+    }
+
+    .tr-tag--bad {
+        color: var(--tr-bad);
+    }
+
+    /* A 44 px hit area around a 22 px box. */
+    .tr-check {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        margin: -10px 0;
+    }
+
+    .tr-check input {
+        width: 22px;
+        height: 22px;
+        accent-color: var(--tr-accent);
+    }
+
+    .tr-select {
+        min-height: var(--tr-control-height);
+        padding: 0 12px;
+        border: 1px solid var(--tr-line-strong);
+        border-radius: var(--tr-control-radius);
+        background: var(--tr-surface);
+        color: var(--tr-ink);
+        font: inherit;
+    }
+
+    .tr-danger-zone {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--tr-space-4);
+        padding: 20px;
+        border: 1px solid var(--tr-bad);
+        border-radius: var(--tr-card-radius);
+        background: var(--tr-surface);
+    }
+
+    .tr-filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--tr-space-3);
+    }
+
+    .tr-filters fieldset {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--tr-space-1);
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .tr-filters label,
+    .tr-filters legend {
+        display: block;
+        margin-bottom: var(--tr-space-1);
+        font-size: var(--tr-text-small);
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-pager {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--tr-space-3);
+        font-size: var(--tr-text-small);
+    }
+
+    .tr-error {
+        margin: 0;
+        color: var(--tr-bad);
+        font-size: var(--tr-text-small);
+    }
 }

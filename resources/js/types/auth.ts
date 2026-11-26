@@ -1,7 +1,10 @@
 export type User = {
     id: number;
-    name: string;
-    email: string;
+    username: string;
+    display_name: string;
+    /** The contact address; never a sign-in name. */
+    email: string | null;
+    locked_at: string | null;
     avatar?: string;
     two_factor_enabled?: boolean;
     email_verified_at: string | null;

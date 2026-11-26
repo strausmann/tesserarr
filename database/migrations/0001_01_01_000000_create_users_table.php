@@ -15,10 +15,16 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
+            // The sign-in name: lower case NFC, never with "@" (App\Identity\Rules\Username).
+            $table->string('username', 64)->unique();
+            $table->string('display_name')->default('');
+            // The contact address: optional, not unique, never a sign-in name
+            // (Spec 16.16; task 8a encrypts it and adds the confirmation).
+            $table->string('email')->nullable();
             $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
+            // Null for an account that signs in with a passkey or a provider only.
+            $table->string('password')->nullable();
+            $table->timestamp('locked_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

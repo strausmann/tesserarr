@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace Tests\Support\Worker;
 
+use App\Authorization\Roles;
 use App\Models\User;
 use Closure;
 use Illuminate\Foundation\Application;
@@ -33,7 +34,26 @@ final class CommittedUsers
      */
     public static function boot(User ...$users): Closure
     {
-        return static function (Application $app) use ($users): Closure {
+        return self::withRole(null, ...$users);
+    }
+
+    /**
+     * As boot(), and each user gets the built-in role "operator": pages of
+     * the operator need an account whose role the Authorizer can read.
+     *
+     * @return Closure(Application): (Closure(): void)
+     */
+    public static function operators(User ...$users): Closure
+    {
+        return self::withRole(Roles::OPERATOR, ...$users);
+    }
+
+    /**
+     * @return Closure(Application): (Closure(): void)
+     */
+    private static function withRole(?string $role, User ...$users): Closure
+    {
+        return static function (Application $app) use ($users, $role): Closure {
             // Kept for the cleanup: after the requests the database manager
             // points at the flushed sandbox of the last request.
             $connection = $app->make('db')->connection();
@@ -43,14 +63,23 @@ final class CommittedUsers
                 $ids[] = $user->getKey();
                 $table->insert([
                     'id' => $user->getKey(),
-                    'name' => $user->getAttribute('name'),
+                    'username' => $user->getAttribute('username'),
+                    'display_name' => $user->getAttribute('display_name'),
                     'email' => $user->getAttribute('email'),
                     'email_verified_at' => $user->getAttributes()['email_verified_at'] ?? null,
                     'password' => 'not-a-password-hash',
                 ]);
+                if ($role !== null) {
+                    $connection->table('model_has_roles')->insert([
+                        'role_id' => $connection->table('roles')->where(['name' => $role, 'guard_name' => Roles::GUARD])->value('id'),
+                        'model_type' => $user->getMorphClass(),
+                        'model_id' => $user->getKey(),
+                    ]);
+                }
             }
 
             return static function () use ($connection, $ids): void {
+                $connection->table('model_has_roles')->whereIn('model_id', $ids)->where('model_type', (new User)->getMorphClass())->delete();
                 $connection->table('users')->whereIn('id', $ids)->delete();
             };
         };

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\Worker\StateLeak;
 use Tests\Support\Worker\UserRequest;
@@ -22,7 +23,14 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    ->in('Feature');
+    ->in('Feature', 'Unit/Authorization');
+
+// Races between child processes: they only see committed rows.
+pest()->extend(TestCase::class)
+    ->use(DatabaseTruncation::class)
+    ->in('Concurrency');
+
+require_once __DIR__.'/Support/Routes.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -89,7 +97,8 @@ function assertNoStateLeakBetweenUsers(Closure $requestAsA, Closure $requestAsB,
 /**
  * A signed-in user for OneWorker that exists only in memory: the worker
  * application has its own database connection, which cannot see rows a test
- * wrote inside its transaction.
+ * wrote inside its transaction. A page that asks the Authorizer (or signs out
+ * an account it cannot find) needs the row committed: CommittedUsers.
  */
 function workerUser(string $name, int $id = 0): User
 {
@@ -97,7 +106,8 @@ function workerUser(string $name, int $id = 0): User
     // Raw attributes: casting a date here would need a database connection.
     $user->setRawAttributes([
         'id' => $id !== 0 ? $id : crc32($name),
-        'name' => $name,
+        'username' => strtolower(str_replace(' ', '.', $name)),
+        'display_name' => $name,
         'email' => strtolower(str_replace(' ', '.', $name)).'@example.org',
         'email_verified_at' => '2026-01-01 00:00:00',
     ], true);

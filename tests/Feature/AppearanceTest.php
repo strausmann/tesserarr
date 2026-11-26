@@ -11,19 +11,19 @@ declare(strict_types=1);
 
 it('renders the dark theme when the appearance cookie asks for it', function () {
     $this->withUnencryptedCookie('appearance', 'dark')
-        ->get('/')
+        ->get('/login')
         ->assertOk()
         ->assertSee('<html lang="en"  class="dark">', false);
 });
 
 it('renders no theme class without the cookie', function () {
-    $this->get('/')
+    $this->get('/login')
         ->assertOk()
         ->assertSee('<html lang="en"  class="">', false);
 });
 
 it('shares nothing with the views from the appearance middleware', function () {
-    $this->withUnencryptedCookie('appearance', 'dark')->get('/')->assertOk();
+    $this->withUnencryptedCookie('appearance', 'dark')->get('/login')->assertOk();
 
     expect(view()->getShared())->not->toHaveKey('appearance');
 });

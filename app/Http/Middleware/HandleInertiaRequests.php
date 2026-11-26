@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Authorization\Permission;
 use App\Http\Ui\Audience;
 use App\Http\Ui\CollapsibleSection;
 use App\Models\User;
@@ -48,7 +49,12 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
+        $user = $user instanceof User ? $user : null;
         $locale = App::getLocale();
+        // Asked once per request through the gate (the Authorizer); the
+        // navigation shows only what the account may open.
+        $granted = $user === null ? [] : Audience::granted($user);
+        $audience = $user === null ? Audience::Guest : Audience::fromGranted($granted);
 
         return [
             ...parent::share($request),
@@ -60,16 +66,17 @@ class HandleInertiaRequests extends Middleware
             // read per request: nothing here outlives it (worker-safe code).
             'locale' => $locale,
             'translations' => $this->translations($locale),
-            'audience' => Audience::of($user instanceof User ? $user : null)->value,
+            'audience' => $audience->value,
+            'permissions' => Permission::values($granted),
             'version' => AddVersionHeader::running(),
             // The newest published release, for the operator's "About"
             // dialog only. Optional: loaded by the dialog with a partial
             // reload, never with a page (App\Updates\ReleaseCheck).
-            'release' => Inertia::optional(fn () => Audience::of($user instanceof User ? $user : null) === Audience::Operator
+            'release' => Inertia::optional(fn () => $audience === Audience::Operator
                 ? app(ReleaseCheck::class)->latest()
                 : null),
             'ui' => [
-                'collapsed' => $user instanceof User ? CollapsibleSection::known($user->ui_collapsed ?? []) : [],
+                'collapsed' => $user !== null ? CollapsibleSection::known($user->ui_collapsed ?? []) : [],
             ],
         ];
     }
