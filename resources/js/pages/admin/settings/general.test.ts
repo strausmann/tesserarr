@@ -215,6 +215,68 @@ describe('General settings page', () => {
         expect(document.body.textContent).toContain('Not allowed.');
     });
 
+    it('keeps what was typed when the server refuses the save', async () => {
+        const holder = { set: (_next: Record<string, unknown>) => {} };
+        inertia.page.props = { translations: {}, errors: {} };
+        const { default: Harness } =
+            await import('@/components/test/GeneralHarness.svelte');
+        app = mount(Harness as Component<Record<string, unknown>>, {
+            target: document.body,
+            props: { initial: props(), holder },
+        });
+        flushSync();
+        await type(input('time-zone'), 'Mars/Olympus');
+        await type(
+            document.querySelector<HTMLInputElement>(
+                'input[inputmode="numeric"]',
+            )!,
+            '9',
+        );
+
+        // The refusal redirects back: new props objects holding the stored values, and an error.
+        inertia.page.props = {
+            translations: {},
+            errors: { time_zone: 'Not a time zone.' },
+        };
+        holder.set(props());
+        flushSync();
+        await tick();
+
+        expect(input('time-zone').value).toBe('Mars/Olympus');
+        expect(
+            document.querySelector<HTMLInputElement>(
+                'input[inputmode="numeric"]',
+            )!.value,
+        ).toBe('9');
+        expect(button('general.save').disabled).toBe(false);
+    });
+
+    it('takes the stored values when the server changed them', async () => {
+        const holder = { set: (_next: Record<string, unknown>) => {} };
+        inertia.page.props = { translations: {}, errors: {} };
+        const { default: Harness } =
+            await import('@/components/test/GeneralHarness.svelte');
+        app = mount(Harness as Component<Record<string, unknown>>, {
+            target: document.body,
+            props: { initial: props(), holder },
+        });
+        flushSync();
+        await type(input('time-zone'), 'Europe/Berlin');
+
+        // After the save: the stored value is the typed one.
+        holder.set(
+            props({
+                ...baseSettings(),
+                time_zone: setting('Europe/Berlin', 'stored', 'TZ'),
+            }),
+        );
+        flushSync();
+        await tick();
+
+        expect(input('time-zone').value).toBe('Europe/Berlin');
+        expect(button('general.save').disabled).toBe(true);
+    });
+
     it('copies a value and shows the check for a moment', async () => {
         vi.useFakeTimers();
         const writeText = vi.fn().mockResolvedValue(undefined);

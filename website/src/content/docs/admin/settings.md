@@ -13,7 +13,7 @@ Under *Administration, General* the operator sets what belongs to the instance a
 | --- | --- | --- | --- |
 | Display name | `instance.display_name` | `Tesserarr` | Shown in the header and on the sign-in page. 1 to 60 characters, no control characters. |
 | Default language | `locale.default` | `en` | `de` or `en`. Applies to a person whose profile and browser name no language. |
-| Time zone | `time.zone` | `UTC` | An IANA name such as `Europe/Berlin`. |
+| Time zone | `time.zone` | `UTC` | An IANA name such as `Europe/Berlin`. The audit log shows its times in this zone. |
 | List size when loading | `ui.page_size` | `50` | `25`, `50` or `100` entries per request, in the audit log and the catalogue. |
 | Default theme | `ui.theme_default` | `system` | `system`, `light` or `dark`, until somebody chooses their own in *Account*. |
 | Validity of new invitations | `invitations.default_days` | `7` | 1 to 90 days. Can be changed when inviting. |

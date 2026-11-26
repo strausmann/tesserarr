@@ -13,7 +13,7 @@ das Recht `settings.manage`.
 | --- | --- | --- | --- |
 | Anzeigename | `instance.display_name` | `Tesserarr` | Erscheint in der Kopfzeile und auf der Anmeldeseite. 1 bis 60 Zeichen, keine Steuerzeichen. |
 | Standardsprache | `locale.default` | `en` | `de` oder `en`. Gilt für Personen, deren Profil und Browser keine Sprache nennen. |
-| Zeitzone | `time.zone` | `UTC` | Ein IANA-Name wie `Europe/Berlin`. |
+| Zeitzone | `time.zone` | `UTC` | Ein IANA-Name wie `Europe/Berlin`. Das Protokoll zeigt seine Zeiten in dieser Zone. |
 | Listengröße beim Laden | `ui.page_size` | `50` | `25`, `50` oder `100` Einträge pro Abruf, im Protokoll und im Katalog. |
 | Standard-Thema | `ui.theme_default` | `system` | `system`, `light` oder `dark`, bis jemand unter *Konto* ein eigenes wählt. |
 | Gültigkeit neuer Einladungen | `invitations.default_days` | `7` | 1 bis 90 Tage. Beim Einladen änderbar. |

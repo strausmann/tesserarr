@@ -72,8 +72,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     // What is typed, until it is saved or discarded.
     let draft = $state<Record<FieldName, string>>(fromServer());
     let saved = $state(false);
+    // A visit hands over new props objects also when the server refused the
+    // save; the draft is replaced only when the stored values themselves
+    // changed, so a refused save keeps what was typed.
+    let seen = JSON.stringify(fromServer());
     $effect(() => {
-        draft = fromServer();
+        const now = JSON.stringify(fromServer());
+        if (now !== seen) {
+            seen = now;
+            draft = fromServer();
+        }
     });
 
     const locked = (f: FieldName): boolean => settings[f].source === 'environment';

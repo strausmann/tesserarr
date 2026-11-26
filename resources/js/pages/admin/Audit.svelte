@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 </script>
 
 <script lang="ts">
-    import { Link, router } from '@inertiajs/svelte';
+    import { Link, page, router } from '@inertiajs/svelte';
     import AppHead from '@/components/AppHead.svelte';
     import EmptyState from '@/components/EmptyState.svelte';
     import Field from '@/components/ui/Field.svelte';
@@ -61,7 +61,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         router.get('/audit', query, { preserveState: true, preserveScroll: true, replace: true });
     }
 
-    const time = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    // Times are shown in the time zone of the instance (general setting
+    // time.zone); a name the browser does not know falls back to its own zone.
+    const time = $derived.by(() => {
+        const timeZone = (page.props as { timeZone?: string }).timeZone;
+        try {
+            return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone });
+        } catch {
+            return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+        }
+    });
     const sources = ['all', 'ui', 'cli', 'api'] as const;
 </script>
 
