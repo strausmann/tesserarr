@@ -48,4 +48,28 @@ final class ProbeController
 
         return new JsonResponse(['name' => $request->string('name')->toString()]);
     }
+
+    /**
+     * Archive the probe.
+     *
+     * Marks the probe as archived. The 403 and 422 answers are the ones
+     * Scramble infers from abort_unless() and validate(), without attributes.
+     */
+    #[Endpoint(operationId: 'probe.archive')]
+    #[Response(200, 'The archived probe', examples: [['name' => 'probe', 'archived' => true]])]
+    public function archive(Request $request): JsonResponse
+    {
+        $request->validate([
+            /**
+             * Why the probe is archived.
+             *
+             * @example no longer needed
+             */
+            'reason' => ['required', 'string'],
+        ]);
+
+        abort_unless($request->user() !== null, 403);
+
+        return new JsonResponse(['name' => 'probe', 'archived' => true]);
+    }
 }

@@ -91,6 +91,13 @@ jobs:
       - name: The links validator ran
         run: grep -q "All internal links are valid" website-build.log
 
+      # The sources are scanned in `real-data scan`; this covers whatever the
+      # build adds on top (a plugin, a dependency, an environment value). Pages
+      # and sitemap only: the JavaScript bundles are third-party code whose
+      # credits carry their translators' e-mail addresses.
+      - name: Real-data scan of the built site
+        run: python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: website-dist

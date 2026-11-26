@@ -79,6 +79,21 @@ it('documents no token ability for a route without a can middleware', function (
     expect(exportedDocument()['paths']['/_probe']['get'])->not->toHaveKey('security');
 });
 
+// The fixture of scripts/test_openapi_quality.py relies on this form: the
+// error answers Scramble infers are references into components/responses.
+it('writes the error responses inferred from validate and abort as references', function () {
+    Route::middleware(['token-api', 'can:catalog.manage'])->prefix('api/v1')->post('_probe/archive', [ProbeController::class, 'archive']);
+
+    $document = exportedDocument();
+    $responses = $document['paths']['/_probe/archive']['post']['responses'];
+
+    expect($responses['403'])->toBe(['$ref' => '#/components/responses/AuthorizationException'])
+        ->and($responses['422'])->toBe(['$ref' => '#/components/responses/ValidationException'])
+        ->and($document['components']['responses']['ValidationException']['description'] ?? null)->toBe('Validation error')
+        ->and($document['paths']['/_probe/archive']['post']['requestBody']['content']['application/json']['schema']['properties']['reason']['examples'] ?? null)
+        ->toBe(['no longer needed']);
+});
+
 it('exports the export path of the api spec gate', function () {
     expect(config('scramble.export_path'))->toBe('website/openapi/openapi.json');
 });

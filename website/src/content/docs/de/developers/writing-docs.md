@@ -20,11 +20,12 @@ sie nur.
   (`scripts/privacy_scan.py`) schlägt bei privaten Adressen, Rechnernamen einer Installation und persönlichen
   E-Mail-Adressen fehl.
 
-Lokal bauen und prüfen (Node 22):
+Lokal bauen und prüfen (Node 22.23.4 oder neuer, siehe `website/.nvmrc`):
 
 ```bash
 npm --prefix website ci
 npm --prefix website run build
 node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
 python3 scripts/privacy_scan.py website/src website/public website/openapi
+python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
 ```

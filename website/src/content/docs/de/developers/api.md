@@ -14,10 +14,10 @@ dieser Seite und in der App unter `/docs/api` (Scalar, für angemeldete Nutzer).
 | --- | --- |
 | `operationId`, eindeutig | dem Routennamen oder `#[Endpoint(operationId: …)]` |
 | Zusammenfassung und Beschreibung | der ersten Zeile und dem Rest des PHPDoc der Controller-Methode, oder `#[Endpoint(title: …, description: …)]` |
-| Eine Beschreibung je Parameter | Validierungsregeln mit Kommentar, oder `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
-| Beispiele für den Anfragekörper und jede 2xx-Antwort | `example:` der Parameter-Attribute, `#[Response(…, examples: […])]` |
-| Mindestens eine Fehlerantwort mit ihrer Bedeutung | `#[Response(403, 'The token lacks …')]` und die, die Scramble selbst erkennt (Validierung, Autorisierung) |
-| Das Token-Recht | der Middleware `can:<recht>` der Route, derselben, die es prüft |
+| Eine Beschreibung je Parameter | einem PHPDoc-Kommentar an der Validierungsregel, oder `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
+| Beispiele für den Anfragekörper und jede 2xx-Antwort | `@example` in diesem PHPDoc-Kommentar, `example:` der Parameter-Attribute, `#[Response(…, examples: […])]` |
+| Mindestens eine Fehlerantwort mit ihrer Bedeutung | `#[Response(403, 'The token lacks …')]` und die, die Scramble aus `validate()` und `authorize()` ableitet |
+| Das Token-Recht | der Middleware `can:<recht>` der Route, derselben, die es prüft. `authorize()` im Controller allein genügt nicht: Der Export sieht es nicht |
 
 ## Die zwei Tore
 
