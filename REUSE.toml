@@ -90,9 +90,6 @@ path = [
   "phpstan.neon",
   "phpunit.xml",
   "pint.json",
-  "public/apple-touch-icon.png",
-  "public/favicon.ico",
-  "public/favicon.svg",
   "public/.htaccess",
   "public/index.php",
   "public/robots.txt",
@@ -217,6 +214,14 @@ SPDX-License-Identifier = "MIT"
 # inline header.
 [[annotations]]
 path = "docs/images/mockups/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Raster icons drawn from the logo of the mockup canvas (docs/designs/0.1.0);
+# PNG and ICO carry no comment.
+[[annotations]]
+path = ["public/apple-touch-icon.png", "public/favicon.ico"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Björn Strausmann and Tesserarr contributors"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
