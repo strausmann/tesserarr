@@ -22,9 +22,12 @@ use Scalar\Controllers\ScalarController;
 Route::get('/', HomeController::class)->name('home');
 
 // The link of the confirmation mail (task 8a): public, the token is the proof.
-// Opening it shows a button; only the POST uses the token.
-Route::get('email/confirm/{token}', [EmailConfirmationController::class, 'show'])->name('email.confirm.show');
-Route::post('email/confirm/{token}', [EmailConfirmationController::class, 'confirm'])->middleware('throttle:10,1')->name('email.confirm');
+// It travels in the fragment (/email/confirm#<token>), which the browser never
+// sends: no access log, no referer and no session (previous URL) sees it.
+// Opening the link shows a button; only the POST, with the token in its
+// body, uses it.
+Route::get('email/confirm', [EmailConfirmationController::class, 'show'])->name('email.confirm.show');
+Route::post('email/confirm', [EmailConfirmationController::class, 'confirm'])->middleware('throttle:10,1')->name('email.confirm');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     // The operator's start page; a friend is sent on to /shared.

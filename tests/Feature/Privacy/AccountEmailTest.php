@@ -57,7 +57,7 @@ function requestAndCatchToken(User $user, string $email, ?Actor $by = null): str
         if (! $mail->hasTo($email)) {
             return false;
         }
-        $token = substr($mail->url, (int) strrpos($mail->url, '/') + 1);
+        $token = substr($mail->url, (int) strrpos($mail->url, '#') + 1);
 
         return true;
     });
@@ -188,12 +188,12 @@ it('confirms an account address with a single-use link and rejects the link a se
     $user = User::factory()->create();
     $token = requestAndCatchToken($user, 'Mine@Example.org');
 
-    $this->get("/email/confirm/{$token}")->assertOk()
+    $this->get('/email/confirm')->assertOk()
         ->assertInertia(fn (Assert $page) => $page->component('auth/ConfirmEmail'));
     // Opening the link alone changes nothing (a mail scanner fetches it too).
     expect($user->refresh()->email)->toBeNull();
 
-    $this->post("/email/confirm/{$token}")->assertRedirect('/login');
+    $this->post('/email/confirm', ['token' => $token])->assertRedirect('/login');
 
     $user->refresh();
     expect($user->email)->toBe('Mine@Example.org')
@@ -203,7 +203,7 @@ it('confirms an account address with a single-use link and rejects the link a se
         ->and(DB::table('account_email_claims')->where('user_id', $user->id)->pluck('kind')->all())->toBe(['confirmed'])
         ->and(AuditEntry::query()->where('action', AuditAction::EmailConfirmed->value)->where('subject_id', $user->id)->exists())->toBeTrue();
 
-    $this->from("/email/confirm/{$token}")->post("/email/confirm/{$token}")
+    $this->from('/email/confirm')->post('/email/confirm', ['token' => $token])
         ->assertSessionHasErrors(['token' => 'This link is not valid (any more). Ask for a new one under "My account".']);
     expect(fn () => confirmation()->confirm($token))->toThrow(InvalidConfirmationLink::class);
 });
@@ -212,7 +212,7 @@ it('sends a signed-in account back to its page after confirming', function () {
     $user = User::factory()->create();
     $token = requestAndCatchToken($user, 'mine@example.org');
 
-    $this->actingAs($user)->post("/email/confirm/{$token}")->assertRedirect('/account');
+    $this->actingAs($user)->post('/email/confirm', ['token' => $token])->assertRedirect('/account');
 });
 
 it('rejects an expired confirmation link after 60 minutes', function () {
@@ -359,7 +359,7 @@ it('keeps the confirmed old address valid for sign-in and mail until the new one
 
     $token = null;
     Mail::assertQueued(ConfirmEmailMail::class, function (ConfirmEmailMail $mail) use (&$token) {
-        $token = substr($mail->url, (int) strrpos($mail->url, '/') + 1);
+        $token = substr($mail->url, (int) strrpos($mail->url, '#') + 1);
 
         return $mail->hasTo('new@example.org');
     });
@@ -430,7 +430,7 @@ it('builds the confirmation link from APP_URL, not from the Host header of the r
     $this->actingAs($user)->put('http://attacker.example.net/account/email', ['email' => 'mine@example.org'])->assertSessionHasNoErrors();
     expect(request()->getHost())->toBe('attacker.example.net');
 
-    Mail::assertQueued(ConfirmEmailMail::class, fn (ConfirmEmailMail $mail) => str_starts_with($mail->url, 'https://tesserarr.example.org/email/confirm/')
+    Mail::assertQueued(ConfirmEmailMail::class, fn (ConfirmEmailMail $mail) => str_starts_with($mail->url, 'https://tesserarr.example.org/email/confirm#')
         && ! str_contains($mail->url, 'attacker'));
 });
 
@@ -482,6 +482,21 @@ it('recognises the confirmed address under the previous blind index key when it 
         ->and(DB::table('account_email_claims')->pluck('kind')->all())->toBe(['confirmed']);
     Mail::assertNothingQueued();
     $this->artisan('tesserarr:pii:rotate')->assertSuccessful();
+});
+
+it('lets the account send the link of an address an operator entered again, also with a confirmed one', function () {
+    $operator = User::factory()->operator()->create();
+    $user = User::factory()->withRole(Roles::USER)->withConfirmedEmail('old@example.org')->create();
+    $this->actingAs($operator)->put("/users/{$user->id}/email", ['email' => 'new@example.org'])->assertSessionHasNoErrors();
+
+    $this->actingAs($user)->from('/account')->post('/account/email/resend')->assertSessionHasNoErrors();
+
+    Mail::assertQueued(ConfirmEmailMail::class, 2);
+    expect($user->refresh()->pending_email)->toBe('new@example.org')
+        ->and($user->confirmedEmail())->toBe('old@example.org');
+    // A different address is still refused.
+    expect(fn () => confirmation()->request($user, 'third@example.org', Actor::user($user)))
+        ->toThrow(fn (EmailEntryDisabled $e) => expect($e->reason)->toBe('confirmed_exists'));
 });
 
 it('requires a fresh proof to request an address change')

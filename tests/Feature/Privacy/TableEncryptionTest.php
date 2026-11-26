@@ -66,7 +66,7 @@ it('stores no address in plain text in the tables of this task', function () {
         $tokens = function () {
             $tokens = [];
             Mail::assertQueued(ConfirmEmailMail::class, function (ConfirmEmailMail $mail) use (&$tokens) {
-                $tokens[$mail->to[0]['address']] = substr($mail->url, (int) strrpos($mail->url, '/') + 1);
+                $tokens[$mail->to[0]['address']] = substr($mail->url, (int) strrpos($mail->url, '#') + 1);
 
                 return true;
             });
@@ -78,11 +78,11 @@ it('stores no address in plain text in the tables of this task', function () {
         // one for Bob, then replaces Alice's (old stays until confirmed);
         // Bob tries Alice's address in other letters and is refused; Alice opens her link.
         $this->actingAs($alice)->put('/account/email', ['email' => $own])->assertSessionHasNoErrors();
-        $this->post('/email/confirm/'.$tokens()[$own])->assertRedirect();
+        $this->post('/email/confirm', ['token' => $tokens()[$own]])->assertRedirect();
         $this->actingAs($operator)->put("/users/{$bob->id}/email", ['email' => $byOperator])->assertSessionHasNoErrors();
         $this->actingAs($operator)->put("/users/{$alice->id}/email", ['email' => $changed])->assertSessionHasNoErrors();
         $this->actingAs($bob)->put('/account/email', ['email' => strtoupper($own)])->assertSessionHasErrors('email');
-        $this->post('/email/confirm/'.$tokens()[$changed])->assertRedirect();
+        $this->post('/email/confirm', ['token' => $tokens()[$changed]])->assertRedirect();
         Log::error("delivery to {$own} failed", ['to' => $changed]);
 
         // The flow really wrote every table it is about.
@@ -102,3 +102,6 @@ it('stores no address in plain text in the tables of this task', function () {
         File::deleteDirectory($logs);
     }
 });
+
+it('keeps password_reset_tokens free of plain addresses once password reset by address exists')
+    ->todo(note: 'Carried over to the task that switches on Fortify resetPasswords (not part of 0.1.0): the starter kit\'s password_reset_tokens keys rows by the plain address; that task keys them by the blind index or drops the table.');

@@ -62,7 +62,9 @@ COPY . .
 RUN rm -rf tests CLAUDE.md playwright.config.ts vitest.config.ts app/Testing routes/testing.php \
     && composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
     && php artisan package:discover --ansi \
-    && php artisan wayfinder:generate --with-form
+    # No APP_KEY at build time: the route scan touches the session guard,
+    # and an encrypted session (SESSION_ENCRYPT, on by default) needs the key.
+    && SESSION_ENCRYPT=false php artisan wayfinder:generate --with-form
 
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS assets

@@ -83,8 +83,16 @@ final readonly class PiiKeys
         }
 
         $blindPrevious = self::text($pii['blind_index_previous_key'] ?? null);
+        $blindPrevious = $blindPrevious === '' ? null : self::decode($blindPrevious);
+        if ($blindPrevious !== null && strlen($blindPrevious) < self::KEY_BYTES) {
+            throw new PiiKeyRefused('blind_index_previous_key_invalid');
+        }
+        if ($blindPrevious !== null && (hash_equals($blind, $blindPrevious) || hash_equals($key, $blindPrevious)
+            || ($app !== null && hash_equals($app, $blindPrevious)))) {
+            throw new PiiKeyRefused('blind_index_previous_key_reused');
+        }
 
-        return new self($key, $previous, $blind, $blindPrevious === '' ? null : self::decode($blindPrevious));
+        return new self($key, $previous, $blind, $blindPrevious);
     }
 
     /** The bytes of a key written raw or as "base64:…". */

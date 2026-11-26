@@ -43,7 +43,7 @@ it('lets a confirmation and a resend of the same account wait for each other ins
     app(EmailConfirmation::class)->request($user, 'mine@example.org', Actor::user($user));
     $token = '';
     Mail::assertQueued(ConfirmEmailMail::class, function (ConfirmEmailMail $mail) use (&$token) {
-        $token = substr($mail->url, (int) strrpos($mail->url, '/') + 1);
+        $token = substr($mail->url, (int) strrpos($mail->url, '#') + 1);
 
         return true;
     });

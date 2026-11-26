@@ -60,7 +60,7 @@ it('requires ShouldBeEncrypted on every mailable and notification', function () 
 
 it('encrypts the queued confirmation mail in jobs and failed_jobs', function () {
     $address = 'probe-'.Str::lower(Str::random(6)).'@example.invalid';
-    $link = 'https://tesserarr.example.org/email/confirm/'.Str::random(43);
+    $link = 'https://tesserarr.example.org/email/confirm#'.Str::random(43);
 
     // The queued mail keeps the name of its mailer: a transport that refuses
     // the recipient, as an SMTP server would.

@@ -19,10 +19,11 @@ use Normalizer;
 final class EmailNormalizer
 {
     /**
-     * What counts as an address in text (logs, audit context): a local part,
-     * "@", and a domain with at least one dot. Letters of every script count.
+     * What counts as an address in text (logs, audit context): a local part
+     * of RFC 5322 atext characters and dots (letters of every script too),
+     * "@" or its URL encoding "%40", and a domain with at least one dot.
      */
-    public const PATTERN = '/[\p{L}\p{N}._%+\-]+@[\p{L}\p{N}\-]+(?:\.[\p{L}\p{N}\-]+)+/u';
+    public const PATTERN = "/[\\p{L}\\p{N}!#$%&'*+\\/=?^_`{|}~.\\-]+(?:@|%40)[\\p{L}\\p{N}\\-]+(?:\\.[\\p{L}\\p{N}\\-]+)+/iu";
 
     public static function normalize(string $address): string
     {

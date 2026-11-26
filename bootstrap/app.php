@@ -9,6 +9,7 @@ use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\LimitRequestBody;
 use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\SignOutLockedAccount;
+use App\Http\PersonalInput;
 use App\Http\TrustedHosts;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
@@ -57,6 +58,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // A failed validation flashes the input into the session; personal
+        // data and tokens never go there (task 8a). `login` is the username
+        // or, from task 11, an address.
+        $exceptions->dontFlash(PersonalInput::FIELDS);
+
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );

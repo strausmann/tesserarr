@@ -99,13 +99,17 @@ final class EmailConfirmation
             throw new EmailEntryDisabled($refusal);
         }
 
-        self::refuseOwnChange($user, $by, $this->db->table('users')->where('id', $user->id)->value('email_confirmed_at') !== null);
-
-        $this->throttle($by);
-
         $email = trim($email);
         $bidx = BlindIndex::of($email);
         $now = Date::now();
+
+        $before = $this->db->table('users')->where('id', $user->id)
+            ->first(['email_confirmed_at', 'pending_email_bidx', 'pending_email_reserved_until']);
+        if ($before !== null) {
+            self::refuseOwnChange($user, $by, $before->email_confirmed_at !== null && ! self::isActiveReservation($before, $bidx, $now));
+        }
+
+        $this->throttle($by);
 
         try {
             $sent = $this->db->transaction(function () use ($user, $email, $bidx, $now, $by, $authorise): ?array {
@@ -125,15 +129,17 @@ final class EmailConfirmation
                     return null;
                 }
 
+                // The link of the address already waiting on the account may
+                // be sent again, also when a confirmed one exists (an operator
+                // entered it): that changes nothing the owner has not to
+                // confirm anyway.
+                $ownReservation = self::isActiveReservation($row, $bidx, $now);
+
                 // Under the lock as well: the address may have been confirmed meanwhile.
-                self::refuseOwnChange($user, $by, $row->email_confirmed_at !== null);
+                self::refuseOwnChange($user, $by, $row->email_confirmed_at !== null && ! $ownReservation);
 
                 $this->dropExpiredReservation($email, $now);
                 $this->refuseIfHeldUnderPreviousKey($email, $bidx, $user->id, $now);
-
-                $ownReservation = $row->pending_email_bidx === $bidx
-                    && $row->pending_email_reserved_until !== null
-                    && Date::parse((string) $row->pending_email_reserved_until)->isAfter($now);
 
                 if (! $ownReservation) {
                     $this->dropReservationOf($user->id);
@@ -325,7 +331,7 @@ final class EmailConfirmation
      */
     public static function link(string $token): string
     {
-        return rtrim((string) config('app.url'), '/').route('email.confirm.show', ['token' => $token], false);
+        return rtrim((string) config('app.url'), '/').route('email.confirm.show', [], false).'#'.$token;
     }
 
     /**
@@ -342,6 +348,14 @@ final class EmailConfirmation
         if ($confirmed && in_array($by->type, [Actor::USER, Actor::TOKEN], true) && $by->id === (int) $user->getKey()) {
             throw new EmailEntryDisabled('confirmed_exists');
         }
+    }
+
+    /** Is $bidx the address waiting on this account row, its reservation not run out? */
+    private static function isActiveReservation(object $row, string $bidx, \DateTimeInterface $now): bool
+    {
+        return ($row->pending_email_bidx ?? null) === $bidx
+            && ($row->pending_email_reserved_until ?? null) !== null
+            && Date::parse((string) $row->pending_email_reserved_until)->isAfter($now);
     }
 
     /** @throws EmailClaimThrottled */

@@ -339,24 +339,32 @@ describe('User detail', () => {
 });
 
 describe('Confirm email', () => {
-    it('uses the token only when the button is pressed', async () => {
-        await render(ConfirmEmail, { token: 'abc/def' });
+    it('reads the token from the fragment and uses it only when the button is pressed', async () => {
+        window.location.hash = '#abc%2Fdef';
+        await render(ConfirmEmail, {});
         expect(inertia.router.post).not.toHaveBeenCalled();
 
         button('account.confirm.button')!.click();
         expect(inertia.router.post).toHaveBeenCalledWith(
-            '/email/confirm/abc%2Fdef',
-            {},
+            '/email/confirm',
+            { token: 'abc/def' },
             expect.anything(),
         );
+        inertia.router.post.mock.calls[0][2].onFinish();
+    });
+
+    it('says the link is not valid when the fragment is missing', async () => {
+        window.location.hash = '';
+        await render(ConfirmEmail, {});
+        expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+            'account.email.link_invalid',
+        );
+        expect(button('account.confirm.button')?.disabled).toBe(true);
     });
 
     it('shows why a link is refused', async () => {
-        await render(
-            ConfirmEmail,
-            { token: 't' },
-            { errors: { token: 'not valid' } },
-        );
+        window.location.hash = '#t';
+        await render(ConfirmEmail, {}, { errors: { token: 'not valid' } });
         expect(document.querySelector('[role="alert"]')?.textContent).toBe(
             'not valid',
         );

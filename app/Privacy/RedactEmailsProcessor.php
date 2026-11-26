@@ -14,8 +14,10 @@ use Throwable;
 
 /**
  * Keeps addresses out of every log: replaces each address (EmailNormalizer::
- * PATTERN) in the message, the context and the extra fields, at every depth,
- * by "[email]".
+ * PATTERN, "%40" included) in the message, the context and the extra fields,
+ * at every depth, by "[email]". An object in the context becomes text (a
+ * Stringable), its JSON form (JsonSerializable), its value (an enum), a date,
+ * or its class name only.
  *
  * An exception in the context is replaced by a redacted description before a
  * formatter sees it: Laravel hands the exception over as an object in
@@ -54,6 +56,13 @@ final class RedactEmailsProcessor implements ProcessorInterface
             $value instanceof Throwable => self::exception($value),
             is_array($value) => $depth > 16 ? '[…]' : array_map(fn (mixed $v) => self::value($v, $depth + 1), $value),
             $value instanceof Stringable => self::text((string) $value),
+            $value instanceof \UnitEnum => $value instanceof \BackedEnum ? $value->value : $value->name,
+            $value instanceof \DateTimeInterface => $value->format(\DateTimeInterface::ATOM),
+            // A model, a DTO: its JSON form, redacted like an array.
+            $value instanceof \JsonSerializable => $depth > 16 ? '[…]' : self::value($value->jsonSerialize(), $depth + 1),
+            // Any other object could carry an address in a property the
+            // formatter would print: only its class is kept.
+            is_object($value) => '[object '.$value::class.']',
             default => $value,
         };
     }

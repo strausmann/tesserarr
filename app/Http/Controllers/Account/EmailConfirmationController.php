@@ -17,23 +17,27 @@ use Inertia\Response;
 
 /**
  * The link of the confirmation mail (task 8a), public: it works without a
- * sign-in, the token is the proof. Opening the link only shows a page with a
- * button; the token is used when the button is pressed (POST), so a mail
+ * sign-in, the token is the proof. The token is in the fragment of the link,
+ * so the GET never carries it (logs, referers, the session's previous URL).
+ * The page posts it in the body when the button is pressed, so a mail
  * scanner that fetches every link does not use it up.
  */
 final class EmailConfirmationController extends Controller
 {
     public function __construct(private readonly EmailConfirmation $confirmation) {}
 
-    public function show(string $token): Response
+    /** The page reads the token from the fragment of the link; the server never sees it here. */
+    public function show(): Response
     {
-        return Inertia::render('auth/ConfirmEmail', ['token' => $token]);
+        return Inertia::render('auth/ConfirmEmail');
     }
 
-    public function confirm(Request $request, string $token): RedirectResponse
+    public function confirm(Request $request): RedirectResponse
     {
+        $valid = $request->validate(['token' => ['required', 'string', 'max:128']]);
+
         try {
-            $user = $this->confirmation->confirm($token);
+            $user = $this->confirmation->confirm((string) $valid['token']);
         } catch (InvalidConfirmationLink $e) {
             return back()->withErrors(['token' => $e->getMessage()]);
         }

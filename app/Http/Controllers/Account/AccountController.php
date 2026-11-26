@@ -97,7 +97,8 @@ final class AccountController extends Controller
 
     public function resendEmail(#[CurrentUser] User $user): RedirectResponse
     {
-        $pending = AccountEmailState::of($user, $this->policy)['pending'];
+        // As stored now: an operator may have entered the address meanwhile.
+        $pending = AccountEmailState::of($user->refresh(), $this->policy)['pending'];
         if ($pending === null) {
             return back()->withErrors(['email' => __('account.email.nothing_pending')]);
         }

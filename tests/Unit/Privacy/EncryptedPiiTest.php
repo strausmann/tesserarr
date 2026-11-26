@@ -142,7 +142,19 @@ it('refuses keys that are missing, malformed or equal to APP_KEY', function (arr
     'blind index key missing' => [['blind_index_key' => null], 'blind_index_key_missing'],
     'blind index key too short' => [['blind_index_key' => 'short'], 'blind_index_key_invalid'],
     'blind index key equals the pii key' => [['blind_index_key' => piiKey('p')], 'blind_index_key_reused'],
+    'previous blind index key too short' => [['blind_index_previous_key' => 'short'], 'blind_index_previous_key_invalid'],
+    'previous blind index key equals the current one' => [['blind_index_previous_key' => str_repeat('b', 32)], 'blind_index_previous_key_reused'],
+    'previous blind index key equals the pii key' => [['blind_index_previous_key' => piiKey('p')], 'blind_index_previous_key_reused'],
+    'previous blind index key equals APP_KEY' => [['blind_index_previous_key' => piiKey('k')], 'blind_index_previous_key_reused'],
 ]);
+
+it('accepts a previous blind index key of its own', function () {
+    $keys = PiiKeys::fromConfig([
+        'key' => piiKey('p'), 'previous_keys' => '', 'blind_index_key' => str_repeat('b', 32), 'blind_index_previous_key' => str_repeat('o', 32),
+    ], piiKey('k'));
+
+    expect($keys->blindIndexPrevious)->toBe(str_repeat('o', 32));
+});
 
 it('refuses to boot without TESSERARR_PII_KEY or with the same value as APP_KEY', function (array $env, string $expected) {
     // A long-running process of the central instance (the queue worker here)

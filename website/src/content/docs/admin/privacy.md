@@ -31,7 +31,8 @@ and refuses a `TESSERARR_PII_KEY` that equals `APP_KEY`.
 - One address belongs to one account. Entering an address that another account holds or reserves is refused with
   "This address is already the address of another account", without naming that account. A user can check ten
   addresses an hour; each refusal is in the audit log.
-- The link in the mail is built from `APP_URL`, never from the address a request came in on, and the instance answers
+- The token of the link is in its fragment (`/email/confirm#…`), which the browser never sends: it appears in no
+  access log, referer or session. The link is built from `APP_URL`, never from the address a request came in on, and the instance answers
   only to the host of `APP_URL` (and `TESSERARR_TRUSTED_HOSTS`).
 - Changing a confirmed address keeps the old one valid until the new one is confirmed, and the old address is told
   about the change.

@@ -62,6 +62,33 @@ it('redacts email addresses in message, context and extra', function () {
         ->and($record->extra)->toBe(['user' => '[email]']);
 });
 
+it('redacts addresses with every atext character, URL-encoded ones, and addresses inside objects', function () {
+    $carrier = new class
+    {
+        public string $to = 'hidden@example.org';
+    };
+    $json = new class implements JsonSerializable
+    {
+        public function jsonSerialize(): mixed
+        {
+            return ['to' => 'json@example.org', 'n' => 1];
+        }
+    };
+
+    $record = (new RedactEmailsProcessor)(logRecord(
+        "o'brien@example.org, a+b/c=d#e@example.org, ?to=me%40example.org",
+        ['object' => $carrier, 'json' => $json, 'date' => new DateTimeImmutable('2026-01-02T03:04:05+00:00'), 'level' => Level::Error],
+    ));
+
+    // "?" and "=" are atext: the query key goes with the address.
+    expect($record->message)->toBe('[email], [email], [email]')
+        ->and($record->context['object'])->toStartWith('[object class@anonymous')
+        ->and($record->context['json'])->toBe(['to' => '[email]', 'n' => 1])
+        ->and($record->context['date'])->toBe('2026-01-02T03:04:05+00:00')
+        ->and($record->context['level'])->toBe(Level::Error->value)
+        ->and(json_encode($record->context))->not->toContain('hidden@')->not->toContain('json@');
+});
+
 it('keeps text without an address unchanged', function () {
     $record = (new RedactEmailsProcessor)(logRecord('the @ sign alone, user@host, a@b', ['path' => '/srv/@me']));
 

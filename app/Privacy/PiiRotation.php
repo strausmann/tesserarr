@@ -59,7 +59,12 @@ final class PiiRotation
             $this->db->table($table)->select(['id', ...array_keys($columns), ...array_filter($columns)])
                 ->orderBy('id')
                 ->chunkById(self::BATCH, function ($rows) use ($table, $columns, $reindex, $dryRun, &$report): void {
-                    $this->db->transaction(function () use ($rows, $table, $columns, $reindex, $dryRun, &$report): void {
+                    // Counted per batch and added once it committed: a batch that
+                    // lost a deadlock runs again (EmailConfirmation::ATTEMPTS) and
+                    // must not count twice.
+                    /** @var array<string, array{total: int, changed: int}> $batch */
+                    $batch = $this->db->transaction(function () use ($rows, $table, $columns, $reindex, $dryRun): array {
+                        $batch = [];
                         foreach ($rows as $read) {
                             // Read again under a row lock: a confirmation that
                             // committed after the batch was read must not be
@@ -75,19 +80,19 @@ final class PiiRotation
                                 if (! is_string($payload)) {
                                     continue;
                                 }
-                                self::count($report, "{$table}.{$column}", false);
+                                self::count($batch, "{$table}.{$column}", false);
                                 $plain = $this->pii->decrypt($payload);
 
                                 if (! $this->pii->isCurrent($payload)) {
-                                    self::count($report, "{$table}.{$column}", true);
+                                    self::count($batch, "{$table}.{$column}", true);
                                     $update[$column] = $this->pii->encrypt($plain);
                                 }
 
                                 if ($bidx !== null && $reindex) {
-                                    self::count($report, "{$table}.{$bidx}", false);
+                                    self::count($batch, "{$table}.{$bidx}", false);
                                     $new = BlindIndex::of($plain);
                                     if ($row->{$bidx} !== $new) {
-                                        self::count($report, "{$table}.{$bidx}", true);
+                                        self::count($batch, "{$table}.{$bidx}", true);
                                         $update[$bidx] = $new;
                                         $this->moveIndex($table, (string) $row->{$bidx}, $new, $dryRun);
                                     }
@@ -98,7 +103,16 @@ final class PiiRotation
                                 $this->db->table($table)->where('id', $row->id)->update($update);
                             }
                         }
-                    });
+
+                        return $batch;
+                    }, EmailConfirmation::ATTEMPTS);
+
+                    foreach ($batch as $column => $counts) {
+                        $report[$column] = [
+                            'total' => ($report[$column]['total'] ?? 0) + $counts['total'],
+                            'changed' => ($report[$column]['changed'] ?? 0) + $counts['changed'],
+                        ];
+                    }
                 });
         }
 

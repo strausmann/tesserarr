@@ -31,7 +31,8 @@ nie in der Datenbank, in einem Protokoll oder im Browser. Die Zentrale startet o
 - Eine Adresse gehört zu einem Konto. Wer eine Adresse einträgt, die ein anderes Konto hat oder reserviert, bekommt
   „Diese Adresse ist bereits einem anderen Konto zugeordnet“, ohne dass das andere Konto genannt wird. Ein Nutzer kann
   zehn Adressen pro Stunde prüfen; jede Ablehnung steht im Protokoll.
-- Der Link in der Mail entsteht aus `APP_URL`, nie aus der Adresse, über die eine Anfrage kam, und die Instanz antwortet
+- Das Token des Links steht in seinem Fragment (`/email/confirm#…`), das der Browser nie mitschickt: Es landet in keinem
+  Zugriffsprotokoll, Referer und keiner Sitzung. Der Link entsteht aus `APP_URL`, nie aus der Adresse, über die eine Anfrage kam, und die Instanz antwortet
   nur auf den Host von `APP_URL` (und `TESSERARR_TRUSTED_HOSTS`).
 - Wird eine bestätigte Adresse geändert, bleibt die alte gültig, bis die neue bestätigt ist, und die alte Adresse
   erfährt von der Änderung.

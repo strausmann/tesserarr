@@ -36,7 +36,8 @@ there, not here. Each release adds the variables of its features to this page.
 | --- | --- | --- |
 | `TESSERARR_ROLE` | `central` | `central` or `satellite`. Any other value stops the start. |
 | `TESSERARR_TRUSTED_PROXIES` | empty | Reverse proxies whose `X-Forwarded-For` header is trusted, comma-separated addresses or ranges, for example `192.0.2.10`. Empty trusts none. |
-| `TESSERARR_TRUSTED_HOSTS` | empty | Host names the instance answers to besides the host of `APP_URL`, comma-separated. Requests with any other `Host` header are refused; `localhost` and `127.0.0.1` stay allowed for the health check. Links in mails are always built from `APP_URL`. |
+| `SESSION_ENCRYPT` | `true` | Sessions are stored encrypted with `APP_KEY`. Switching it on for an existing installation signs everybody out once (the old sessions cannot be read). |
+| `TESSERARR_TRUSTED_HOSTS` | empty | Host names the instance answers to besides the host of `APP_URL`, comma-separated. Requests with any other `Host` header are refused; `localhost` and `127.0.0.1` stay allowed for the health check inside the container. A health check that calls the container by its name, for example the target health check of Pangolin (`healthcheck.hostname`), sends that name as `Host`: put it here (for a container `tesserarr`: `TESSERARR_TRUSTED_HOSTS=tesserarr`), or the check gets 400. Links in mails are always built from `APP_URL`. |
 
 ## Backups and logs
 

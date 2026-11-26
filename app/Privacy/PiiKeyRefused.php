@@ -25,6 +25,8 @@ final class PiiKeyRefused extends RuntimeException
         'blind_index_key_missing' => 'TESSERARR_BLIND_INDEX_KEY is not set: addresses cannot be found without it.',
         'blind_index_key_invalid' => 'TESSERARR_BLIND_INDEX_KEY must be at least 32 bytes.',
         'blind_index_key_reused' => 'TESSERARR_BLIND_INDEX_KEY must differ from TESSERARR_PII_KEY and APP_KEY.',
+        'blind_index_previous_key_invalid' => 'TESSERARR_BLIND_INDEX_PREVIOUS_KEY must be at least 32 bytes.',
+        'blind_index_previous_key_reused' => 'TESSERARR_BLIND_INDEX_PREVIOUS_KEY must differ from TESSERARR_BLIND_INDEX_KEY, TESSERARR_PII_KEY and APP_KEY.',
     ];
 
     /**
