@@ -8,7 +8,12 @@ export const tokens: ArtboardSpec = {
     title: 'API-Token',
     viewport: 'desktop',
     expect: {
-        headings: ['API-Token', 'Neues Token', 'Bestehende Token'],
+        headings: [
+            'API-Token',
+            'Neues Token',
+            'Bestehende Token',
+            'Gefahrenbereich',
+        ],
         controls: [
             'textbox:Name',
             'group:Vorgabe',

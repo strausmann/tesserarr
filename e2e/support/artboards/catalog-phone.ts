@@ -9,11 +9,16 @@ export const catalogPhone: ArtboardSpec = {
     viewport: 'phone',
     expect: {
         headings: ['Katalog'],
-        controls: [
-            'button:Suche öffnen',
-            'list:Titel',
-            'button:Weitere 50 laden',
-        ],
+        controls: ['button:Suche öffnen'],
         states: ['filled', 'empty'],
+    },
+    inState: {
+        filled: {
+            controls: ['list:Titel', 'button:Weitere 50 laden'],
+        },
+        empty: {
+            headings: ['Noch nichts im Katalog'],
+            controls: ['link:Plex verbinden', 'link:Medienfreigabe anlegen'],
+        },
     },
 };

@@ -16,13 +16,25 @@ export const shares: ArtboardSpec = {
         controls: [
             'button:Medienfreigabe anlegen',
             'combobox:Für Nutzer',
-            'table:Freigaberegeln',
             'searchbox:In ganz „Serien“ suchen',
-            'searchbox:Auf dieser Ebene filtern',
-            'combobox:Sortierung',
-            'checkbox:Alle sichtbaren auswählen',
-            'button:Weitere 50 laden',
         ],
         states: ['filled', 'empty'],
+    },
+    inState: {
+        filled: {
+            // The detail of the selected rule sits next to the rule list.
+            headings: ['Gefahrenbereich'],
+            controls: [
+                'table:Freigaberegeln',
+                'button:Regel entfernen',
+                'searchbox:Auf dieser Ebene filtern',
+                'combobox:Sortierung',
+                'checkbox:Alle sichtbaren auswählen',
+                'button:Weitere 50 laden',
+            ],
+        },
+        empty: {
+            controls: ['link:Jetzt lesen lassen'],
+        },
     },
 };

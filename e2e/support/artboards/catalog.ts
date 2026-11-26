@@ -9,13 +9,20 @@ export const catalog: ArtboardSpec = {
     viewport: 'desktop',
     expect: {
         headings: ['Katalog'],
-        controls: [
-            'searchbox:Titel suchen',
-            'radiogroup:Ansicht',
-            'navigation:Springen zu Anfangsbuchstabe',
-            'list:Titel',
-            'button:Weitere 50 laden',
-        ],
+        controls: ['searchbox:Titel suchen', 'radiogroup:Ansicht'],
         states: ['filled', 'empty'],
+    },
+    inState: {
+        filled: {
+            controls: [
+                'navigation:Springen zu Anfangsbuchstabe',
+                'list:Titel',
+                'button:Weitere 50 laden',
+            ],
+        },
+        empty: {
+            headings: ['Noch nichts im Katalog'],
+            controls: ['link:Plex verbinden', 'link:Medienfreigabe anlegen'],
+        },
     },
 };

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ArtboardExpectation } from '../views';
+import type { ArtboardExpectation, ArtboardState } from '../views';
 
 /**
  * What one artboard of the approved 0.1.0 mockup canvas shows
@@ -22,6 +22,11 @@ import type { ArtboardExpectation } from '../views';
  *   is checked once by the frame task, not per artboard. `Menu-Phone` is the
  *   open menu itself.
  * - Sections the canvas marks "Vorschau 0.2.0" (or later) are left out.
+ * - `expect` holds what the artboard shows in every one of its states, because
+ *   `assertArtboardStates` checks the whole expectation again in each state.
+ *   What only one state shows (the list when there is content, the hint when
+ *   there is none) is in `inState`; the state fixture of the UI task asserts
+ *   it.
  * - Names are the German labels of the canvas and its example names (Alex,
  *   Sam, Sonarr HD, Keller). The view runs in German when it is checked
  *   against them.
@@ -34,4 +39,11 @@ export type ArtboardSpec = {
     /** The artboard is drawn for 1440 px (desktop) or 390 × 844 px (phone). */
     viewport: 'desktop' | 'phone';
     expect: ArtboardExpectation;
+    /** Headings, controls (`role:name`) and texts that only this state shows. */
+    inState?: Partial<
+        Record<
+            ArtboardState,
+            { headings?: string[]; controls?: string[]; texts?: string[] }
+        >
+    >;
 };

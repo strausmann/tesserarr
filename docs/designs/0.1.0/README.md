@@ -22,6 +22,7 @@ bilingual; the expectations below hold the German labels.
 | --- | --- |
 | All artboards for 0.1.0 | 24 November 2026 |
 | `Catalog.dc.html` and `Catalog-Phone.dc.html` after the change to a list view with an A–Z jump bar and no posters | 26 November 2026 |
+| Raising three colours to WCAG AA (see "Contrast") | 26 November 2026 |
 
 With the catalogue approved, no artboard of 0.1.0 has a reservation left; the catalogue part of task 21 may start.
 
@@ -33,7 +34,7 @@ unchanged: one design line across Labelyard, BambuBridge and Tesserarr, with amb
 | Canvas | Repository |
 | --- | --- |
 | Colours light and dark, type scale, 4 px grid, radii 6/10/14, focus ring | [`resources/css/tokens.css`](../../../resources/css/tokens.css), pinned by `resources/js/lib/tokens.test.ts` |
-| Type: Atkinson Hyperlegible and Atkinson Hyperlegible Mono | loaded at build time through `vite.config.ts` (Bunny Fonts, served from the app) |
+| Type: Atkinson Hyperlegible and Atkinson Hyperlegible Mono | loaded at build time through `vite.config.ts` (Bunny Fonts, served from the app); licence SIL OFL 1.1, the licence files of both fonts are in [`public/licenses/`](../../../public/licenses/) and served under `/licenses/` |
 | The mark: four tiles in ink, amber and stamp blue | [`public/logo.svg`](../../../public/logo.svg), [`public/logo-dark.svg`](../../../public/logo-dark.svg) |
 | The app symbol: the mark on an amber tile | [`public/logo-app.svg`](../../../public/logo-app.svg), [`public/apple-touch-icon.png`](../../../public/apple-touch-icon.png) |
 | The 16 px favicon with narrower joints | [`public/favicon.svg`](../../../public/favicon.svg) (switches to the dark colours with the system theme) |
@@ -47,6 +48,26 @@ Where the repository departs from the canvas, and why:
 - **`favicon.ico` shows the app symbol, not the bare mark.** The ICO file has no dark variant, and the ink tiles of the
   bare mark disappear on a dark tab bar. Browsers that read `favicon.svg` get the mark of the canvas.
 - **`apple-touch-icon.png` has square corners.** iOS rounds the icon itself and fills transparent corners with black.
+- **Three colours are darker than in the canvas (lighter in dark mode)**, so that the interface reaches WCAG AA. See
+  "Contrast" below.
+
+## Contrast
+
+The maintainer decided on 26 November 2026 that the interface meets WCAG AA. Three colours of the canvas (and of
+Labelyard) fall short of it, so they change in lightness only; the hue stays.
+
+| Token | Use | Canvas | Repository | Contrast canvas → repository (on bg / surface / sunken) |
+| --- | --- | --- | --- | --- |
+| `--tr-warn`, light | state text, 13 px | `#b5651b` | `#9f5918` | 3.95 / 4.23 / 3.65 → 4.88 / 5.23 / 4.51 (needs 4.5) |
+| `--tr-ok`, light | state text, 13 px | `#2e7a4e` | `#2d784d` | 4.76 / 5.10 / 4.40 → 4.89 / 5.24 / 4.52 (needs 4.5) |
+| `--tr-line-strong`, light | border of fields and buttons | `#cfc8ba` | `#8d8678` | 1.51 / 1.62 / 1.40 → 3.29 / 3.52 / 3.04 (needs 3, WCAG 1.4.11) |
+| `--tr-line-strong`, dark | border of fields and buttons | `#4a443a` | `#756f65` | 1.88 / 1.73 / 1.57 → 3.63 / 3.34 / 3.03 (needs 3, WCAG 1.4.11) |
+
+Every other text role already reaches 4.5:1 on all three grounds in both themes (the smallest is `--tr-ink-3` on
+`--tr-sunken` in dark mode, 4.65:1). `resources/js/lib/tokens.test.ts` computes these ratios for every text role and
+the control border on every ground and fails below 4.5:1 or 3:1. The darker border also makes dividers drawn with
+`--tr-line-strong` stronger; plain dividers use `--tr-line`, which is unchanged. Labelyard still has the canvas values;
+the documentation website (task 5) too.
 
 ## Artboards of 0.1.0
 
@@ -90,6 +111,15 @@ details are in [`spec.ts`](../../../e2e/support/artboards/spec.ts).
 | `Settings-General.dc.html` | `Einstellungen: Allgemein` | 1440 px | [`settings-general.ts`](../../../e2e/support/artboards/settings-general.ts) |
 | `Settings-General-Phone.dc.html` | `Einstellungen: Allgemein (Handy)` | 390 × 844 | [`settings-general-phone.ts`](../../../e2e/support/artboards/settings-general-phone.ts) |
 | `Audit.dc.html` | `Protokoll` | 1440 px | [`audit.ts`](../../../e2e/support/artboards/audit.ts) |
+
+`Connection-Edit-Syncthing.dc.html` has no preview mark in its title, so it belongs to 0.1.0, but several of its
+sections carry the badge `Vorschau 0.2.0`: provisioning, coupled devices, the tabs `Geräte`, `Einstellungen` and
+`Ignorieren` and the device and folder dialogs. Those sections are not part of 0.1.0; the expectation leaves them out,
+and the task that builds the view does not build them either.
+
+When an artboard shows something only in one state (the list when there is content, the hint when there is none), the
+expectation keeps it out of `expect` and lists it under `inState`, because the gate checks `expect` again in every
+state.
 
 The plan used working names for some artboards; the canvas names are the ones above.
 

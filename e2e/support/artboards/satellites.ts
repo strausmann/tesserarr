@@ -8,11 +8,13 @@ export const satellites: ArtboardSpec = {
     title: 'Satelliten',
     viewport: 'desktop',
     expect: {
-        headings: ['Satelliten', 'Registrierte Satelliten'],
+        headings: ['Satelliten', 'Registrierte Satelliten', 'Gefahrenbereich'],
         controls: [
             'button:Satellit registrieren',
             'table:Registrierte Satelliten',
             'button:Prüfauftrag senden',
+            // The detail of the selected satellite; the canvas selects Altes NAS.
+            'button:Satellit Altes NAS widerrufen',
         ],
         states: ['filled'],
     },
