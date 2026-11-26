@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Authorization\Authorizer;
+use App\Authorization\Permission;
 use App\Concurrency\AdvisoryConcurrencyBarrier;
 use App\Concurrency\ConcurrencyBarrier;
 use App\Concurrency\NullConcurrencyBarrier;
@@ -14,13 +16,17 @@ use App\Database\PostgresMigrationLock;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Access\Response;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Sanctum\Contracts\HasAbilities;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -39,6 +45,10 @@ class AppServiceProvider extends ServiceProvider
             (string) config('tesserarr.backup.pg_dump'),
         ));
         $this->app->bind(MigrationLock::class, fn () => new PostgresMigrationLock(DB::connection()));
+
+        // Stateless: it reads request and guard on every call. A binding, not
+        // a class name in the gates, so a test can decorate it.
+        $this->app->bind(Authorizer::class);
     }
 
     /**
@@ -49,6 +59,30 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
 
         TrustProxies::at(config('tesserarr.trusted_proxies'));
+
+        $this->definePermissionGates();
+    }
+
+    /**
+     * One gate per permission of the catalogue, and each of them only asks
+     * the Authorizer (ADR-0016). The credential is the token Sanctum resolved
+     * for the request, or null for a session (sanctum.guard = []). A refusal
+     * carries the reason of the decision as its message.
+     */
+    private function definePermissionGates(): void
+    {
+        foreach (Permission::cases() as $permission) {
+            Gate::define($permission->value, static function (Authenticatable $user) use ($permission): Response {
+                $credential = method_exists($user, 'currentAccessToken') ? $user->currentAccessToken() : null;
+                $decision = app(Authorizer::class)->allows(
+                    $user,
+                    $credential instanceof HasAbilities ? $credential : null,
+                    $permission,
+                );
+
+                return $decision->allowed ? Response::allow() : Response::deny($decision->reason);
+            });
+        }
     }
 
     /**

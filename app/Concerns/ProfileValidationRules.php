@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Concerns;
 
+use App\Identity\Rules\DisplayName;
+use App\Identity\Rules\Username;
 use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
@@ -12,43 +14,30 @@ use Illuminate\Validation\Rules\Unique;
 trait ProfileValidationRules
 {
     /**
-     * Get the validation rules used to validate user profiles.
+     * The fields of the own profile: username and display name. The contact
+     * address arrives with task 8a, with its confirmation.
      *
-     * @return array<string, array<int, Unique|ValidationRule|array<mixed>|string>>
+     * @return array<string, array<int, Unique|ValidationRule|string>>
      */
     protected function profileRules(?int $userId = null): array
     {
         return [
-            'name' => $this->nameRules(),
-            'email' => $this->emailRules($userId),
+            'username' => $this->usernameRules($userId),
+            'display_name' => ['present', 'nullable', new DisplayName],
         ];
     }
 
     /**
-     * Get the validation rules used to validate user names.
-     *
-     * @return array<int, Unique|ValidationRule|array<mixed>|string>
+     * @return array<int, Unique|ValidationRule|string>
      */
-    protected function nameRules(): array
-    {
-        return ['required', 'string', 'max:255'];
-    }
-
-    /**
-     * Get the validation rules used to validate user emails.
-     *
-     * @return array<int, Unique|ValidationRule|array<mixed>|string>
-     */
-    protected function emailRules(?int $userId = null): array
+    protected function usernameRules(?int $userId = null): array
     {
         return [
             'required',
-            'string',
-            'email',
-            'max:255',
+            new Username,
             $userId === null
-                ? Rule::unique(User::class)
-                : Rule::unique(User::class)->ignore($userId),
+                ? Rule::unique(User::class, 'username')
+                : Rule::unique(User::class, 'username')->ignore($userId),
         ];
     }
 }

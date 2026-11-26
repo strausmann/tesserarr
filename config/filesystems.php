@@ -35,7 +35,10 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Tesserarr: no /storage/{path} route. Nothing serves private
+            // files yet; a task that needs signed downloads turns it on with
+            // its own check (every route goes through the Authorizer).
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

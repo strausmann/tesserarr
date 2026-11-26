@@ -65,7 +65,7 @@ concurrency:
 jobs:
   release:
     name: semantic-release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # workflow_dispatch can be triggered against any ref via the Actions UI.
     # Releases must only ever come from main — refuse to run on anything else.
     if: github.ref == 'refs/heads/main'
@@ -186,7 +186,7 @@ jobs:
     name: Report unpublished release
     needs: [release, images, release-sbom, publish-release]
     if: always() && needs.release.outputs.new-release-published == 'true' && !inputs.dry_run && needs.publish-release.result != 'success'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions: {}
     steps:
       - name: Write the rebuild instructions to the step summary
@@ -258,7 +258,7 @@ jobs:
     name: Release SBOM
     needs: [release, images]
     if: needs.release.outputs.new-release-published == 'true' && !inputs.dry_run
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
@@ -316,7 +316,7 @@ jobs:
     name: Publish release
     needs: [release, images, release-sbom]
     if: needs.release.outputs.new-release-published == 'true' && !inputs.dry_run
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

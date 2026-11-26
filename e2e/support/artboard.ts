@@ -49,6 +49,33 @@ export const stateFixtures: Record<
             ).toBeVisible();
         },
     },
+    // At least the operator of the sign-in is listed.
+    Users: {
+        filled: async (page) => {
+            await expect(
+                page
+                    .getByRole('cell', { name: 'e2e-operator' })
+                    .or(page.getByText('e2e-operator'))
+                    .first(),
+            ).toBeVisible();
+        },
+    },
+    // An own role "Mitbetreuer" between the built-in ones, as on the artboard.
+    Roles: {
+        filled: async (page) => {
+            await ensureOwnRole(page);
+        },
+    },
+    // An entry exists once the own role is created (role.create).
+    'Audit log': {
+        filled: async (page) => {
+            await ensureOwnRole(page);
+            await page.goto('/audit');
+            await expect(
+                page.getByRole('table', { name: 'Protokolleinträge' }),
+            ).toBeVisible();
+        },
+    },
     // A friend nothing has been shared with yet.
     'Friend home': {
         empty: async (page) => {
@@ -61,6 +88,26 @@ export const stateFixtures: Record<
         },
     },
 };
+
+/** Creates the own role "Mitbetreuer" on /roles unless it exists already. */
+async function ensureOwnRole(page: Page): Promise<void> {
+    await page.goto('/roles');
+    const remove = page.getByRole('button', {
+        name: 'Rolle „Mitbetreuer“ löschen',
+    });
+    if ((await remove.count()) === 0) {
+        await page.getByRole('button', { name: 'Rolle anlegen' }).click();
+        await page
+            .getByRole('dialog')
+            .getByLabel('Name der Rolle')
+            .fill('Mitbetreuer');
+        await page
+            .getByRole('dialog')
+            .getByRole('button', { name: 'Rolle anlegen' })
+            .click();
+    }
+    await expect(remove).toBeVisible();
+}
 
 type AriaRole = Parameters<Page['getByRole']>[0];
 

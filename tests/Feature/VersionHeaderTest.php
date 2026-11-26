@@ -23,7 +23,7 @@ beforeEach(function () {
 });
 
 it('sends X-Tesserarr-Version on api and inertia responses but not on static assets', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
     // Routes owned by this test: one of the token API, one file.
     Route::middleware('token-api')->get('/api/v1/_probe', fn () => ['ok' => true]);
     Route::get('/_probe/file', fn () => response()->file(public_path('favicon.svg')));
@@ -57,7 +57,7 @@ it('names the running version in the header of an outdated Inertia visit', funct
     // The tab was built for 1.2.2: Inertia answers 409 with the location of
     // a full visit. A background request (router.reload) does not follow it;
     // the header tells the page that a new version runs.
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
         ->get('/dashboard', ['X-Inertia' => 'true', 'X-Inertia-Version' => '1.2.2'])
@@ -75,7 +75,7 @@ it('uses the running version as the Inertia asset version and page prop', functi
 
 it('names the commit as well, so two builds of the rolling tag dev differ', function () {
     config(['app.version' => 'dev', 'app.revision' => '4f2a9c1']);
-    $user = User::factory()->create();
+    $user = User::factory()->operator()->create();
 
     $this->get('/login')
         ->assertHeader(VERSION_HEADER, 'dev+4f2a9c1')

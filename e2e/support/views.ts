@@ -7,8 +7,11 @@
  * of the artboard in the mockup canvas and what that artboard shows.
  */
 
+import { audit } from './artboards/audit';
 import { dashboard } from './artboards/dashboard';
 import { friendHome } from './artboards/friend-home';
+import { roles } from './artboards/roles';
+import { users } from './artboards/users';
 
 export type Role = 'guest' | 'friend' | 'operator';
 
@@ -124,6 +127,32 @@ export const gatedViews: GatedView[] = [
                 texts: ['Noch nichts mit dir geteilt', 'Noch keine Token'],
             },
         },
+    },
+    // Task 8. The user list without the invitations (button "Einladen",
+    // table "Offene Einladungen", their empty state: task 10).
+    {
+        name: 'Users',
+        path: '/users',
+        as: 'operator',
+        artboard: users.artboard,
+        locale: 'de-DE',
+        expect: { ...users.expect, states: ['filled'] },
+    },
+    {
+        name: 'Roles',
+        path: '/roles',
+        as: 'operator',
+        artboard: roles.artboard,
+        locale: 'de-DE',
+        expect: roles.expect,
+    },
+    {
+        name: 'Audit log',
+        path: '/audit',
+        as: 'operator',
+        artboard: audit.artboard,
+        locale: 'de-DE',
+        expect: audit.expect,
     },
 ];
 

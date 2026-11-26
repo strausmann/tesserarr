@@ -48,7 +48,7 @@ it('stores the newest release and tells the operator when it is newer', function
 
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
-    expect(releaseProp($this, User::factory()->create()))->toMatchArray([
+    expect(releaseProp($this, User::factory()->operator()->create()))->toMatchArray([
         'status' => 'known',
         'latest' => '0.2.0',
         'newer' => true,
@@ -61,14 +61,14 @@ it('says the running version is the newest when GitHub names it', function () {
 
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
-    expect(releaseProp($this, User::factory()->create()))->toMatchArray(['latest' => '0.1.0', 'newer' => false]);
+    expect(releaseProp($this, User::factory()->operator()->create()))->toMatchArray(['latest' => '0.1.0', 'newer' => false]);
 });
 
 it('loads the release only when the page asks for it', function () {
     Http::fake([RELEASE_URL => Http::response(['tag_name' => 'v0.2.0'])]);
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
-    $this->actingAs(User::factory()->create())->get('/dashboard')
+    $this->actingAs(User::factory()->operator()->create())->get('/dashboard')
         ->assertInertia(fn (Assert $page) => $page->missing('release'));
 });
 
@@ -106,7 +106,7 @@ it('keeps the last known release when GitHub cannot be reached', function () {
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
     expect(Cache::get(ReleaseCheck::CACHE_KEY))->toBe($stored)
-        ->and(releaseProp($this, User::factory()->create()))->toMatchArray(['latest' => '0.2.0']);
+        ->and(releaseProp($this, User::factory()->operator()->create()))->toMatchArray(['latest' => '0.2.0']);
 });
 
 it('keeps the last known release when GitHub answers with an error', function () {
@@ -119,7 +119,7 @@ it('keeps the last known release when GitHub answers with an error', function ()
     $this->artisan('tesserarr:release-check')->assertSuccessful();
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
-    expect(releaseProp($this, User::factory()->create()))->toMatchArray(['latest' => '0.2.0']);
+    expect(releaseProp($this, User::factory()->operator()->create()))->toMatchArray(['latest' => '0.2.0']);
 });
 
 it('stores nothing for a tag that is not a plain version', function (mixed $tag) {
@@ -128,7 +128,7 @@ it('stores nothing for a tag that is not a plain version', function (mixed $tag)
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
     expect(Cache::get(ReleaseCheck::CACHE_KEY))->toBeNull()
-        ->and(releaseProp($this, User::factory()->create()))->toBe(['status' => 'unknown']);
+        ->and(releaseProp($this, User::factory()->operator()->create()))->toBe(['status' => 'unknown']);
 })->with([
     'markup' => '<img src=x onerror=alert(1)>',
     'a prerelease' => 'v0.2.0-rc.1',
@@ -154,7 +154,7 @@ it('asks no one when the check is switched off', function () {
     $this->artisan('tesserarr:release-check')->assertSuccessful();
 
     Http::assertNothingSent();
-    expect(releaseProp($this, User::factory()->create()))->toBe(['status' => 'off']);
+    expect(releaseProp($this, User::factory()->operator()->create()))->toBe(['status' => 'off']);
 });
 
 it('is off by default: no request leaves the instance and About says so', function () {
@@ -169,7 +169,7 @@ it('is off by default: no request leaves the instance and About says so', functi
     app(ReleaseCheck::class)->refresh();
 
     Http::assertNothingSent();
-    expect(releaseProp($this, User::factory()->create()))->toBe(['status' => 'off'])
+    expect(releaseProp($this, User::factory()->operator()->create()))->toBe(['status' => 'off'])
         ->and((string) file_get_contents(base_path('.env.example')))->toContain("TESSERARR_RELEASE_CHECK=false\n");
 });
 

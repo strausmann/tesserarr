@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Path to `area:*` label mapping, read by actions/labeler from
+# .github/workflows/pr-metadata.yml. A pull request gets every label whose globs
+# match at least one changed file. The labels themselves live in
+# .github/labels.yml. Labels are only ever added, never removed.
+
+"area:api":
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/OpenApi/**
+          - website/openapi/**
+          - routes/api.php
+          - scripts/openapi_quality.py
+          - scripts/test_openapi_quality.py
+
+"area:audit":
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/Audit/**
+          - database/migrations/*audit*
+
+"area:ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - scripts/**
+          - commitlint.config.cjs
+          - licence-policy.yml
+          - renovate.json
+          - phpstan.neon
+          - pint.json
+          - phpunit.xml
+          - vitest.config.ts
+          - playwright.config.ts
+
+"area:core":
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/Console/**
+          - app/Concerns/**
+          - app/Concurrency/**
+          - app/Database/**
+          - app/Providers/**
+          - app/Runtime/**
+          - app/Updates/**
+          - bootstrap/**
+          - config/**
+          - artisan
+
+"area:deploy":
+  - changed-files:
+      - any-glob-to-any-file:
+          - docker/**
+          - compose*.yaml
+          - .dockerignore
+
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - website/src/**
+          - website/public/**
+          - README.md
+          - CONTRIBUTING.md
+          - CLAUDE.md
+          - SECURITY.md
+          - lang/**
+
+"area:identity":
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/Authorization/**
+          - app/Models/User*.php
+          - app/Models/Permission*.php
+          - app/Models/Role*.php
+
+"area:release":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .releaserc.json
+          - .github/release-tools/**
+          - .github/workflows/release*.yml
+          - .github/workflows/docker-publish.yml
+          - .github/workflows/preview-image.yml
+          - scripts/release_impact.py
+
+"area:web":
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/Http/**
+          - resources/**
+          - routes/web.php
+          - e2e/**
+          - public/**
+          - svelte.config.js
+          - vite.config.ts

@@ -5,21 +5,26 @@ declare(strict_types=1);
 namespace App\Http\Requests\Settings;
 
 use App\Concerns\ProfileValidationRules;
+use App\Identity\Rules\Username;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Str;
 
 class ProfileUpdateRequest extends FormRequest
 {
     use ProfileValidationRules;
 
     /**
-     * Prepare the data for validation.
+     * One form per name: "Max" and "max", or the composed and decomposed
+     * "ë", are the same username (lower case, NFC).
      */
     protected function prepareForValidation(): void
     {
-        if (config('fortify.lowercase_usernames') && is_string($this->input('email'))) {
-            $this->merge(['email' => Str::lower($this->input('email'))]);
+        if (is_string($this->input('username'))) {
+            $this->merge(['username' => Username::normalise($this->input('username'))]);
+        }
+
+        if (is_string($this->input('display_name'))) {
+            $this->merge(['display_name' => trim($this->input('display_name'))]);
         }
     }
 

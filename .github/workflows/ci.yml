@@ -29,7 +29,7 @@ concurrency:
 jobs:
   php:
     name: PHP — lint, static analysis, test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     services:
       postgres:
@@ -120,7 +120,7 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '26'
           cache: npm
 
       - name: Build the assets
@@ -141,7 +141,7 @@ jobs:
       #   app/Execution:85 app/Catalog:85 app/Satellites:85 app/Connections:85
       - name: Coverage gate per directory
         if: steps.app.outputs.exists == 'true'
-        run: php scripts/coverage_gate.php clover.xml
+        run: php scripts/coverage_gate.php clover.xml app/Authorization:90 app/Identity:90
 
       # The OpenAPI document of the token API is committed
       # (website/openapi/openapi.json; the website and the API reference in the
@@ -184,7 +184,7 @@ jobs:
 
   web:
     name: Web — typecheck, lint, test, build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     env:
       IMAGE: tesserarr:e2e
@@ -234,7 +234,7 @@ jobs:
         if: steps.app.outputs.exists == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '26'
           cache: npm
 
       - name: npm ci
@@ -326,7 +326,7 @@ jobs:
 
   scripts:
     name: Scripts — self-tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -349,7 +349,7 @@ jobs:
       # Release guard and registry rules (scripts/test_*.py); standard library
       # only, pytest runs the unittest cases.
       - name: Install pytest
-        run: python3 -m pip install --user --no-cache-dir 'pytest==9.1.1'
+        run: python3 -m pip install --user --no-cache-dir 'pytest==9.2.0'
 
       - name: Python scripts self-test
         env:
@@ -363,7 +363,7 @@ jobs:
   # ARGs, without a default. A required check of the rulesets.
   base-images:
     name: Base image pins
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -389,7 +389,7 @@ jobs:
   # and Packagist, so it fails when they cannot be reached.
   lockfile-sources:
     name: Lockfile sources
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -410,7 +410,7 @@ jobs:
 
   docker-build:
     name: Docker — build smoke test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       IMAGE: tesserarr:ci
@@ -500,7 +500,7 @@ jobs:
   # tag on the initial commit and holds no application.
   upgrade:
     name: Upgrade — migrations from the last release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     services:
       postgres:
@@ -589,7 +589,7 @@ jobs:
         if: steps.prev.outputs.tag != ''
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '26'
           cache: npm
 
       - name: Feature suite on the upgraded code
@@ -605,7 +605,7 @@ jobs:
 
   privacy-scan:
     name: Privacy / secret scan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -692,7 +692,7 @@ jobs:
 
   reuse:
     name: REUSE — licensing of every file
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

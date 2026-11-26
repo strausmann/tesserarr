@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Ui;
 
 use App\Http\Controllers\Controller;
+use App\Http\SelfService;
 use App\Http\Ui\CollapsibleSection;
 use App\Models\User;
 use Illuminate\Container\Attributes\CurrentUser;
@@ -23,6 +24,7 @@ use Illuminate\Validation\Rule;
  * sections toggled at once from two tabs cannot overwrite each other. A key
  * outside CollapsibleSection is rejected with 422.
  */
+#[SelfService]
 final class CollapsedSectionController extends Controller
 {
     public function __invoke(Request $request, #[CurrentUser] User $user): Response

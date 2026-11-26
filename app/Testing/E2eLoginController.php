@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace App\Testing;
 
+use App\Authorization\Roles;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Runtime\E2eImage;
@@ -23,25 +24,26 @@ use Illuminate\Support\Str;
  */
 final class E2eLoginController extends Controller
 {
-    /** Roles with a fixture account. Real roles arrive with the authorisation model. */
-    public const ROLES = ['friend', 'operator'];
+    /** The fixture accounts: the friend has the role "user", the operator "operator". */
+    public const ROLES = ['friend' => Roles::USER, 'operator' => Roles::OPERATOR];
 
     public function __invoke(Request $request, string $role): RedirectResponse
     {
-        abort_unless(E2eImage::enabled() && in_array($role, self::ROLES, true), 404);
+        abort_unless(E2eImage::enabled() && array_key_exists($role, self::ROLES), 404);
 
         $user = User::query()->firstOrCreate(
-            ['email' => "e2e-{$role}@example.test"],
+            ['username' => "e2e-{$role}"],
             [
-                'name' => 'E2E '.ucfirst($role),
+                'display_name' => 'E2E '.ucfirst($role),
                 'password' => Str::password(32),
                 'email_verified_at' => now(),
             ],
         );
+        $user->syncRoles([self::ROLES[$role]]);
 
         Auth::login($user);
         $request->session()->regenerate();
 
-        return redirect()->route('dashboard');
+        return redirect()->route($role === 'friend' ? 'friend.home' : 'dashboard');
     }
 }
