@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ArtboardExpectation, ArtboardState } from '../views';
+import type { ArtboardExpectation, ArtboardStateElements } from '../views';
 
 /**
  * What one artboard of the approved 0.1.0 mockup canvas shows
@@ -39,11 +39,6 @@ export type ArtboardSpec = {
     /** The artboard is drawn for 1440 px (desktop) or 390 × 844 px (phone). */
     viewport: 'desktop' | 'phone';
     expect: ArtboardExpectation;
-    /** Headings, controls (`role:name`) and texts that only this state shows. */
-    inState?: Partial<
-        Record<
-            ArtboardState,
-            { headings?: string[]; controls?: string[]; texts?: string[] }
-        >
-    >;
+    /** Headings, controls (`role:name`) and texts that only one state shows. */
+    inState?: ArtboardStateElements;
 };
