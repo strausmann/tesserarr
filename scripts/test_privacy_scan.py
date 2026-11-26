@@ -77,6 +77,21 @@ class MainTest(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(ps.main([tmp]), 0)
 
+    def test_scans_only_the_given_suffixes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            (dist / "_astro").mkdir()
+            (dist / "_astro" / "ui.js").write_text("translated by someone@gmail.com\n", encoding="utf-8")
+            (dist / "index.html").write_text("<p>media.example.org</p>\n", encoding="utf-8")
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(ps.main(["--suffix", ".html", tmp]), 0)
+                self.assertEqual(ps.main([tmp]), 1)
+            (dist / "index.html").write_text("<p>100.64.0.1</p>\n", encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                self.assertEqual(ps.main(["--suffix", ".html", tmp]), 1)
+            self.assertIn("index.html:1: private address 100.64.0.1", err.getvalue())
+
     def test_exits_1_on_a_path_that_does_not_exist(self) -> None:
         err = io.StringIO()
         with redirect_stderr(err):

@@ -202,6 +202,7 @@ php artisan list --format=json > /tmp/artisan-list.json && python3 scripts/cli_r
 npm --prefix website ci && npm --prefix website run build   # the website, with the links validator (Node 22)
 node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
 python3 scripts/privacy_scan.py website/src website/public website/openapi
+python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
 ```
 
 | Check                               | Job in CI                                  |
@@ -430,7 +431,10 @@ still available as the artifact `website-dist`.
   from `website/openapi/openapi.json` ("API spec is up to date", see "API documentation"). Change the command or the
   route, regenerate, commit.
 - The `real-data scan` job (`scripts/privacy_scan.py`) fails on private IPv4 addresses (the carrier-grade NAT range of Tailscale included), host
-  names of an installation and personal e-mail addresses in `website/src`, `website/public` and `website/openapi`.
+  names of an installation and personal e-mail addresses in `website/src`, `website/public` and `website/openapi`; the
+  `build` job runs it again over the pages and the sitemap of the built site in `website/dist`.
+- The website needs Node 22.23.4 or newer (Astro's minimum), pinned in `website/.nvmrc`. The `NODE_IMAGE` of
+  `docker/base-images.env` builds the app's assets only and may be older.
 
 ## API documentation
 
@@ -445,10 +449,29 @@ Every operation needs, and the `API quality gate` (`scripts/openapi_quality.py`)
 | ---- | --- |
 | A unique `operationId` | the route name or `#[Endpoint(operationId: '…')]` |
 | Summary and description | the PHPDoc of the controller method (first line, then the rest) or `#[Endpoint(title: …, description: …)]` |
-| A description for every parameter | a comment on the validation rule, or `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
-| Examples for the request body and every 2xx response | `example:` on the parameter attributes, `#[Response(200, '…', examples: [...])]` |
-| At least one 4xx response, each with its meaning | `#[Response(403, 'The token lacks …')]`, and the ones Scramble infers from validation and authorisation |
+| A description for every parameter | a PHPDoc comment on the validation rule, or `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
+| Examples for the request body and every 2xx response | `@example` in the PHPDoc comment of each validation rule (see below), `example:` on the parameter attributes, `#[Response(200, '…', examples: [...])]` |
+| At least one 4xx response, each with its meaning | `#[Response(403, 'The token lacks …')]`, and the ones Scramble infers from `validate()` (422) and from `authorize()` or `abort(403)` (403); Scramble writes those as references into `components/responses`, which the gate resolves |
 | The token ability | the route's `can:<permission>` middleware; `App\OpenApi\TokenAbilityExtension` writes it as the scope of the `apiToken` security requirement, from the same middleware that checks it |
+
+A body example is required, also for a body that only comes from `validate()`. Give each rule a PHPDoc comment with its
+meaning and an `@example`:
+
+```php
+$request->validate([
+    /**
+     * Why the invitation is revoked.
+     *
+     * @example no longer needed
+     */
+    'reason' => ['required', 'string'],
+]);
+```
+
+**`authorize()` alone does not satisfy the gate.** A check inside the controller (`$this->authorize()`, `Gate::authorize()`)
+is invisible to the export; the permission of a `/api/v1` route must also be its `can:<permission>` middleware, or the gate
+reports "no token ability". An empty security alternative (`{}`) is refused, and `operationId`s are compared without
+case.
 
 A pull request that adds or changes a route under `/api/v1` runs `php artisan scramble:export` and commits the document.
 "API spec is up to date" fails when the committed file differs from the export, is missing or is new.

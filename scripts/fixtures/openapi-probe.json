@@ -184,6 +184,82 @@
                     }
                 ]
             }
+        },
+        "/_probe/archive": {
+            "post": {
+                "operationId": "probe.archive",
+                "description": "Marks the probe as archived. The 403 and 422 answers are the ones\nScramble infers from abort_unless() and validate(), without attributes.",
+                "summary": "Archive the probe",
+                "tags": [
+                    "Probe"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "reason": {
+                                        "type": "string",
+                                        "description": "Why the probe is archived.",
+                                        "examples": [
+                                            "no longer needed"
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "reason"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The archived probe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "examples": [
+                                        {
+                                            "name": "probe",
+                                            "archived": true
+                                        }
+                                    ],
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "const": "probe"
+                                        },
+                                        "archived": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "archived"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    }
+                },
+                "security": [
+                    {
+                        "apiToken": [
+                            "catalog.manage"
+                        ]
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -192,6 +268,57 @@
                 "type": "http",
                 "description": "An API token of a user (Settings > API tokens). The scopes of an operation name the permission the token must carry; the owner must hold it as well.",
                 "scheme": "bearer"
+            }
+        },
+        "responses": {
+            "AuthorizationException": {
+                "description": "Authorization error",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Error overview."
+                                }
+                            },
+                            "required": [
+                                "message"
+                            ]
+                        }
+                    }
+                }
+            },
+            "ValidationException": {
+                "description": "Validation error",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Errors overview."
+                                },
+                                "errors": {
+                                    "type": "object",
+                                    "description": "A detailed description of each field that failed validation.",
+                                    "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            },
+                            "required": [
+                                "message",
+                                "errors"
+                            ]
+                        }
+                    }
+                }
             }
         }
     }

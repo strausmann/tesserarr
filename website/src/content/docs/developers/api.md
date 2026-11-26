@@ -14,10 +14,10 @@ inside the app at `/docs/api` (Scalar, for signed-in users).
 | --- | --- |
 | `operationId`, unique | the route name, or `#[Endpoint(operationId: …)]` |
 | Summary and description | the first line and the rest of the controller method's PHPDoc, or `#[Endpoint(title: …, description: …)]` |
-| A description for each parameter | validation rules with a comment, or `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
-| Examples for the request body and every 2xx response | `example:` of the parameter attributes, `#[Response(…, examples: […])]` |
-| At least one error response with its meaning | `#[Response(403, 'The token lacks …')]` and the ones Scramble infers (validation, authorisation) |
-| The token ability | the route's `can:<permission>` middleware, the same one that checks it |
+| A description for each parameter | a PHPDoc comment on the validation rule, or `#[QueryParameter]`, `#[PathParameter]`, `#[BodyParameter]` |
+| Examples for the request body and every 2xx response | `@example` in that PHPDoc comment, `example:` of the parameter attributes, `#[Response(…, examples: […])]` |
+| At least one error response with its meaning | `#[Response(403, 'The token lacks …')]` and the ones Scramble infers from `validate()` and `authorize()` |
+| The token ability | the route's `can:<permission>` middleware, the same one that checks it. `authorize()` in the controller alone is not enough: the export cannot see it |
 
 ## The two gates
 

@@ -18,11 +18,12 @@ The site lives in `website/` (Astro Starlight) and is published from `main` to G
   `198.51.100.0/24` and `203.0.113.0/24`, and the names `alice` and `bob`. The `real-data scan` job
   (`scripts/privacy_scan.py`) fails on private addresses, host names of an installation and personal e-mail addresses.
 
-Build and check locally (Node 22):
+Build and check locally (Node 22.23.4 or newer, see `website/.nvmrc`):
 
 ```bash
 npm --prefix website ci
 npm --prefix website run build
 node --test website/scripts/*.test.mjs && node website/scripts/check-locale-parity.mjs
 python3 scripts/privacy_scan.py website/src website/public website/openapi
+python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
 ```

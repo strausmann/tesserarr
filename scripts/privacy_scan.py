@@ -15,6 +15,11 @@ Examples use the documentation ranges 192.0.2.0/24, 198.51.100.0/24 and
 203.0.113.0/24 and the domain example.org (CONTRIBUTING.md, "No environment
 details, ever").
 
+With ``--suffix`` only files with that ending are read. The built site
+(website/dist) is scanned as ``--suffix .html --suffix .xml``: its JavaScript
+bundles (_astro/, pagefind/) are third-party code whose credits name their
+translators' e-mail addresses, while every page and the sitemap are ours.
+
 Standard library only. Prints each finding with file and line, exits 1 when
 there is one.
 """
@@ -56,17 +61,22 @@ def findings_in(text: str, name: str) -> list[str]:
     return found
 
 
-def files_under(path: Path) -> list[Path]:
+def files_under(path: Path, suffixes: tuple[str, ...] = ()) -> list[Path]:
     if path.is_file():
         return [path]
     return sorted(
-        p for p in path.rglob("*") if p.is_file() and not SKIP_DIRS.intersection(p.relative_to(path).parts)
+        p
+        for p in path.rglob("*")
+        if p.is_file()
+        and not SKIP_DIRS.intersection(p.relative_to(path).parts)
+        and (not suffixes or p.name.endswith(suffixes))
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("paths", nargs="+", type=Path, help="files or directories to scan")
+    parser.add_argument("--suffix", action="append", default=[], help="only files with this ending (repeatable)")
     args = parser.parse_args(argv)
 
     found: list[str] = []
@@ -74,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             print(f"::error::{path} does not exist", file=sys.stderr)
             return 1
-        for file in files_under(path):
+        for file in files_under(path, tuple(args.suffix)):
             try:
                 text = file.read_text(encoding="utf-8")
             except UnicodeDecodeError:
