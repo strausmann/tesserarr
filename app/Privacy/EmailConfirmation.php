@@ -64,6 +64,15 @@ final class EmailConfirmation
 
     public const TOKEN_BYTES = 32;
 
+    /**
+     * Every transaction locks account rows first, then claims, then links.
+     * Two requests can still lock two account rows in opposite order (each
+     * its own, then the owner of an expired reservation of the address it
+     * wants); PostgreSQL then aborts one, and it is run again (Laravel retries
+     * a transaction on a deadlock up to this many times).
+     */
+    public const ATTEMPTS = 3;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly ConcurrencyBarrier $barrier,
@@ -158,7 +167,7 @@ final class EmailConfirmation
                 $this->audit->record(AuditAction::EmailRequested, $by, $user, ['resent' => $ownReservation]);
 
                 return ['token' => $token, 'old' => $row->email_confirmed_at !== null && ! $ownReservation];
-            });
+            }, self::ATTEMPTS);
         } catch (UniqueConstraintViolationException|EmailAlreadyClaimed) {
             $this->audit->record(AuditAction::EmailClaimRejected, $by, $user, [], AuditOutcome::Denied);
 
@@ -236,7 +245,7 @@ final class EmailConfirmation
             );
 
             return (int) $link->user_id;
-        });
+        }, self::ATTEMPTS);
 
         if ($userId === 0) {
             throw new InvalidConfirmationLink;
@@ -263,7 +272,7 @@ final class EmailConfirmation
             if ($this->dropReservationOf($user->id) > 0) {
                 $this->audit->record(AuditAction::EmailReservationReleased, $by, $user);
             }
-        });
+        }, self::ATTEMPTS);
     }
 
     /** The scheduler, hourly: frees every reservation that ran out. Returns their number. */
@@ -290,7 +299,7 @@ final class EmailConfirmation
                 }
 
                 return $this->dropReservationOf((int) $userId);
-            });
+            }, self::ATTEMPTS);
         }
 
         // Pending fields without a claim (none are written so, but cleared all the same).
