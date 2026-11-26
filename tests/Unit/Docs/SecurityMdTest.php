@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 // SECURITY.md follows one schema in every project of the maintainer: one
 // address, one published key. The repository is private, so the policy names
 // no GitHub private vulnerability reporting.

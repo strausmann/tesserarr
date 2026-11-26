@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 /*
  * Licence gate: judges every Composer and npm runtime dependency against
  * licence-policy.yml. Plain PHP, no Composer autoloader, so it also runs on

@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# tests/PHPStan/worker-safety.neon as the rule tests run it: the checked
+# paths point at the fixtures instead of app/ and routes/.
+includes:
+    # Larastan as in phpstan.neon: it resolves facade calls to the classes behind them.
+    - ../../../vendor/larastan/larastan/extension.neon
+    - ../worker-safety.neon
+
+parameters:
+    workerSafety:
+        paths!:
+            - tests/PHPStan/Fixtures/Worker/*
+        localeMiddleware!:
+            - tests/PHPStan/Fixtures/Worker/Middleware/*

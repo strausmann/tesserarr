@@ -3,6 +3,8 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+declare(strict_types=1);
+
 /*
  * Coverage gate per directory, on top of the global `pest --coverage --min=80`.
  * Plain PHP, no Composer autoloader, so it also runs on main.
