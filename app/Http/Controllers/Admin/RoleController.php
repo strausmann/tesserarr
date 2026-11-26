@@ -14,6 +14,7 @@ use App\Audit\AuditOutcome;
 use App\Authorization\BuiltInRoleImmutable;
 use App\Authorization\Permission;
 use App\Authorization\PrivilegeEscalation;
+use App\Authorization\RoleDeletion;
 use App\Authorization\RoleGuard;
 use App\Authorization\Roles;
 use App\Http\Controllers\Controller;
@@ -50,6 +51,7 @@ final class RoleController extends Controller
     public function __construct(
         private readonly RoleGuard $guard,
         private readonly AuditLogger $audit,
+        private readonly RoleDeletion $deletion,
     ) {}
 
     public function index(#[CurrentUser] User $actor): Response
@@ -148,7 +150,7 @@ final class RoleController extends Controller
     }
 
     /**
-     * Deletes an own role; its members get the role "user".
+     * Deletes an own role; its members get the role "user" (RoleDeletion).
      */
     public function destroy(Request $request, Role $role, #[CurrentUser] User $actor): JsonResponse|RedirectResponse
     {
@@ -156,11 +158,7 @@ final class RoleController extends Controller
         $name = (string) $role->getAttribute('name');
 
         try {
-            $this->guard->assertMayChangePermissions($by, $role);
-            // The members get the role "user": giving it needs its permissions.
-            if (User::role($role)->exists()) {
-                $this->guard->assertCanGrant($by, Roles::permissionsOf(Roles::USER));
-            }
+            $members = $this->deletion->delete($by, $role);
         } catch (BuiltInRoleImmutable $e) {
             $this->audit->record(AuditAction::RoleDeleted, $by, $role, ['role' => $name], AuditOutcome::Denied);
 
@@ -170,16 +168,6 @@ final class RoleController extends Controller
 
             return $this->refuse($request, 'privilege_escalation', 403, 'role', $e->getMessage(), $e->permissions);
         }
-
-        $members = DB::transaction(function () use ($role) {
-            $members = User::role($role)->get();
-            foreach ($members as $member) {
-                $member->syncRoles([Roles::USER]);
-            }
-            $role->delete();
-
-            return $members->count();
-        });
 
         $this->audit->record(AuditAction::RoleDeleted, $by, null, ['role' => $name, 'members' => $members]);
 
