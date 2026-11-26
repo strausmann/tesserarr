@@ -654,3 +654,29 @@ describe('worst-case data', () => {
         expect(document.querySelector('table.tr-matrix')).not.toBeNull();
     });
 });
+
+describe('Audit, a deleted role', () => {
+    it('shows the name of the role in the row', async () => {
+        await render(Audit, {
+            entries: [
+                {
+                    id: 9,
+                    at: '2026-01-02T10:00:00+00:00',
+                    who: 'Alice',
+                    source: 'ui',
+                    action: 'role.delete',
+                    subject: 'helpers',
+                    outcome: 'done',
+                },
+            ],
+            total: 1,
+            newer: null,
+            older: null,
+            filters: { period: '7d', source: 'all', who: null, q: null },
+            people: [],
+        });
+
+        const row = document.querySelector('tbody tr')!;
+        expect(row.textContent).toContain('audit.action.role.delete: helpers');
+    });
+});

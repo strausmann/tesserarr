@@ -7,12 +7,14 @@ declare(strict_types=1);
 
 use App\Audit\Actor;
 use App\Audit\AuditAction;
+use App\Audit\AuditEntry;
 use App\Audit\AuditLogger;
 use App\Authorization\Roles;
 use App\Models\User;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
+use Spatie\Permission\Models\Role;
 
 function logEntries(int $count, Actor $actor, ?User $subject = null): void
 {
@@ -75,4 +77,20 @@ it('refuses the log to a user without audit.view', function () {
     $friend = User::factory()->withRole(Roles::USER)->create();
 
     $this->actingAs($friend)->getJson('/audit')->assertForbidden()->assertJsonPath('message', 'owner_lacks_permission');
+});
+
+it('names the deleted role on the log page, though the role is gone', function () {
+    $operator = User::factory()->operator()->create();
+    $role = Role::create(['name' => 'helpers', 'guard_name' => Roles::GUARD]);
+
+    $this->actingAs($operator)->delete("/roles/{$role->id}")->assertRedirect();
+
+    $entry = AuditEntry::query()->where('action', 'role.delete')->sole();
+    expect($entry->subject_type)->toBe('role')
+        ->and($entry->subject_id)->toBe($role->id)
+        ->and($entry->context['role'])->toBe('helpers');
+
+    $this->get('/audit')->assertInertia(fn (Assert $page) => $page
+        ->where('entries.0.action', 'role.delete')
+        ->where('entries.0.subject', 'helpers'));
 });

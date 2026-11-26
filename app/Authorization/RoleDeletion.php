@@ -74,7 +74,7 @@ final class RoleDeletion
             }
             $roleNow->delete();
             // In the transaction: no deletion without its entry.
-            $this->audit->record(AuditAction::RoleDeleted, $by, null, ['role' => (string) $roleNow->getAttribute('name'), 'members' => $members->count()]);
+            $this->audit->record(AuditAction::RoleDeleted, $by, $roleNow, ['role' => (string) $roleNow->getAttribute('name'), 'members' => $members->count()]);
 
             return $members->count();
         }, self::ATTEMPTS);
