@@ -1,0 +1,161 @@
+# SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: PR metadata
+
+# Every pull request carries a milestone and a `type:*` label. This workflow sets
+# both, adds the `area:*` labels from the changed paths, and fails the check
+# `PR metadata` when a milestone or a `type:*` label is still missing afterwards.
+#
+#   Milestone  head milestone/x.y.z or base milestone/x.y.z or milestone/x.y.x
+#                -> milestone x.y.z (x.y.x)
+#              otherwise (base main) the milestone of the first issue named by
+#                `Closes|Fixes|Resolves|Refs #n` in the description
+#              otherwise the open patch milestone `x.y.x`, if exactly one is open
+#              otherwise, for changes that do not release by themselves (docs, ci,
+#                chore, test, refactor, build, style), the lowest open minor
+#                milestone, which is the first release that carries them
+#              otherwise nothing is set and the label `status:needs-triage` is
+#                added: a `fix` or `perf` on main without an issue needs a person
+#              A milestone that is already set is never changed.
+#   Type       from the Conventional Commit type of the title:
+#                feat -> type:feature, fix -> type:bug, docs -> type:docs,
+#                chore, ci, build, perf, style, revert -> type:chore,
+#                refactor -> type:refactor, test -> type:test
+#              An existing `type:*` label is never replaced.
+#   Area       .github/labeler.yml, applied by actions/labeler (labels are only added).
+#              Sync pull requests (`chore: sync main into …`) get none: they carry the
+#              whole diff of main, which says nothing about the pull request itself.
+#   Renovate   pull requests from Renovate get the label `dependencies`.
+#
+# Security: `pull_request_target` runs this file from the base branch with a
+# write token, so the workflow never checks out or runs code of the pull
+# request. The title, branch names and description only reach the shell through
+# `env`, never through `${{ }}` inside `run:`. actions/labeler reads
+# .github/labeler.yml from the base branch of the pull request and the changed
+# file list from the API; a milestone branch that does not have the file yet
+# (before the next main -> milestone sync) logs a warning and skips the area labels.
+#
+# Whether the check is required is a repository ruleset setting, see
+# CONTRIBUTING.md, "Pull request metadata".
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review, converted_to_draft, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: pr-metadata-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    name: PR metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Add the area labels from the changed paths
+        # The area labels are a convenience; a missing labeler.yml on an old
+        # milestone branch must not hide the real check below.
+        continue-on-error: true
+        if: "!startsWith(github.event.pull_request.title, 'chore: sync main into ')"
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          sync-labels: false
+
+      - name: Set the milestone and the type label, then check both
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+
+          current=$(gh api "repos/$REPO/issues/$PR")
+          milestone=$(jq -r '.milestone.title // ""' <<<"$current")
+          labels=$(jq -r '.labels[].name' <<<"$current")
+
+          add_labels=()
+
+          # --- type label ---------------------------------------------------
+          cc_type=$(sed -nE 's/^([a-z]+)(\([^)]*\))?!?: .*/\1/p' <<<"$TITLE" | head -n1)
+          if ! grep -q '^type:' <<<"$labels"; then
+            case "$cc_type" in
+              feat) add_labels+=("type:feature") ;;
+              fix) add_labels+=("type:bug") ;;
+              docs) add_labels+=("type:docs") ;;
+              chore | ci | build | perf | style | revert) add_labels+=("type:chore") ;;
+              refactor) add_labels+=("type:refactor") ;;
+              test) add_labels+=("type:test") ;;
+              *) echo "::warning::The title has no Conventional Commit type, so no type label can be derived." ;;
+            esac
+          fi
+
+          # --- renovate ------------------------------------------------------
+          if [ "$AUTHOR" = "renovate[bot]" ] || [[ "$HEAD_REF" == renovate/* ]]; then
+            grep -qx 'dependencies' <<<"$labels" || add_labels+=("dependencies")
+          fi
+
+          # --- milestone -----------------------------------------------------
+          milestones=$(gh api --paginate "repos/$REPO/milestones?state=open&per_page=100" --jq '.[] | "\(.number)\t\(.title)"')
+          number_of() { awk -F'\t' -v t="$1" '$2 == t { print $1; exit }' <<<"$milestones"; }
+
+          wanted=""
+          if [ -z "$milestone" ]; then
+            if [[ "$BASE_REF" =~ ^milestone/(.+)$ ]]; then
+              wanted="${BASH_REMATCH[1]}"
+            elif [[ "$HEAD_REF" =~ ^milestone/(.+)$ ]]; then
+              wanted="${BASH_REMATCH[1]}"
+            else
+              # first issue named in the description that has a milestone
+              for n in $(grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?) +#[0-9]+' <<<"$BODY" | grep -oE '[0-9]+' || true); do
+                t=$(gh api "repos/$REPO/issues/$n" --jq '.milestone.title // ""' 2>/dev/null || true)
+                if [ -n "$t" ]; then wanted="$t"; break; fi
+              done
+              if [ -z "$wanted" ]; then
+                patch=$(awk -F'\t' '$2 ~ /^[0-9]+\.[0-9]+\.x$/ { print $2 }' <<<"$milestones")
+                if [ -n "$patch" ] && [ "$(wc -l <<<"$patch")" -eq 1 ]; then
+                  wanted="$patch"
+                elif [ "$cc_type" != "fix" ] && [ "$cc_type" != "perf" ] && [ "$cc_type" != "feat" ]; then
+                  wanted=$(awk -F'\t' '$2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { print $2 }' <<<"$milestones" | sort -V | head -n1)
+                fi
+              fi
+            fi
+            if [ -n "$wanted" ] && [ -n "$(number_of "$wanted")" ]; then
+              gh api -X PATCH "repos/$REPO/issues/$PR" -F "milestone=$(number_of "$wanted")" --silent
+              milestone="$wanted"
+              echo "Milestone set to $wanted."
+            else
+              [ -n "$wanted" ] && echo "::warning::Milestone $wanted is not open."
+              grep -qx 'status:needs-triage' <<<"$labels" || add_labels+=("status:needs-triage")
+            fi
+          fi
+
+          if [ "${#add_labels[@]}" -gt 0 ]; then
+            printf '%s\n' "${add_labels[@]}" | jq -R . | jq -s '{labels: .}' \
+              | gh api -X POST "repos/$REPO/issues/$PR/labels" --input - --silent
+            echo "Labels added: ${add_labels[*]}"
+          fi
+
+          # --- the check -----------------------------------------------------
+          final=$(gh api "repos/$REPO/issues/$PR")
+          failed=0
+          if [ -z "$(jq -r '.milestone.title // ""' <<<"$final")" ]; then
+            echo "::error::The pull request has no milestone. Set one, or name an issue with a milestone as 'Closes #n' or 'Refs #n' in the description."
+            failed=1
+          fi
+          if ! jq -e '[.labels[].name | select(startswith("type:"))] | length > 0' <<<"$final" >/dev/null; then
+            echo "::error::The pull request has no type:* label. Use a Conventional Commit title or set the label by hand."
+            failed=1
+          fi
+          exit "$failed"

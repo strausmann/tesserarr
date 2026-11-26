@@ -201,5 +201,45 @@ class PreviewRedeployTest(unittest.TestCase):
         self.assertTrue(any('"$ROLLING_TAG" == "${INPUT_TAG%-rc.*}-preview"' in b for b in run_blocks(text)))
 
 
+class PrMetadataWorkflowTest(unittest.TestCase):
+    """`pull_request_target` runs with a write token, so it must never touch code of the pull request.
+
+    A text guard: it cannot tell a comment from a command, so each check looks for the exact line.
+    """
+
+    def text(self) -> str:
+        return (WORKFLOWS / "pr-metadata.yml").read_text()
+
+    def test_it_runs_on_pull_request_target_without_checking_out_code(self) -> None:
+        text = self.text()
+        self.assertRegex(text, r"(?m)^  pull_request_target:$")
+        self.assertNotRegex(text, r"(?m)^\s*-?\s*uses: actions/checkout@")
+
+    def test_no_pull_request_text_is_interpolated_into_a_script(self) -> None:
+        for block in run_blocks(self.text()):
+            self.assertNotIn("${{", block)
+
+    def test_the_labeler_is_pinned_to_a_commit(self) -> None:
+        self.assertRegex(self.text(), r"uses: actions/labeler@[0-9a-f]{40} # v\d+\.\d+\.\d+")
+
+    def test_labels_are_only_added_never_removed(self) -> None:
+        self.assertIn("sync-labels: false", self.text())
+
+    def test_the_check_fails_on_a_missing_milestone_and_a_missing_type_label(self) -> None:
+        step = next(b for b in run_blocks(self.text()) if "final=$(" in b)
+        self.assertIn("has no milestone", step)
+        self.assertIn("has no type:* label", step)
+        self.assertTrue(step.rstrip().endswith('exit "$failed"'))
+
+    def test_every_label_it_can_set_exists_in_the_label_file(self) -> None:
+        labels = (ROOT / ".github" / "labels.yml").read_text()
+        for name in re.findall(r'"(type:[a-z]+|status:needs-triage|dependencies)"', self.text()):
+            self.assertIn(f'name: "{name}"', labels)
+        mapped = re.findall(r'^"(area:[a-z]+)":', (ROOT / ".github" / "labeler.yml").read_text(), re.M)
+        self.assertTrue(mapped)
+        for name in mapped:
+            self.assertIn(f'name: "{name}"', labels)
+
+
 if __name__ == "__main__":
     unittest.main()
