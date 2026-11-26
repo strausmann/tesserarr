@@ -109,14 +109,24 @@
         {
             "description": "Workflow pins (GitHub Actions, images and tools pinned inside .github/workflows): patch, minor and digest updates once a week in one pull request, merged by the maintainer. Workflows hold secrets, so nothing here merges by itself. Majors stay single pull requests (a later rule).",
             "matchFileNames": [".github/workflows/**"],
-            "matchUpdateTypes": ["patch", "minor", "digest", "pin", "pinDigest"],
+            "matchUpdateTypes": [
+                "patch",
+                "minor",
+                "digest",
+                "pin",
+                "pinDigest"
+            ],
             "groupName": "workflow pins",
             "schedule": ["before 6am on monday"]
         },
         {
             "description": "Development and optional dependencies (build tools make the shipped bundle): patch and minor updates once a week in one pull request, merged by the maintainer. Specific groups below (playwright, vite-plus, website, release tools) keep their own names.",
             "matchManagers": ["composer", "npm"],
-            "matchDepTypes": ["devDependencies", "require-dev", "optionalDependencies"],
+            "matchDepTypes": [
+                "devDependencies",
+                "require-dev",
+                "optionalDependencies"
+            ],
             "matchUpdateTypes": ["patch", "minor"],
             "groupName": "development dependencies",
             "schedule": ["before 6am on monday"]
