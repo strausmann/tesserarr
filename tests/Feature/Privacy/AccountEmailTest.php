@@ -469,6 +469,21 @@ it('frees an expired reservation under the previous blind index key when the add
     $this->artisan('tesserarr:pii:rotate')->assertSuccessful();
 });
 
+it('recognises the confirmed address under the previous blind index key when it is entered again', function () {
+    $operator = User::factory()->operator()->create();
+    $alice = User::factory()->withRole(Roles::USER)->withConfirmedEmail('alice@example.org')->create();
+    $old = (string) config('tesserarr.pii.blind_index_key');
+    config(['tesserarr.pii.blind_index_key' => str_repeat('n', 32), 'tesserarr.pii.blind_index_previous_key' => $old]);
+    app()->forgetInstance(PiiKeys::class);
+
+    $this->actingAs($operator)->put("/users/{$alice->id}/email", ['email' => 'Alice@Example.org'])->assertSessionHasNoErrors();
+
+    expect($alice->refresh()->pending_email)->toBeNull()
+        ->and(DB::table('account_email_claims')->pluck('kind')->all())->toBe(['confirmed']);
+    Mail::assertNothingQueued();
+    $this->artisan('tesserarr:pii:rotate')->assertSuccessful();
+});
+
 it('requires a fresh proof to request an address change')
     ->todo(note: 'Carried over to task 11: ConfirmationProof and the change of a confirmed own address arrive there (pre-flight K14). Until then AccountController offers the first address only (test above).');
 

@@ -110,8 +110,10 @@ final class EmailConfirmation
                     return null;
                 }
 
-                if ($row->email_bidx === $bidx && $row->email_confirmed_at !== null) {
-                    return null; // already the confirmed address of this account
+                // Already the confirmed address of this account, also while
+                // it still carries the index of the previous blind index key.
+                if ($row->email_confirmed_at !== null && in_array($row->email_bidx, BlindIndex::candidates($email), true)) {
+                    return null;
                 }
 
                 // Under the lock as well: the address may have been confirmed meanwhile.
@@ -269,14 +271,33 @@ final class EmailConfirmation
     {
         $now = Date::now();
 
-        return $this->db->transaction(function () use ($now): int {
-            $released = $this->db->table('account_email_claims')
-                ->where('kind', 'pending')->where('reserved_until', '<=', $now)->delete();
-            $this->db->table('users')->whereNotNull('pending_email_reserved_until')->where('pending_email_reserved_until', '<=', $now)
-                ->update(['pending_email' => null, 'pending_email_bidx' => null, 'pending_email_reserved_until' => null]);
+        $accounts = $this->db->table('account_email_claims')
+            ->where('kind', 'pending')->where('reserved_until', '<=', $now)
+            ->orderBy('user_id')->pluck('user_id');
 
-            return $released;
-        });
+        $released = 0;
+        foreach ($accounts as $userId) {
+            // The account row first, then its claim, as request() does; the
+            // claim is checked again under the lock (a new request may have
+            // replaced it meanwhile).
+            $released += $this->db->transaction(function () use ($userId, $now): int {
+                $this->db->table('users')->where('id', $userId)->lockForUpdate()->first(['id']);
+                $expired = $this->db->table('account_email_claims')
+                    ->where('user_id', $userId)->where('kind', 'pending')->where('reserved_until', '<=', $now)
+                    ->lockForUpdate()->first(['bidx']);
+                if ($expired === null) {
+                    return 0;
+                }
+
+                return $this->dropReservationOf((int) $userId);
+            });
+        }
+
+        // Pending fields without a claim (none are written so, but cleared all the same).
+        $this->db->table('users')->whereNotNull('pending_email_reserved_until')->where('pending_email_reserved_until', '<=', $now)
+            ->update(['pending_email' => null, 'pending_email_bidx' => null, 'pending_email_reserved_until' => null]);
+
+        return $released;
     }
 
     /**
@@ -364,10 +385,18 @@ final class EmailConfirmation
         // survive beside a new one.
         $expired = $this->db->table('account_email_claims')
             ->whereIn('bidx', BlindIndex::candidates($email))->where('kind', 'pending')->where('reserved_until', '<=', $now)
-            ->lockForUpdate()->pluck('user_id');
+            ->orderBy('user_id')->pluck('user_id');
 
         foreach ($expired as $userId) {
-            $this->dropReservationOf((int) $userId);
+            // That account's row first, then its claim (checked again): the
+            // lock order of request(), confirm(), release() and releaseExpired().
+            $this->db->table('users')->where('id', $userId)->lockForUpdate()->first(['id']);
+            $still = $this->db->table('account_email_claims')
+                ->where('user_id', $userId)->where('kind', 'pending')->where('reserved_until', '<=', $now)
+                ->lockForUpdate()->first(['bidx']);
+            if ($still !== null) {
+                $this->dropReservationOf((int) $userId);
+            }
         }
     }
 
