@@ -201,6 +201,8 @@ test.describe('the gate itself', () => {
 
 for (const view of gatedViews) {
     test.describe(`${view.name} (${view.artboard})`, () => {
+        test.use({ locale: view.locale ?? 'en-US' });
+
         test('shows each state of its artboard', async ({ page }) => {
             await signInAs(page, view.as);
             await assertArtboardStates(page, view);

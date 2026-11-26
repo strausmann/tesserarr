@@ -41,9 +41,23 @@ export const stateFixtures: Record<
             ).toBeVisible();
         },
     },
+    // A fresh instance: nothing to watch, invite or log yet.
     Dashboard: {
-        filled: async (page) => {
-            await expect(page.getByText('E2E Operator').first()).toBeVisible();
+        empty: async (page) => {
+            await expect(
+                page.getByRole('heading', { name: 'Startseite', level: 1 }),
+            ).toBeVisible();
+        },
+    },
+    // A friend nothing has been shared with yet.
+    'Friend home': {
+        empty: async (page) => {
+            await expect(
+                page.getByRole('heading', {
+                    name: 'Was mit dir geteilt wird',
+                    level: 1,
+                }),
+            ).toBeVisible();
         },
     },
 };

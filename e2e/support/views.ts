@@ -7,6 +7,9 @@
  * of the artboard in the mockup canvas and what that artboard shows.
  */
 
+import { dashboard } from './artboards/dashboard';
+import { friendHome } from './artboards/friend-home';
+
 export type Role = 'guest' | 'friend' | 'operator';
 
 export type ArtboardState = 'empty' | 'error' | 'loading' | 'filled';
@@ -44,10 +47,17 @@ export type GatedView = {
     artboard: string;
     expect: ArtboardExpectation;
     inState?: ArtboardStateElements;
+    /**
+     * The browser language of the check (Accept-Language). The artboards are
+     * German, so a view checked against their labels runs in `de-DE`.
+     */
+    locale?: string;
 };
 
-// The two views of the starter kit stand for a guest and a signed-in page
-// until the Tesserarr views replace them (tasks 7, 8 and 11).
+// The sign-in of the starter kit stands for a guest page until task 11
+// rebuilds it. Dashboard and the friend's home are the views of task 7: each
+// takes the part of its artboard that exists without data, named below with
+// the task that adds the rest.
 export const gatedViews: GatedView[] = [
     {
         name: 'Login',
@@ -70,13 +80,56 @@ export const gatedViews: GatedView[] = [
         path: '/dashboard',
         as: 'operator',
         artboard: 'Dashboard.dc.html',
+        locale: 'de-DE',
+        // The artboard without "Einrichtung" and its controls (setup
+        // checklist, task 22a) and without "Status öffnen" / "Zur Statusseite"
+        // (status page, task 23) and "Ganzes Protokoll" (audit log, task 8).
         expect: {
-            headings: [],
-            controls: ['button:Toggle sidebar'],
-            states: ['filled'],
+            headings: without(dashboard.expect.headings, ['Einrichtung']),
+            controls: [],
+            states: ['empty'],
+        },
+        inState: {
+            empty: {
+                texts: [
+                    'Noch nichts zu überwachen',
+                    'Keine offenen Einladungen',
+                    'Noch nichts im Protokoll',
+                ],
+            },
+        },
+    },
+    {
+        name: 'Friend home',
+        path: '/shared',
+        as: 'friend',
+        artboard: 'Friend-Home.dc.html',
+        locale: 'de-DE',
+        // The artboard names the operator ("Was Alex mit dir teilt"); who
+        // shares what is known once there are grants (task 21a), until then
+        // the title is general. The search and the list/tile switch need
+        // shares (21a); "Meine Token" shows its empty state (task 9).
+        expect: {
+            headings: [
+                'Was mit dir geteilt wird',
+                ...without(friendHome.expect.headings, [
+                    'Was Alex mit dir teilt',
+                ]),
+            ],
+            controls: ['link:Konto verwalten'],
+            states: ['empty'],
+        },
+        inState: {
+            empty: {
+                texts: ['Noch nichts mit dir geteilt', 'Noch keine Token'],
+            },
         },
     },
 ];
+
+function without(list: string[], drop: string[]): string[] {
+    return list.filter((item) => !drop.includes(item));
+}
 
 /** The viewports of the gate: three widths, plus a phone with the keyboard open. */
 export const gateViewports = [

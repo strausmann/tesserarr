@@ -11,18 +11,30 @@ import { defineConfig } from 'vitest/config';
 // Coverage minimums (CONTRIBUTING.md, "Local CI checks"): resources/js/lib at
 // 80 %, components at 70 %.
 //
-// WHITELIST: resources/js/components (70 %)
-// Reason: only starter-kit components exist so far; they are replaced from
-//   task 8 on. The first Tesserarr component (Field, Dialog) adds its glob to
-//   `include` and `thresholds` below in the same pull request.
+// The Tesserarr components (resources/js/components/ui/{Dialog,Field,
+// Collapsible,SearchDialog}.svelte, EmptyState) are measured at 70 %.
+// WHITELIST: the other files in resources/js/components
+// Reason: starter-kit components, replaced by the tasks that rebuild their
+//   pages (sign-in 11, second factor 12, settings 8b); each adds its files to
+//   `components` below.
 // Issue: #83 (https://github.com/strausmann/tesserarr/issues/83)
 // Expires: 2027-02-22
+const components = [
+    'resources/js/components/EmptyState.svelte',
+    'resources/js/components/ui/Collapsible.svelte',
+    'resources/js/components/ui/Dialog.svelte',
+    'resources/js/components/ui/Field.svelte',
+    'resources/js/components/ui/SearchDialog.svelte',
+];
+
 export default defineConfig({
     plugins: [svelte()],
     resolve: {
         alias: {
             '@': fileURLToPath(new URL('./resources/js', import.meta.url)),
         },
+        // Mounting a component needs Svelte's browser build in jsdom.
+        conditions: ['browser'],
     },
     test: {
         include: ['resources/js/**/*.test.ts'],
@@ -31,7 +43,7 @@ export default defineConfig({
         unstubGlobals: true,
         coverage: {
             provider: 'v8',
-            include: ['resources/js/lib/**/*.ts'],
+            include: ['resources/js/lib/**/*.ts', ...components],
             exclude: ['resources/js/**/*.test.ts'],
             reporter: ['text', 'lcov'],
             reportsDirectory: 'coverage/js',
@@ -42,6 +54,17 @@ export default defineConfig({
                     branches: 80,
                     statements: 80,
                 },
+                ...Object.fromEntries(
+                    components.map((file) => [
+                        file,
+                        {
+                            lines: 70,
+                            functions: 70,
+                            branches: 70,
+                            statements: 70,
+                        },
+                    ]),
+                ),
             },
         },
     },
