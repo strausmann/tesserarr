@@ -168,7 +168,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         {#if looking && !errors.token}
             <p role="status">{t('invitations.redeem.looking')}</p>
         {:else}
-            <form class="flex flex-col gap-4" onsubmit={lookPasted}>
+            <!-- novalidate: a bare token is no URL, and tokenFromInput takes both. -->
+            <form class="flex flex-col gap-4" novalidate onsubmit={lookPasted}>
                 <Field purpose="url" label={t('invitations.redeem.paste')} bind:value={pasted} required />
                 <button type="submit" class="tr-button tr-button--primary tr-redeem-next" disabled={pasted.trim() === ''}>
                     {t('invitations.redeem.open')}

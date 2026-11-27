@@ -51,6 +51,17 @@ final class InvitationService
 {
     public const NOTE_MAX = 100;
 
+    /**
+     * A recovery invitation opens an existing account, an operator's
+     * included. It is meant to be handed to its owner at once, so it is
+     * short-lived: one day unless asked otherwise, three days at most
+     * (Spec 9.3 names no value; the general setting is for access
+     * invitations).
+     */
+    public const RECOVERY_DEFAULT_HOURS = 24;
+
+    public const RECOVERY_MAX_HOURS = 72;
+
     /** Attempts when two new accounts derive the same username at once. */
     private const USERNAME_ATTEMPTS = 3;
 
@@ -74,6 +85,12 @@ final class InvitationService
     {
         if (($kind === InvitationKind::Recovery) !== ($forUser !== null)) {
             throw new InvalidArgumentException('a recovery invitation names its account, an access invitation none');
+        }
+        if ($kind === InvitationKind::Recovery) {
+            $ttl ??= CarbonInterval::hours(self::RECOVERY_DEFAULT_HOURS);
+            if (CarbonImmutable::now()->add($ttl)->gt(CarbonImmutable::now()->addHours(self::RECOVERY_MAX_HOURS))) {
+                throw new InvalidArgumentException('days');
+            }
         }
         $ttl ??= CarbonInterval::days((int) $this->settings->value(SettingKey::InvitationDays));
         $note = self::note($note);
@@ -203,7 +220,7 @@ final class InvitationService
 
                     $invitation = Invitation::query()->findOrFail($id);
                     if ($invitation->kind === InvitationKind::Recovery) {
-                        $user = User::query()->whereKey($invitation->for_user_id)->lockForUpdate()->firstOrFail();
+                        $user = $this->recoveryTarget($invitation);
                     } else {
                         $user = $this->newAccount($claim);
                     }
@@ -218,6 +235,9 @@ final class InvitationService
 
                     return new RedeemedInvitation($user, $invitation->kind);
                 });
+            } catch (IssuerNoLongerPermitted) {
+                // The savepoint is gone, and with it the use of the invitation.
+                return InvitationNotRedeemable::ISSUER_LACKS_PERMISSION;
             } catch (UniqueConstraintViolationException $collision) {
                 // The savepoint is gone, and with it the use of the invitation.
                 $existing = $this->linker->find($claim);
@@ -244,10 +264,61 @@ final class InvitationService
             return InvitationNotRedeemable::IDENTITY_TAKEN;
         }
 
+        if ($invitation->kind === InvitationKind::Recovery) {
+            try {
+                $this->recoveryTarget($invitation);
+            } catch (IssuerNoLongerPermitted) {
+                return InvitationNotRedeemable::ISSUER_LACKS_PERMISSION;
+            }
+        }
+
         $user = $identity->user;
         $this->recordRedemption($user, $invitation, $identity, $claim, $ip, consumed: false);
 
         return new RedeemedInvitation($user, $invitation->kind, consumed: false);
+    }
+
+    /**
+     * The account of a recovery invitation, with the check of its issue
+     * made again now: the issuer still exists, is not locked, still holds
+     * the permissions to issue it and could still give every permission the
+     * account holds now. Otherwise an old link would open an account that
+     * has gained permissions since, or one its issuer may no longer reach.
+     * Both accounts are locked FOR SHARE first (accounts before roles, the
+     * order of RoleGuard), so a concurrent change of either waits.
+     *
+     * @throws IssuerNoLongerPermitted
+     */
+    private function recoveryTarget(Invitation $invitation): User
+    {
+        $target = User::query()->findOrFail($invitation->for_user_id);
+        $by = $invitation->created_by_actor;
+
+        if ($by['type'] === Actor::CLI) {
+            // The operator's console stands outside the accounts (Actor::cli).
+            $this->guard->lockAccounts([], [$target]);
+
+            return $target;
+        }
+
+        $issuer = in_array($by['type'], [Actor::USER, Actor::TOKEN], true) && $by['id'] !== null
+            ? User::query()->find($by['id'])
+            : null;
+        if ($issuer === null) {
+            throw new IssuerNoLongerPermitted;
+        }
+
+        $this->guard->lockAccounts([], [$issuer, $target]);
+        try {
+            $actor = Actor::user($issuer);
+            $this->assertMay($actor, [Permission::InvitationsCreate, Permission::UsersManage]);
+            $this->guard->lockPermissionsOf($target);
+            $this->guard->assertCanGrant($actor, $target->grantedPermissions());
+        } catch (PrivilegeEscalation) {
+            throw new IssuerNoLongerPermitted;
+        }
+
+        return $target;
     }
 
     private function newAccount(IdentityClaim $claim): User

@@ -33,9 +33,10 @@ final class InvitationStore
 
     /**
      * Uses the invitation up. With $reservationHash null (redeem) a running
-     * reservation of somebody else blocks it, an expired one does not; with
-     * the own reservation hash (complete, task 11) the own reservation must
-     * still run (H18).
+     * reservation blocks it, an expired one does not; with a reservation
+     * hash (complete, task 11) only the own reservation counts, and only
+     * while it runs (H18): an expired own reservation is no way in, even
+     * when nobody else reserved since.
      *
      * @return int|null the invitation's id, or null when nothing matched
      */
@@ -46,10 +47,10 @@ final class InvitationStore
         $row = $this->db->selectOne(<<<'SQL'
             update invitations set redeemed_at = now(), updated_at = now()
             where token_hash = ? and redeemed_at is null and revoked_at is null and expires_at > now()
-              and ((reserved_until is null or reserved_until < now())
+              and ((cast(? as text) is null and (reserved_until is null or reserved_until < now()))
                    or (reservation_hash = ? and reserved_until > now()))
             returning id
-            SQL, [$tokenHash, $reservationHash]);
+            SQL, [$tokenHash, $reservationHash, $reservationHash]);
 
         return $row === null ? null : (int) $row->id;
     }

@@ -10,7 +10,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     /**
      * The last resort of Spec 9.3 on the user detail: a recovery invitation
      * binds a new sign-in method to this account, which keeps its role,
-     * shares and history. Its link is shown once, like any invitation.
+     * shares and history. Its link is shown once and lasts one day: it opens
+     * an existing account (InvitationService::RECOVERY_DEFAULT_HOURS).
      */
     let {
         userId,
@@ -26,7 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     async function issue(): Promise<void> {
         sending = true;
         error = '';
-        const result = await issueInvitation(issueRequest('7', '', userId));
+        const result = await issueInvitation(issueRequest('1', '', userId));
         sending = false;
         if (result.ok) {
             url = result.url;

@@ -415,7 +415,7 @@ describe('RecoveryInvitation', () => {
         await settle();
 
         const init = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
-        expect(JSON.parse(init.body as string)).toEqual({ days: 7, user: 42 });
+        expect(JSON.parse(init.body as string)).toEqual({ days: 1, user: 42 });
         expect(document.body.textContent).toContain(TOKEN);
         button('invitations.done.close').click();
         await settle();
@@ -479,5 +479,27 @@ describe('Invitations default validity', () => {
                     .body as string,
             ),
         ).toEqual({ days: 14 });
+    });
+});
+
+describe('Redeem fallback form', () => {
+    it('lets a bare token through: the form does not validate it as a URL', async () => {
+        window.history.replaceState(null, '', '/invite');
+        await render(Redeem, { invitation: null, methods: [] });
+
+        const form = document.querySelector<HTMLFormElement>('form')!;
+        const input = form.querySelector<HTMLInputElement>('input')!;
+        input.value = TOKEN;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        flushSync();
+
+        expect(form.noValidate).toBe(true);
+        form.requestSubmit();
+        await settle();
+        expect(inertia.router.post).toHaveBeenCalledWith(
+            '/invite',
+            { token: TOKEN },
+            expect.anything(),
+        );
     });
 });

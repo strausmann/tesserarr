@@ -16,7 +16,9 @@ die API und gibst den Link weiter, wie du willst. Der Versand per Mail aus Tesse
   gleichzeitig ein, entsteht ein Konto, und der zweite Link bleibt unbenutzt.
 - Eine **Wiederherstellungs-Einladung** bindet einen neuen Anmeldeweg an ein **bestehendes** Konto. Rolle, Freigaben,
   Kontingente, das Protokoll und die Syncthing-Kopplung bleiben. Nutze sie, wenn jemand jeden Passkey und Faktor verloren
-  hat.
+  hat. Sie gilt einen Tag (höchstens drei), und beim Einlösen prüft Tesserarr noch einmal, ob wer sie erstellt hat das
+  noch darf: Dieses Konto muss noch bestehen, nicht gesperrt sein, die Rechte zum Erstellen halten und jedes Recht, das
+  das Zielkonto inzwischen hat.
 
 ## In der Weboberfläche
 
@@ -34,7 +36,7 @@ ist ein Weg hinein.
 ```sh
 php artisan tesserarr:invite [--days=7] [--note="Für Sam"]
 php artisan tesserarr:invite:revoke 12
-php artisan tesserarr:invite:recovery sam [--days=7]
+php artisan tesserarr:invite:recovery sam [--days=1]
 ```
 
 `tesserarr:invite` ist auch der Weg zur ersten Einladung einer frischen Instanz; es gibt keinen Endpunkt, der ohne Konto

@@ -14,7 +14,9 @@ through the API, and hand the link on however you like. Sending it by mail from 
 - Two people redeeming the same link at once: exactly one succeeds. The same person redeeming two links at once gets one
   account, and the second link stays unused.
 - A **recovery invitation** binds a new sign-in method to an **existing** account. Role, grants, quotas, the audit trail
-  and the Syncthing link stay. Use it when someone lost every passkey and factor.
+  and the Syncthing link stay. Use it when someone lost every passkey and factor. It is valid for one day (three at
+  most), and when it is redeemed Tesserarr checks again that whoever made it may still do so: that account must still
+  exist, be unlocked, hold the permissions to make it and every permission the target account holds by then.
 
 ## In the web interface
 
@@ -31,7 +33,7 @@ link is a way into it.
 ```sh
 php artisan tesserarr:invite [--days=7] [--note="For Sam"]
 php artisan tesserarr:invite:revoke 12
-php artisan tesserarr:invite:recovery sam [--days=7]
+php artisan tesserarr:invite:recovery sam [--days=1]
 ```
 
 `tesserarr:invite` is also how the first invitation is made on a fresh instance; there is no endpoint that makes one

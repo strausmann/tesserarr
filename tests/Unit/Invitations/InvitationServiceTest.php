@@ -152,9 +152,13 @@ it('lets the own reservation complete only while it runs', function () {
 
     $store->reserve($hash, $mine, null, CarbonImmutable::now()->addMinutes(15));
     DB::table('invitations')->where('token_hash', $hash)->update(['reserved_until' => now()->subSecond()]);
-    expect($store->consume($hash, $mine))->not->toBeNull();
+    // Expired: neither the own hash nor any other gets in.
+    expect($store->consume($hash, $mine))->toBeNull()
+        ->and($store->consume($hash, str_repeat('e', 64)))->toBeNull();
 
     $other = Invitation::hashOf(invitations()->issue(Actor::user($this->operator))->plainToken);
+    // Without any reservation, a hash is no way in either.
+    expect($store->consume($other, $mine))->toBeNull();
     $store->reserve($other, $mine, null, CarbonImmutable::now()->addMinutes(15));
     expect($store->consume($other, $mine))->not->toBeNull();
 });
@@ -330,4 +334,96 @@ it('finds only open invitations and never looks up something that is no token', 
         ->and(invitations()->find($gone->plainToken))->toBeNull()
         ->and($none)->toBeNull()
         ->and($queries)->toBe(0);
+});
+
+/*
+| A recovery invitation is checked again when it is redeemed: the issuer
+| must still exist, be unlocked, hold the permissions to issue it and be able
+| to give every permission the account holds now (security review of task 10).
+*/
+
+/** An account that may issue recovery invitations for plain users only. */
+function recoveryIssuer(): User
+{
+    $role = Role::query()->firstOrCreate(['name' => 'recoverers', 'guard_name' => Roles::GUARD]);
+    $role->syncPermissions([Permission::InvitationsCreate->value, Permission::UsersManage->value, Permission::CatalogBrowse->value, Permission::TokensManageOwn->value]);
+
+    return User::factory()->withRole('recoverers')->create();
+}
+
+function refusedReasons(): array
+{
+    return newEntries()->where('action', AuditAction::InvitationRedeemed->value)->where('outcome', AuditOutcome::Denied)
+        ->get()->map(fn (AuditEntry $e) => $e->context['reason'])->all();
+}
+
+it('redeems a recovery invitation whose issuer may still give it', function () {
+    $issuer = recoveryIssuer();
+    $sam = User::factory()->withRole(Roles::USER)->create();
+    $issued = invitations()->issue(Actor::user($issuer), InvitationKind::Recovery, $sam);
+
+    expect(invitations()->redeem($issued->plainToken, claim('fresh'), '192.0.2.80')->user->id)->toBe($sam->id)
+        ->and($issued->invitation->fresh()?->redeemed_at)->not->toBeNull();
+});
+
+it('refuses a recovery invitation once the account gained a permission its issuer cannot give', function () {
+    $issuer = recoveryIssuer();
+    $sam = User::factory()->withRole(Roles::USER)->create();
+    $issued = invitations()->issue(Actor::user($issuer), InvitationKind::Recovery, $sam);
+    $sam->syncRoles([Roles::OPERATOR]);
+
+    expect(fn () => invitations()->redeem($issued->plainToken, claim('fresh'), '192.0.2.81'))->toThrow(InvitationNotRedeemable::class)
+        ->and($issued->invitation->fresh()?->redeemed_at)->toBeNull()
+        ->and($sam->identities()->count())->toBe(0)
+        ->and(refusedReasons())->toBe(['issuer_lacks_permission']);
+});
+
+it('refuses a recovery invitation once its issuer lost the right to issue it', function () {
+    $issuer = recoveryIssuer();
+    $sam = User::factory()->withRole(Roles::USER)->create();
+    $issued = invitations()->issue(Actor::user($issuer), InvitationKind::Recovery, $sam);
+    Role::findByName('recoverers', Roles::GUARD)->revokePermissionTo(Permission::UsersManage->value);
+
+    expect(fn () => invitations()->redeem($issued->plainToken, claim('fresh'), '192.0.2.82'))->toThrow(InvitationNotRedeemable::class)
+        ->and($issued->invitation->fresh()?->redeemed_at)->toBeNull()
+        ->and(refusedReasons())->toBe(['issuer_lacks_permission']);
+});
+
+// Locked: grantableBy() gives a locked account no ceiling, so the permission
+// check and assertCanGrant both refuse (two layers; removing one keeps it red).
+it('refuses a recovery invitation whose issuer is locked or deleted', function () {
+    $issuer = recoveryIssuer();
+    [$sam, $kim] = User::factory()->count(2)->withRole(Roles::USER)->create();
+    $locked = invitations()->issue(Actor::user($issuer), InvitationKind::Recovery, $sam);
+    $other = invitations()->issue(Actor::user($this->operator), InvitationKind::Recovery, $kim);
+    $issuer->forceFill(['locked_at' => now()])->save();
+    $this->operator->syncRoles([]);
+    $this->operator->delete();
+
+    expect(fn () => invitations()->redeem($locked->plainToken, claim('a'), '192.0.2.83'))->toThrow(InvitationNotRedeemable::class)
+        ->and(fn () => invitations()->redeem($other->plainToken, claim('b'), '192.0.2.84'))->toThrow(InvitationNotRedeemable::class)
+        ->and(refusedReasons())->toBe(['issuer_lacks_permission', 'issuer_lacks_permission']);
+});
+
+// The check runs before the identity is attached, so it also covers an
+// identity the account already has. adopt() checks once more for the race in
+// which the identity appears between the two; that second layer is reached
+// only after the first passed and has no test of its own.
+it('checks the issuer again when the identity is already the account’s', function () {
+    $issuer = recoveryIssuer();
+    $sam = User::factory()->withRole(Roles::USER)->create();
+    Identity::query()->create(['user_id' => $sam->id, 'method' => 'oidc', 'provider_key' => 'example', 'subject' => 'known']);
+    $issued = invitations()->issue(Actor::user($issuer), InvitationKind::Recovery, $sam);
+    $sam->syncRoles([Roles::OPERATOR]);
+
+    expect(fn () => invitations()->redeem($issued->plainToken, claim('known'), '192.0.2.85'))->toThrow(InvitationNotRedeemable::class);
+});
+
+it('keeps a recovery invitation short: one day by default, three at most', function () {
+    $this->freezeSecond();
+    $sam = User::factory()->create();
+
+    expect(invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam)->invitation->fresh()?->expires_at->equalTo(CarbonImmutable::now()->addDay()))->toBeTrue()
+        ->and(invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam, CarbonInterval::days(3))->invitation->id)->toBeInt()
+        ->and(fn () => invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam, CarbonInterval::days(4)))->toThrow(InvalidArgumentException::class);
 });

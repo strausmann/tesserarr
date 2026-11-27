@@ -21,6 +21,8 @@ use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 /**
  * Invitations from the interface (session path): the dialog on the user list
@@ -47,6 +49,9 @@ final class InvitationController extends Controller
                 $ttl,
                 $note,
             );
+        } catch (InvalidArgumentException) {
+            // A recovery invitation lasts three days at most.
+            throw ValidationException::withMessages(['days' => __('invitations.recovery.too_long')]);
         } catch (PrivilegeEscalation $refused) {
             return response()->json([
                 'message' => 'privilege_escalation',

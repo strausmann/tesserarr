@@ -54,7 +54,7 @@ tesserarr:invite:recovery [--days [DAYS]] [--] <username>
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `--days` | how many days the link stays valid (default: the general setting, 7) |  |
+| `--days` | how many days the link stays valid, 1 to 3 (default: one day) |  |
 
 ## `tesserarr:invite:revoke`
 
