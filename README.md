@@ -224,7 +224,7 @@ an upgrade path and an API stability commitment.
 ## Container images and tags
 
 Images are published to `docker.io/bstrausmann/tesserarr` as multi-arch builds (`linux/amd64`, `linux/arm64`). The
-GitHub Container Registry copy is private.
+same image is also published to the GitHub Container Registry.
 
 | Tag          | Example             | Use when                                                        |
 | ------------ | ------------------- | --------------------------------------------------------------- |
@@ -273,7 +273,7 @@ will live on the project's documentation website.
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Contributions need a signed
-[Contributor License Agreement](CLA.md).
+[Contributor License Agreement](CLA.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Security
 

@@ -3,10 +3,9 @@
 
 name: CodeQL
 
-# Prepared, not active: Code Scanning on a private repository needs a GitHub Code
-# Security licence, and CodeQL has no PHP. Semgrep is the gate meanwhile
-# (semgrep.yml). The job runs once the repository is public; then add it to the
-# ruleset.
+# Code Scanning is free on a public repository. CodeQL has no PHP, so Semgrep
+# (semgrep.yml) stays the gate for PHP and CodeQL covers the TypeScript and the
+# workflows. The job runs only while the repository is public.
 
 on:
   push:

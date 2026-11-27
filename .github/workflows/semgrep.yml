@@ -3,9 +3,8 @@
 
 name: Semgrep
 
-# Static analysis for exploitable bugs in PHP and TypeScript. Replaces CodeQL on
-# the private repository: Code Scanning and SARIF upload need a GitHub Code
-# Security licence there, CodeQL has no PHP. Findings fail the job (--error); the
+# Static analysis for exploitable bugs in PHP and TypeScript. CodeQL has no PHP,
+# so Semgrep is the PHP gate (codeql.yml covers the rest). Findings fail the job (--error); the
 # SARIF report is kept as an artefact and summarised in the job summary.
 # p/php alone has no rule for eval() on request input (measured with the
 # counter-test of task 2), so the php.lang.security rules and
