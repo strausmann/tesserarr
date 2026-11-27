@@ -4,9 +4,9 @@
 name: Licence gate
 
 # Judges the whole locked dependency tree (not only a pull request's diff)
-# against licence-policy.yml, and runs composer audit and npm audit. Replaces
-# actions/dependency-review-action, which needs a GitHub Code Security licence
-# on a private repository. No paths filter: this is a required check.
+# against licence-policy.yml, and runs composer audit and npm audit. This covers
+# the full tree, which actions/dependency-review-action does not (it judges a
+# pull request's diff). No paths filter: this is a required check.
 
 on:
   push:

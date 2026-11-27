@@ -13,8 +13,10 @@ found a security issue, please tell us. We want to work with you to resolve it p
 **Please do not open a public issue for security problems.** That exposes users before a fix
 exists.
 
-Use this private channel:
+Use one of these private channels:
 
+- **GitHub private vulnerability reporting:** the "Report a vulnerability" button on the
+  [Security tab](https://github.com/strausmann/tesserarr/security) of the repository.
 - **Email:** **security@strausmann.ch**. This inbox exists for security reports only.
 
 If the report is sensitive, please encrypt it (see below). We support coordinated disclosure and

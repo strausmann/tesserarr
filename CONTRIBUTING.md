@@ -19,8 +19,9 @@ Contributions need a signed [Contributor License Agreement](CLA.md). You sign it
 [CLA assistant](https://cla-assistant.io/): when you open your first pull request, the bot comments with a link; follow it,
 sign in with GitHub and accept. The `license/cla` check must pass before a pull request can be merged.
 
-While the repository is private, CLA assistant cannot see it, so the `license/cla` check never reports and is not yet a
-required check of the ruleset `main: licence gate`. It becomes one when the repository is made public.
+The repository is public, so CLA assistant can see it. Once the maintainer has linked the repository to the CLA text in
+CLA assistant, `license/cla` becomes a required check of the ruleset `main: licence gate`. Until that link exists the
+check does not report, and the maintainer signs off the licence step by hand.
 
 ## No environment details, ever
 
@@ -252,8 +253,8 @@ python3 scripts/privacy_scan.py --suffix .html --suffix .xml website/dist
 | Website parity, real-data scan, build | `website / locale parity`, `website / real-data scan`, `website / build` |
 
 Pull requests into `main` additionally need the checks of the ruleset `main: licence gate`:
-`Licence gate (composer, npm)`, `release-impact` and `Docker — build smoke test` (and `license/cla` once the repository is
-public, see "Contributor License Agreement").
+`Licence gate (composer, npm)`, `release-impact` and `Docker — build smoke test` (and `license/cla` once CLA assistant is
+linked to the repository, see "Contributor License Agreement").
 
 **Coverage.** The whole application needs 80 %. Security-relevant directories need more: `app/Authorization`,
 `app/Invitations`, `app/Mfa`, `app/Identity` and `app/Tokens` 90 %; `app/Execution`, `app/Catalog`, `app/Satellites` and
@@ -443,7 +444,7 @@ error when the two differ.
 
 The user documentation lives in [`website/`](website/) (Astro Starlight, its own `package.json` and `package-lock.json`)
 and is published from `main` to GitHub Pages (`.github/workflows/website.yml`). Pull requests and milestone pushes only
-build and check it. The site is **public**, also while the repository is private. Deploying needs GitHub Pages switched
+build and check it. The site is **public**. Deploying needs GitHub Pages switched
 on with the source "GitHub Actions" (repository settings); until then the `deploy` job fails and the built site is
 still available as the artifact `website-dist`.
 
