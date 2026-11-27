@@ -4,9 +4,9 @@
 # Push docs/dockerhub/README.md and the short description to the Docker Hub
 # repository docker.io/bstrausmann/tesserarr.
 #
-# The Docker Hub page is public while this repository is private, so it gets
-# its own README instead of the repository README; the `Privacy / secret scan`
-# job in ci.yml covers it like every other file.
+# The Docker Hub page gets its own README instead of the repository README,
+# because it is read without the repository around it; the `Privacy / secret
+# scan` job in ci.yml covers it like every other file.
 #
 # Writes the repository overview (from the README) and the short description.
 # Docker Hub refuses the metadata PATCH for organization access tokens, even
