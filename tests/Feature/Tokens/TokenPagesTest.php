@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Sanctum\PersonalAccessToken;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /*
@@ -231,4 +232,32 @@ it('lists only the own tokens on the friend home, by name', function () {
             ->where('tokens_total', 1)
             ->has('tokens', 1)
             ->missing('tokens.0.permissions'));
+});
+
+it('lets an account without tokens.manage_own still see and revoke its own tokens, but not issue', function () {
+    $role = Role::create(['name' => 'readers', 'guard_name' => Roles::GUARD]);
+    $role->givePermissionTo('catalog.browse');
+    $reader = User::factory()->withRole('readers')->create();
+    $token = $reader->createToken('left over', ['catalog.browse'])->accessToken;
+
+    $this->actingAs($reader, 'web')->withSession(['auth.password_confirmed_at' => time()])->get('/tokens')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('account/Tokens')
+            ->where('tokens.0.id', $token->id)
+            ->where('can.issue', false));
+
+    asApp($reader)->postJson('/api/v1/app/tokens', ['name' => 'x', 'permissions' => ['catalog.browse'], 'expires' => '30'])
+        ->assertForbidden();
+    asApp($reader)->deleteJson("/api/v1/app/tokens/{$token->id}")->assertNoContent();
+    expect(PersonalAccessToken::query()->find($token->id))->toBeNull();
+});
+
+it('lets an account with only tokens.manage_all revoke its own token on the own path', function () {
+    $role = Role::create(['name' => 'token-admins', 'guard_name' => Roles::GUARD]);
+    $role->givePermissionTo('tokens.manage_all');
+    $admin = User::factory()->withRole('token-admins')->create();
+    $token = $admin->createToken('mine', ['tokens.manage_all'])->accessToken;
+
+    asApp($admin)->deleteJson("/api/v1/app/tokens/{$token->id}")->assertNoContent();
 });

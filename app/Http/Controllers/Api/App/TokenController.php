@@ -12,6 +12,7 @@ use App\Authorization\Permission;
 use App\Authorization\PrivilegeEscalation;
 use App\Authorization\TokenPreset;
 use App\Http\Controllers\Controller;
+use App\Http\SelfService;
 use App\Models\User;
 use App\Tokens\InvalidTokenRequest;
 use App\Tokens\TokenIssuer;
@@ -83,7 +84,12 @@ final class TokenController extends Controller
         ], 201)->header('Cache-Control', 'no-store, private');
     }
 
-    /** Revokes one of the own tokens (`tokens.manage_own`); another account's is 404. */
+    /**
+     * Revokes one of the own tokens; another account's is 404. Self-service:
+     * an account can always revoke its own tokens, also after it lost
+     * `tokens.manage_own` (Spec 9.5, "revocable at any time").
+     */
+    #[SelfService]
     public function destroy(int $token, #[CurrentUser] User $user): Response
     {
         $found = PersonalAccessToken::query()

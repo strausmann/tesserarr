@@ -28,7 +28,8 @@ Route::get('users/{user}', [UserController::class, 'show'])->middleware('can:use
 Route::post('tokens', [TokenController::class, 'store'])
     ->middleware(['can:tokens.manage_own', RequirePassword::class, 'throttle:20,1'])
     ->defaults('audited', true)->name('tokens.store');
+// Revoking an own token is self-service: possible also after tokens.manage_own was taken away.
 Route::delete('tokens/{token}', [TokenController::class, 'destroy'])->whereNumber('token')
-    ->middleware('can:tokens.manage_own')->defaults('audited', true)->name('tokens.destroy');
+    ->defaults('audited', true)->name('tokens.destroy');
 Route::delete('admin/tokens/{token}', [TokenController::class, 'destroyAny'])->whereNumber('token')
     ->middleware('can:tokens.manage_all')->defaults('audited', true)->name('admin.tokens.destroy');

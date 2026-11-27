@@ -13,6 +13,7 @@ use App\Authorization\Permission;
 use App\Authorization\RoleGuard;
 use App\Authorization\TokenPreset;
 use App\Http\Controllers\Controller;
+use App\Http\SelfService;
 use App\Models\User;
 use App\Tokens\TokenView;
 use Illuminate\Container\Attributes\CurrentUser;
@@ -21,12 +22,15 @@ use Inertia\Response;
 use Laravel\Sanctum\PersonalAccessToken;
 
 /**
- * The token page (Tokens.dc.html, `tokens.manage_own`): the own tokens, and
+ * The token page (Tokens.dc.html), self-service: the own tokens, which an
+ * account can always see and revoke; the form only with `tokens.manage_own`;
+ * and
  * with `tokens.manage_all` every token with its owner (admin/Tokens). The
  * form issues through the session API (Api\App\TokenController), so the new
  * token travels in one JSON answer and never in a page, the session or the
  * browser history.
  */
+#[SelfService]
 final class TokenPageController extends Controller
 {
     public function __construct(
@@ -65,7 +69,7 @@ final class TokenPageController extends Controller
                 'available' => array_filter($preset->permissions(), fn (Permission $p) => ! in_array($p, $grantable, true)) === [],
             ], TokenPreset::cases()),
             'can' => [
-                'issue' => $grantable !== [],
+                'issue' => $grantable !== [] && $this->allows($user, Permission::TokensManageOwn),
                 'revoke_any' => $all,
                 'view_roles' => $this->allows($user, Permission::RolesManage),
             ],

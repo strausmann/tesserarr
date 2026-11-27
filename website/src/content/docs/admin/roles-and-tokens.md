@@ -69,6 +69,10 @@ The list shows each token's permissions, when it was last used and when it expir
 token stops working with the next request. With `tokens.manage_all` the page lists the tokens of every account with
 their owner, and you can revoke any of them; you still create tokens only for yourself.
 
+Seeing and revoking your own tokens needs no permission: you can revoke them also after `tokens.manage_own` was taken
+away. On the token path a token may make 300 requests a minute and a source address 600; beyond that the answer is
+429.
+
 A token stops working when it is revoked, when it expires and while its owner is locked. Issuing, refused issuing and
 revoking are logged with the token's id, name and permissions, never the token.
 

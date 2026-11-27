@@ -61,10 +61,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('roles/{role}', [RoleController::class, 'update'])->middleware('can:roles.manage')->defaults('audited', true)->name('roles.update');
     Route::delete('roles/{role}', [RoleController::class, 'destroy'])->middleware('can:roles.manage')->defaults('audited', true)->name('roles.destroy');
 
-    // API tokens (Tokens.dc.html, task 9): the own, or every token with
-    // tokens.manage_all. Behind a fresh password confirmation, like the
-    // issuing itself (K13). Issuing and revoking go through /api/v1/app.
-    Route::get('tokens', TokenPageController::class)->middleware(['can:tokens.manage_own', RequirePassword::class])->name('tokens.index');
+    // API tokens (Tokens.dc.html, task 9): self-service for the own tokens
+    // (seeing and revoking them); the form with tokens.manage_own, every
+    // token with tokens.manage_all. Behind a fresh password confirmation,
+    // like the issuing itself (K13). Issuing and revoking go through /api/v1/app.
+    Route::get('tokens', TokenPageController::class)->middleware(RequirePassword::class)->name('tokens.index');
 
     Route::get('audit', AuditLogController::class)->middleware('can:audit.view')->name('audit.index');
 

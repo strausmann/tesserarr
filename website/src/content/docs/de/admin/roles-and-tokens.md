@@ -70,6 +70,10 @@ Die Liste zeigt je Token seine Rechte, die letzte Nutzung und den Ablauf. Beim W
 nach; das Token funktioniert ab der nächsten Anfrage nicht mehr. Mit `tokens.manage_all` zeigt die Seite die Token aller
 Konten mit ihrem Besitzer, und du kannst jedes davon widerrufen; erzeugen kannst du Token weiterhin nur für dich.
 
+Eigene Token ansehen und widerrufen braucht kein Recht: Das geht auch, nachdem dir `tokens.manage_own` entzogen wurde.
+Auf dem Token-Pfad darf ein Token 300 Anfragen je Minute stellen und eine Quelladresse 600; darüber hinaus lautet die
+Antwort 429.
+
 Ein Token funktioniert nicht mehr, wenn es widerrufen ist, wenn es abgelaufen ist und solange sein Besitzer gesperrt ist.
 Erzeugen, abgelehntes Erzeugen und Widerrufen stehen im Protokoll, mit Kennung, Name und Rechten des Tokens, nie mit dem
 Token selbst.
