@@ -35,4 +35,10 @@ enum AuditAction: string
     // the token by id and name, never its value.
     case TokenIssued = 'token.issue';
     case TokenRevoked = 'token.revoke';
+    // Invitations (task 10): issued (or refused), revoked, redeemed (or
+    // refused, with the reason). The entry names the invitation by id, never
+    // its token.
+    case InvitationIssued = 'invitation.issue';
+    case InvitationRevoked = 'invitation.revoke';
+    case InvitationRedeemed = 'invitation.redeem';
 }

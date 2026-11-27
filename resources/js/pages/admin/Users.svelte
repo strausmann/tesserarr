@@ -10,12 +10,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     import { Link, page, router } from '@inertiajs/svelte';
     import AppHead from '@/components/AppHead.svelte';
     import EmptyState from '@/components/EmptyState.svelte';
+    import Invitations from '@/components/invitations/Invitations.svelte';
+    import type { InvitationRow } from '@/lib/invitations';
     import { t } from '@/lib/i18n';
 
     // The accounts (Users.dc.html): who has which role, how they sign in,
     // the contact address of the account and the addresses the sign-in
-    // providers reported, each labelled as what it is. Invitations join the
-    // page with task 10, second factors with task 12.
+    // providers reported, each labelled as what it is, and the open
+    // invitations (task 10). Second factors join with task 12.
     type Identity = {
         method: string;
         provider_key: string;
@@ -32,13 +34,24 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         self: boolean;
     };
 
-    let { users, roles }: { users: Account[]; roles: string[] } = $props();
+    let {
+        users,
+        roles,
+        invitations = [],
+        invitation_days = 7,
+    }: { users: Account[]; roles: string[]; invitations?: InvitationRow[]; invitation_days?: number } = $props();
+    let openInvitations = $state<InvitationRow[]>([]);
+    $effect.pre(() => {
+        openInvitations = invitations;
+    });
 
     const shared = $derived(
         page.props as { permissions?: string[]; errors?: Record<string, string> },
     );
     const canManage = $derived((shared.permissions ?? []).includes('users.manage'));
     const errors = $derived(shared.errors ?? {});
+    const canInvite = $derived((shared.permissions ?? []).includes('invitations.create'));
+    const canRevokeInvitations = $derived((shared.permissions ?? []).includes('invitations.revoke'));
 
     // The role chosen in each row's select, until it is saved.
     let chosen = $state<Record<number, string>>({});
@@ -196,4 +209,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             </div>
         {/if}
     </section>
+
+    {#if canInvite || canRevokeInvitations}
+        <Invitations
+            bind:invitations={openInvitations}
+            canCreate={canInvite}
+            canRevoke={canRevokeInvitations}
+            defaultDays={invitation_days}
+        />
+    {/if}
 </div>

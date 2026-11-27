@@ -12,6 +12,9 @@ use App\Audit\AuditLogger;
 use App\Audit\AuditOutcome;
 use App\Authorization\Roles;
 use App\Identity\Identity;
+use App\Identity\IdentityClaim;
+use App\Identity\LoginMethod;
+use App\Invitations\InvitationService;
 use App\Mail\ConfirmEmailMail;
 use App\Mail\EmailChangeRequestedMail;
 use App\Models\User;
@@ -140,13 +143,30 @@ it('never writes users.email during the password sign-in', function () {
     expect(DB::table('users')->where('id', $user->id)->first(['email', 'email_bidx', 'pending_email']))->toEqual($before);
 });
 
+it('never writes users.email during the redemption of an invitation', function (LoginMethod $method) {
+    $operator = User::factory()->operator()->create();
+    $plain = app(InvitationService::class)->issue(Actor::user($operator))->plainToken;
+    $claim = new IdentityClaim($method, 'example', 'subject-1', 'sam', 'sam@idp.example.org', 'Sam');
+
+    $user = app(InvitationService::class)->redeem($plain, $claim, '192.0.2.5')->user;
+
+    expect(DB::table('users')->where('id', $user->id)->first(['email', 'email_bidx', 'pending_email', 'pending_email_bidx']))
+        ->toEqual((object) ['email' => null, 'email_bidx' => null, 'pending_email' => null, 'pending_email_bidx' => null])
+        ->and($user->identities()->sole()->email)->toBe('sam@idp.example.org');
+})->with([
+    'redeem via oidc' => LoginMethod::Oidc,
+    'redeem via plex' => LoginMethod::Plex,
+    'redeem via header' => LoginMethod::Header,
+]);
+
 it('never writes users.email during sign-in or redemption', function (string $flow) {
     // Structurally covered for every flow by the PHPStan rule
     // OnlyEmailConfirmationWritesAccountEmail; the flows themselves arrive with
-    // their tasks, which turn these cases into running tests.
+    // their tasks, which turn these cases into running tests. The redemption
+    // with an identity runs above (task 10).
 })->with([
-    'redeem via oidc', 'redeem via plex', 'redeem via header', 'redeem via password', 'return via oidc', 'return via plex', 'return via header',
-])->todo(note: 'Carried over: redemption to task 10, OIDC to task 13, Plex to task 14, header to task 15 (P17).');
+    'redeem via password', 'return via oidc', 'return via plex', 'return via header',
+])->todo(note: 'Carried over: password redemption to task 11, OIDC to task 13, Plex to task 14, header to task 15 (P17).');
 
 it('offers the provider address as a suggestion when the account address is empty', function () {
     $user = User::factory()->create();

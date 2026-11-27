@@ -17,6 +17,61 @@ Free account addresses whose 24-hour reservation ran out without confirmation
 tesserarr:email:release-expired
 ```
 
+## `tesserarr:invite`
+
+Invite somebody: prints a link that makes one new account
+
+### Aufruf
+
+```text
+tesserarr:invite [--days [DAYS]] [--note [NOTE]]
+```
+
+### Optionen
+
+| Option | Beschreibung | Standard |
+| --- | --- | --- |
+| `--days` | how many days the link stays valid (default: the general setting, 7) |  |
+| `--note` | a label to recognise the invitation by, such as a name (at most 100 characters) |  |
+
+## `tesserarr:invite:recovery`
+
+Issue a recovery invitation: a link that adds a sign-in method to an existing account
+
+### Aufruf
+
+```text
+tesserarr:invite:recovery [--days [DAYS]] [--] <username>
+```
+
+### Argumente
+
+| Argument | Pflicht | Beschreibung |
+| --- | --- | --- |
+| `username` | ja | the account that gets a new way in |
+
+### Optionen
+
+| Option | Beschreibung | Standard |
+| --- | --- | --- |
+| `--days` | how many days the link stays valid (default: the general setting, 7) |  |
+
+## `tesserarr:invite:revoke`
+
+Revoke an invitation that nobody has redeemed yet
+
+### Aufruf
+
+```text
+tesserarr:invite:revoke <id>
+```
+
+### Argumente
+
+| Argument | Pflicht | Beschreibung |
+| --- | --- | --- |
+| `id` | ja | the id of the invitation (printed when it was issued) |
+
 ## `tesserarr:migrate`
 
 Back up the database, then run the pending migrations

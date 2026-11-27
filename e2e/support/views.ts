@@ -131,15 +131,16 @@ export const gatedViews: GatedView[] = [
             },
         },
     },
-    // Task 8. The user list without the invitations (button "Einladen",
-    // table "Offene Einladungen", their empty state: task 10).
+    // Task 8, with the open invitations of task 10 (filled: one invitation;
+    // empty: none, with its empty state).
     {
         name: 'Users',
         path: '/users',
         as: 'operator',
         artboard: users.artboard,
         locale: 'de-DE',
-        expect: { ...users.expect, states: ['filled'] },
+        expect: users.expect,
+        inState: users.inState,
     },
     {
         name: 'Roles',

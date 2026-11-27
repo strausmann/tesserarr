@@ -76,7 +76,7 @@ final class RoleGuard
         $ceiling = match ($actor->type) {
             Actor::USER, Actor::TOKEN => $actor->user === null || $actor->user->isBlocked() ? [] : $actor->user->grantedPermissions(),
             Actor::CLI => Permission::assignableToUsers(),
-            Actor::SATELLITE => [],
+            Actor::SATELLITE, Actor::GUEST => [],
         };
 
         if ($owner !== null) {
