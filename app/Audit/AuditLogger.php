@@ -10,6 +10,7 @@ namespace App\Audit;
 use App\Models\User;
 use App\Privacy\EmailNormalizer;
 use Illuminate\Database\Eloquent\Model;
+use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -23,10 +24,10 @@ use Spatie\Permission\Models\Role;
  *
  * A context value (or key) that looks like an e-mail address stops it with
  * PiiInAuditContext (task 8a): people are named by id, and the names are
- * looked up when the log is shown (AuditPresenter). Role names are labels an
- * operator chose and may look like an address ("ops@example.org"): under
- * the keys of OPERATOR_LABELS such a part is written as "[email]" instead,
- * so the role stays manageable.
+ * looked up when the log is shown (AuditPresenter). Role and token names are
+ * labels somebody chose and may look like an address ("ops@example.org"):
+ * under the keys of OPERATOR_LABELS such a part is written as "[email]"
+ * instead, so the role or the token stays manageable.
  */
 final class AuditLogger
 {
@@ -49,8 +50,11 @@ final class AuditLogger
         'sessionid',
     ];
 
-    /** Top-level context keys that carry a role name, or a list of them. */
-    private const OPERATOR_LABELS = ['role', 'previous'];
+    /**
+     * Top-level context keys that carry a name somebody chose: a role name
+     * (or a list of them), the name of an API token.
+     */
+    private const OPERATOR_LABELS = ['role', 'previous', 'label'];
 
     /**
      * @param  array<string, mixed>  $context
@@ -88,6 +92,7 @@ final class AuditLogger
         return match (true) {
             $subject instanceof User => 'user',
             $subject instanceof Role => 'role',
+            $subject instanceof PersonalAccessToken => 'token',
             default => $subject->getMorphClass(),
         };
     }

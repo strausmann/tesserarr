@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use App\Authorization\Permission;
 use App\Authorization\Roles;
 use App\Http\SelfService;
 use App\Models\User;
@@ -61,6 +62,75 @@ const VENDOR_SELF_SERVICE_ROUTES = [
     // permission asks the Authorizer.
     'broadcasting/auth',
 ];
+
+/**
+ * Routes outside the three auth groups (web, session-api, token-api), each
+ * with its reason. Everything else belongs to exactly one group
+ * (tests/Feature/Security/RouteInventoryTest.php).
+ */
+const UNGROUPED_ROUTES = [
+    // The health check of the framework, for both roles; no session, no token.
+    'up',
+    // The running version, without a session on purpose (task 7a,
+    // RoleBoot::routes): the checks of an unattended tab must not keep its
+    // sign-in alive. It sends no cookie and reads none.
+    'api/v1/app/version',
+];
+
+/**
+ * Routes that change something but write no audit entry, keyed by URI
+ * pattern, each with its reason. Every other mutating route carries
+ * `->defaults('audited', true)` and writes an entry (Spec 12.10).
+ */
+const UNAUDITED_MUTATIONS = [
+    // Signing in and out (Spec 12.10: "except the sign-in"); task 11 logs sign-ins.
+    'login' => 'sign-in',
+    'logout' => 'sign-out',
+    'two-factor-challenge' => 'sign-in',
+    'passkeys/login' => 'sign-in',
+    // Proving who one is before a sensitive action changes nothing.
+    'passkeys/confirm' => 'confirmation of the own identity',
+    'user/confirm-password' => 'confirmation of the own identity',
+    // Answers whether a channel may be joined; no change.
+    'broadcasting/auth' => 'channel authorisation',
+    // Route::redirect answers every method with a redirect.
+    'settings' => 'redirect',
+    // Preferences of the own interface, not an administrative action.
+    'settings/language' => 'own preference',
+    'api/v1/app/me/ui/collapsed' => 'own preference',
+    // The second factors of the starter kit (Fortify). Task 12 rebuilds them
+    // and logs every change; until then they are listed here
+    // (todo in tests/Feature/Security/RouteInventoryTest.php).
+    'user/passkeys' => 'second factor (task 12)',
+    'user/passkeys/*' => 'second factor (task 12)',
+    'user/two-factor-authentication' => 'second factor (task 12)',
+    'user/confirmed-two-factor-authentication' => 'second factor (task 12)',
+    'user/two-factor-recovery-codes' => 'second factor (task 12)',
+];
+
+/** @return list<string> the auth groups (web, session-api, token-api) of $route */
+function authGroupsOf(Route $route): array
+{
+    return array_values(array_intersect(['web', 'session-api', 'token-api'], $route->gatherMiddleware()));
+}
+
+/** Changes something: POST, PUT, PATCH or DELETE. */
+function isMutating(Route $route): bool
+{
+    return array_intersect(['POST', 'PUT', 'PATCH', 'DELETE'], $route->methods()) !== [];
+}
+
+/** Why $route writes no audit entry, or null when it must write one. */
+function unauditedReason(Route $route): ?string
+{
+    foreach (UNAUDITED_MUTATIONS as $pattern => $reason) {
+        if (fnmatch($pattern, $route->uri())) {
+            return $reason;
+        }
+    }
+
+    return null;
+}
 
 /** An API token of $owner (an operator by default) that carries $abilities. */
 function tokenWith(array $abilities, ?User $owner = null): PersonalAccessToken
@@ -131,8 +201,27 @@ function callWithLeastPrivilege(Route $route): TestResponse
 
     $uri = preg_replace_callback('/\{(\w+)\??\}/', fn (array $m) => match ($m[1]) {
         'role' => (string) Role::findByName(Roles::USER, 'web')->id,
+        'token' => (string) $nobody->createToken('route parameter', ['catalog.browse'])->accessToken->getKey(),
         default => (string) $nobody->id,
     }, $route->uri());
 
-    return test()->actingAs($nobody, 'web')->json($method, '/'.ltrim((string) $uri, '/'));
+    $uri = '/'.ltrim((string) $uri, '/');
+
+    // The token path signs in with a bearer token only: a token of the same
+    // account that carries every permission, so the owner's missing
+    // permission is what refuses.
+    if (in_array('token-api', $route->gatherMiddleware(), true)) {
+        $plain = $nobody->createToken('least privilege', Permission::values(Permission::cases()))->plainTextToken;
+
+        return test()->withToken($plain)->json($method, $uri);
+    }
+
+    $request = test()->actingAs($nobody, 'web');
+    // The session path needs the app's header (RequireAppHeader), or it
+    // refuses before the permission is asked.
+    if (in_array('session-api', $route->gatherMiddleware(), true)) {
+        $request = $request->withHeader('X-Requested-With', 'tesserarr');
+    }
+
+    return $request->json($method, $uri);
 }

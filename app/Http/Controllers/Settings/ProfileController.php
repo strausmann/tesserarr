@@ -41,9 +41,10 @@ class ProfileController extends Controller
     public function update(ProfileUpdateRequest $request, #[CurrentUser] User $user): RedirectResponse
     {
         $before = $user->username;
+        $beforeName = $user->display_name;
 
         try {
-            DB::transaction(function () use ($request, $user, $before): void {
+            DB::transaction(function () use ($request, $user, $before, $beforeName): void {
                 $user->fill([
                     'username' => $request->validated('username'),
                     'display_name' => (string) $request->validated('display_name'),
@@ -51,6 +52,11 @@ class ProfileController extends Controller
 
                 if ($before !== $user->username) {
                     app(AuditLogger::class)->record(AuditAction::UserRenamed, Actor::user($user), $user, ['from' => $before, 'to' => $user->username]);
+                }
+                // The display name is free text (it may hold an address): the
+                // entry names the field, not the value.
+                if ($beforeName !== $user->display_name) {
+                    app(AuditLogger::class)->record(AuditAction::ProfileChanged, Actor::user($user), $user, ['fields' => ['display_name']]);
                 }
             });
         } catch (UniqueConstraintViolationException) {

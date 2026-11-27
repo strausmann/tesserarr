@@ -43,6 +43,11 @@ const components = [
     'resources/js/pages/account/Security.svelte',
     'resources/js/pages/admin/UserDetail.svelte',
     'resources/js/pages/auth/ConfirmEmail.svelte',
+    // Task 9.
+    'resources/js/components/tokens/TokenForm.svelte',
+    'resources/js/components/tokens/TokenManager.svelte',
+    'resources/js/components/tokens/TokenUsage.svelte',
+    'resources/js/pages/friend/Home.svelte',
 ];
 
 export default defineConfig({

@@ -13,6 +13,7 @@ import { dashboard } from './artboards/dashboard';
 import { friendHome } from './artboards/friend-home';
 import { roles } from './artboards/roles';
 import { settingsGeneral } from './artboards/settings-general';
+import { tokens } from './artboards/tokens';
 import { users } from './artboards/users';
 
 export type Role = 'guest' | 'friend' | 'operator';
@@ -192,6 +193,17 @@ export const gatedViews: GatedView[] = [
             ]),
             states: ['empty'],
         },
+    },
+    // Task 9. The operator sees every token; the artboard's preset
+    // "Satellit" comes with the satellites (task 18), "Arr-Anbindung" is
+    // available now (catalog.browse).
+    {
+        name: 'API tokens',
+        path: '/tokens',
+        as: 'operator',
+        artboard: tokens.artboard,
+        locale: 'de-DE',
+        expect: tokens.expect,
     },
     {
         name: 'Audit log',

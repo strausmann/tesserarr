@@ -8,6 +8,7 @@ declare(strict_types=1);
 use App\Authorization\Authorizer;
 use App\Authorization\Permission;
 use App\Authorization\Roles;
+use App\Http\Middleware\RequireAppHeader;
 use App\Models\User;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Support\Facades\Gate;
@@ -25,11 +26,15 @@ use function Tests\Support\tokenWith;
 function onRoute(string $group, ?User $user, Closure $check): mixed
 {
     $result = null;
-    Route::middleware($group)->get('/_authorizer/probe', function () use ($check, &$result) {
+    $route = Route::middleware($group)->get('/_authorizer/probe', function () use ($check, &$result) {
         $result = $check();
 
         return 'ok';
     });
+    // The groups sign in themselves (auth:sanctum, auth:web) and the session
+    // group wants the app header. Here the request reaches the route without
+    // a resolved token, so the Authorizer alone has to decide.
+    $route->withoutMiddleware(['auth:sanctum', RequireAppHeader::class]);
 
     $test = test();
     if ($user !== null) {
@@ -92,6 +97,14 @@ it('denies a locked user even with a token that carries the ability', function (
     $decision = app(Authorizer::class)->allows($operator, $token, Permission::AuditView);
 
     expect($decision->allowed)->toBeFalse()->and($decision->reason)->toBe('locked');
+});
+
+it('counts a signed-in account as a session on a session-api route', function () {
+    $operator = User::factory()->operator()->create();
+
+    $decision = onRoute('session-api', $operator, fn () => app(Authorizer::class)->allows($operator, null, Permission::AuditView));
+
+    expect($decision->allowed)->toBeTrue();
 });
 
 it('denies a token-api route when no access token was resolved', function () {

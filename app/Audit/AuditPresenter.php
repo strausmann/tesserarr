@@ -64,6 +64,8 @@ final class AuditPresenter
             'subject' => match ($entry->subject_type) {
                 'user' => (string) ($names[$entry->subject_id] ?? '#'.$entry->subject_id),
                 null => null,
+                // A token is gone once revoked; its name stays in the entry.
+                'token' => is_string($entry->context['label'] ?? null) ? $entry->context['label'] : '#'.$entry->subject_id,
                 default => is_string($entry->context['role'] ?? null) ? $entry->context['role'] : '#'.$entry->subject_id,
             },
             'outcome' => $entry->outcome->value,

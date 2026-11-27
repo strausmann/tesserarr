@@ -141,7 +141,7 @@ jobs:
       #   app/Execution:85 app/Catalog:85 app/Satellites:85 app/Connections:85
       - name: Coverage gate per directory
         if: steps.app.outputs.exists == 'true'
-        run: php scripts/coverage_gate.php clover.xml app/Authorization:90 app/Identity:90 app/Privacy:90
+        run: php scripts/coverage_gate.php clover.xml app/Authorization:90 app/Identity:90 app/Privacy:90 app/Tokens:90
 
       # The OpenAPI document of the token API is committed
       # (website/openapi/openapi.json; the website and the API reference in the

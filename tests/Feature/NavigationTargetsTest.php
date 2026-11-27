@@ -24,7 +24,6 @@ const NAVIGATION_PENDING = [
     '/satellites' => 'task 18 (satellites)',
     '/settings/sign-in' => 'task 13 (sign-in methods)',
     '/status' => 'task 23 (status)',
-    '/tokens' => 'task 9 (API tokens)',
 ];
 
 /**

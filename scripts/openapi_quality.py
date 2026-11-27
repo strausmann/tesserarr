@@ -21,7 +21,9 @@ clients and a future MCP server, so every operation needs:
 * the token ability it needs: a security requirement of the ``apiToken``
   scheme with at least one scope (App\\OpenApi\\TokenAbilityExtension writes it
   from the route's ``can:`` middleware), and no empty requirement ``{}``,
-  which would let anonymous callers in. With ``--permissions <file>`` (a JSON
+  which would let anonymous callers in. A self-service operation
+  (``x-self-service: true``, written for routes marked #[SelfService]) needs
+  the ``apiToken`` requirement without a scope instead. With ``--permissions <file>`` (a JSON
   list) every scope must be a permission of that catalogue.
 
 What is checked is the content, not the form: a ``$ref`` into
@@ -170,7 +172,12 @@ def problems(doc: dict[str, Any], permissions: set[str] | None = None) -> list[s
             for scope in (requirement.get(TOKEN_SCHEME) or [])
             if _text(scope)
         ]
-        if not abilities:
+        if op.get("x-self-service") is True:
+            # Self-service (#[SelfService], e.g. GET /me): any valid token, no
+            # permission. It still needs the token scheme, without a scope.
+            if not any(isinstance(r, dict) and TOKEN_SCHEME in r for r in requirements):
+                found.append(f"{where}: self-service without the {TOKEN_SCHEME} requirement")
+        elif not abilities:
             found.append(f"{where}: no token ability (security requirement {TOKEN_SCHEME} with a scope)")
         if permissions is not None:
             found += [

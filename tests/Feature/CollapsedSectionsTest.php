@@ -21,7 +21,7 @@ it('writes the value when a section is toggled', function () {
     $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
-        ->putJson(COLLAPSED_URL, ['section' => CollapsibleSection::DashboardAttention->value, 'collapsed' => true])
+        ->withHeader('X-Requested-With', 'tesserarr')->putJson(COLLAPSED_URL, ['section' => CollapsibleSection::DashboardAttention->value, 'collapsed' => true])
         ->assertNoContent();
 
     expect($user->refresh()->ui_collapsed)->toBe(['dashboard.attention' => true]);
@@ -30,7 +30,7 @@ it('writes the value when a section is toggled', function () {
 it('shows the stored value after a reload and in a second session', function () {
     $user = User::factory()->operator()->create();
     $this->actingAs($user)
-        ->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => false])
+        ->withHeader('X-Requested-With', 'tesserarr')->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => false])
         ->assertNoContent();
 
     // A reload: the next request reads the user afresh, as the session guard
@@ -51,7 +51,7 @@ it('keeps the other sections when one is toggled', function () {
     $user = User::factory()->operator()->create(['ui_collapsed' => ['dashboard.attention' => true, 'retired' => true]]);
 
     $this->actingAs($user)
-        ->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => false])
+        ->withHeader('X-Requested-With', 'tesserarr')->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => false])
         ->assertNoContent();
 
     expect($user->refresh()->ui_collapsed)->toEqual(['dashboard.attention' => false, 'retired' => true]);
@@ -61,7 +61,7 @@ it('rejects a section it does not know', function () {
     $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
-        ->putJson(COLLAPSED_URL, ['section' => 'no.such.section', 'collapsed' => true])
+        ->withHeader('X-Requested-With', 'tesserarr')->putJson(COLLAPSED_URL, ['section' => 'no.such.section', 'collapsed' => true])
         ->assertUnprocessable()
         ->assertJsonValidationErrors('section');
 
@@ -72,7 +72,7 @@ it('rejects a value that is not a boolean', function () {
     $user = User::factory()->operator()->create();
 
     $this->actingAs($user)
-        ->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => 'maybe'])
+        ->withHeader('X-Requested-With', 'tesserarr')->putJson(COLLAPSED_URL, ['section' => 'dashboard.attention', 'collapsed' => 'maybe'])
         ->assertUnprocessable()
         ->assertJsonValidationErrors('collapsed');
 });

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Settings;
 
+use App\Audit\Actor;
+use App\Audit\AuditAction;
+use App\Audit\AuditLogger;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\PasswordUpdateRequest;
 use App\Http\Requests\Settings\TwoFactorAuthenticationRequest;
@@ -11,6 +14,7 @@ use App\Http\SelfService;
 use App\Models\User;
 use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -61,9 +65,14 @@ class SecurityController extends Controller
      */
     public function update(PasswordUpdateRequest $request, #[CurrentUser] User $user): RedirectResponse
     {
-        $user->update([
-            'password' => $request->password,
-        ]);
+        DB::transaction(function () use ($request, $user): void {
+            $user->update([
+                'password' => $request->password,
+            ]);
+            // Every change of an account is logged (Spec 12.10); the entry
+            // says that the password changed, nothing about it.
+            app(AuditLogger::class)->record(AuditAction::PasswordChanged, Actor::user($user), $user);
+        });
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Password updated.')]);
 

@@ -62,7 +62,7 @@ final class RoleBoot
         Route::get('api/v1/app/version', VersionController::class)->name('app-api.version');
         // The app API (session) before the token API, so /api/v1/app/* never
         // falls into a token route.
-        Route::middleware('web')->prefix('api/v1/app')->name('app-api.')->group($routes.'/api_app.php');
+        Route::middleware('session-api')->prefix('api/v1/app')->name('app-api.')->group($routes.'/api_app.php');
         Route::middleware('token-api')->prefix('api/v1')->name('api.')->group($routes.'/api.php');
 
         Broadcast::routes();

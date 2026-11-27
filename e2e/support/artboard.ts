@@ -76,6 +76,30 @@ export const stateFixtures: Record<
             ).toBeVisible();
         },
     },
+    // At least one token, created through the form as on the artboard; its
+    // detail with the danger zone opens with the list.
+    'API tokens': {
+        filled: async (page) => {
+            const table = page.getByRole('table', { name: 'Bestehende Token' });
+            if ((await table.count()) === 0) {
+                await page
+                    .getByRole('textbox', { name: 'Name' })
+                    .fill('Katalog-Export');
+                await page
+                    .getByRole('radio', { name: 'Arr-Anbindung' })
+                    .check();
+                await page
+                    .getByRole('button', { name: 'Token erzeugen' })
+                    .click();
+                await expect(
+                    page.getByRole('heading', {
+                        name: '„Katalog-Export“ erzeugt',
+                    }),
+                ).toBeVisible();
+            }
+            await expect(table).toBeVisible();
+        },
+    },
     // The settings of a fresh instance: every field shows its default.
     'General settings': {
         filled: async (page) => {

@@ -58,20 +58,10 @@ return [
 
     'expiration' => null,
 
-    /*
-    |--------------------------------------------------------------------------
-    | Token Prefix
-    |--------------------------------------------------------------------------
-    |
-    | Sanctum can prefix new tokens in order to take advantage of numerous
-    | security scanning initiatives maintained by open source platforms
-    | that notify developers if they commit tokens into repositories.
-    |
-    | See: https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning
-    |
-    */
-
-    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
+    // Every token secret starts with "tsr_" (App\Tokens\TokenIssuer::PREFIX),
+    // so secret scanners and people recognise a Tesserarr token. Fixed, not
+    // from the environment: the token format is part of the API.
+    'token_prefix' => 'tsr_',
 
     /*
     |--------------------------------------------------------------------------

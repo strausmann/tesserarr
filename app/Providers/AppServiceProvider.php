@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Authorization\Authorizer;
 use App\Authorization\Permission;
+use App\Authorization\PermissionSubject;
 use App\Concurrency\AdvisoryConcurrencyBarrier;
 use App\Concurrency\ConcurrencyBarrier;
 use App\Concurrency\NullConcurrencyBarrier;
@@ -21,19 +22,24 @@ use App\Runtime\RoleBoot;
 use App\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Sanctum\Contracts\HasAbilities;
+use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -86,6 +92,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->definePermissionGates();
 
+        $this->refuseTokensOfBlockedOwners();
+
+        $this->limitTheTokenApi();
+
         // The queue worker and the scheduler run for the whole process with one
         // "request" object; the settings read for one job or task are dropped
         // before the next (SettingsRegistry::forget()).
@@ -116,6 +126,14 @@ class AppServiceProvider extends ServiceProvider
         }
     }
 
+    public const TOKEN_API_TOKEN_LIMITER = 'token-api-token';
+
+    /** Requests per minute and source address on the token path, valid token or not. */
+    public const TOKEN_API_PER_ADDRESS = 600;
+
+    /** Requests per minute and token on the token path. */
+    public const TOKEN_API_PER_TOKEN = 300;
+
     private static function stringOrNull(mixed $value): ?string
     {
         return is_string($value) ? $value : null;
@@ -141,6 +159,37 @@ class AppServiceProvider extends ServiceProvider
                 return $decision->allowed ? Response::allow() : Response::deny($decision->reason);
             });
         }
+    }
+
+    /**
+     * The rate limits of the token path (bootstrap/app.php, group token-api),
+     * generous on purpose: the arr apps poll an indexer regularly and search
+     * in bursts. Per token after the sign-in, here; per source address before
+     * it, in App\Http\Middleware\LimitTokenPathByAddress.
+     */
+    private function limitTheTokenApi(): void
+    {
+        RateLimiter::for(self::TOKEN_API_TOKEN_LIMITER, static function (Request $request) {
+            $token = $request->user()?->currentAccessToken();
+
+            return Limit::perMinute(self::TOKEN_API_PER_TOKEN)
+                ->by($token instanceof PersonalAccessToken ? 'token:'.$token->getKey() : 'address:'.$request->ip());
+        });
+    }
+
+    /**
+     * A token of a locked account is no sign-in at all (ADR-0008 point 5):
+     * not even on a self-service route that asks no permission. Sanctum
+     * already refuses expired tokens; this adds the owner's state, read
+     * from the database on every request (User::isBlocked).
+     */
+    private function refuseTokensOfBlockedOwners(): void
+    {
+        Sanctum::authenticateAccessTokensUsing(static function (PersonalAccessToken $token, bool $isValid): bool {
+            $owner = $token->getAttribute('tokenable');
+
+            return $isValid && $owner instanceof PermissionSubject && ! $owner->isBlocked();
+        });
     }
 
     /**

@@ -11,6 +11,77 @@
             "description": "This installation"
         }
     ],
+    "paths": {
+        "/me": {
+            "get": {
+                "operationId": "me.show",
+                "description": "Names the account the token belongs to and the permissions the token\nmay use now: those it carries and its owner still holds. Needs no\npermission; any valid token may ask. Use it to check a token.",
+                "summary": "Read the token's owner",
+                "tags": [
+                    "Me"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The owner of the token and what the token may do now",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "examples": [
+                                        {
+                                            "id": 7,
+                                            "username": "alice",
+                                            "display_name": "Alice",
+                                            "permissions": [
+                                                "catalog.browse"
+                                            ]
+                                        }
+                                    ],
+                                    "properties": {
+                                        "id": {
+                                            "type": "integer"
+                                        },
+                                        "username": {
+                                            "type": "string"
+                                        },
+                                        "display_name": {
+                                            "type": "string"
+                                        },
+                                        "permissions": {
+                                            "type": "array",
+                                            "items": {}
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "username",
+                                        "display_name",
+                                        "permissions"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No token, an unknown, revoked or expired token, or the token of a locked account",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "x-self-service": true
+            }
+        }
+    },
     "components": {
         "securitySchemes": {
             "apiToken": {

@@ -18,6 +18,7 @@ inside the app at `/docs/api` (Scalar, for signed-in users).
 | Examples for the request body and every 2xx response | `@example` in that PHPDoc comment, `example:` of the parameter attributes, `#[Response(…, examples: […])]` |
 | At least one error response with its meaning | `#[Response(403, 'The token lacks …')]` and the ones Scramble infers from `validate()` and `authorize()` |
 | The token ability | the route's `can:<permission>` middleware, the same one that checks it. `authorize()` in the controller alone is not enough: the export cannot see it |
+| Or: no permission at all | `#[SelfService]` on the controller or method (any valid token, such as `GET /me`): the export writes `apiToken` without a scope and `x-self-service: true` |
 
 ## The two gates
 

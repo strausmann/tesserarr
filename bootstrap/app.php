@@ -7,17 +7,25 @@ use App\Http\Middleware\AddVersionHeader;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\LimitRequestBody;
+use App\Http\Middleware\LimitTokenPathByAddress;
+use App\Http\Middleware\RequireAppHeader;
 use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\SignOutLockedAccount;
 use App\Http\PersonalInput;
 use App\Http\TrustedHosts;
+use App\Providers\AppServiceProvider;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\StartSession;
 
 return Application::configure(basePath: dirname(__DIR__))
     // The role is resolved once, after .env is loaded (AppServiceProvider,
@@ -44,8 +52,48 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([LimitRequestBody::ALIAS => LimitRequestBody::class]);
 
-        // Token API (/api/v1); filled with authentication in a later step.
-        $middleware->group('token-api', []);
+        // ADR-0007: two paths, each with exactly one sign-in check.
+        //
+        // The session path (/api/v1/app/*) for the web interface: the session
+        // cookie and nothing else (auth:web; a bearer token is never read
+        // here), then the app's own header (403 missing_app_header) and the
+        // CSRF token on top of SameSite.
+        $middleware->group('session-api', [
+            EncryptCookies::class,
+            AddQueuedCookiesToResponse::class,
+            StartSession::class,
+            'auth:web',
+            SignOutLockedAccount::class,
+            RequireAppHeader::class,
+            ValidateCsrfToken::class,
+            SubstituteBindings::class,
+            SetLocale::class,
+        ]);
+
+        // The token path (/api/v1/*) for other systems: a bearer token and
+        // nothing else. No cookie, session or CSRF middleware: with
+        // sanctum.guard = [] the session is never consulted, and none is
+        // started, so the path sets no cookie either.
+        //
+        // No CSRF check, on purpose: a browser never sends an Authorization
+        // header by itself, and a foreign page cannot set one without a CORS
+        // preflight that fails. A "safety" CSRF check would tie this path to
+        // browser state and lock the arr apps out (ADR-0007 point 5).
+        //
+        // LimitRequestBody runs before it as global middleware (appended
+        // above), so an oversized body is refused before the token is looked up.
+        //
+        // Two rate limits: per source address before the token is looked up
+        // (LimitTokenPathByAddress), so a flood of made-up bearers is cut off
+        // early; and per token after the sign-in (AppServiceProvider::
+        // limitTheTokenApi). Laravel sorts `throttle:` behind `auth:` anyway,
+        // so only a token that signed in counts against its own budget.
+        $middleware->group('token-api', [
+            LimitTokenPathByAddress::class,
+            'auth:sanctum',
+            'throttle:'.AppServiceProvider::TOKEN_API_TOKEN_LIMITER,
+            SubstituteBindings::class,
+        ]);
 
         $middleware->web(append: [
             // Before anything reads the account: a locked one is signed out.
