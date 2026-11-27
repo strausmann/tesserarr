@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Authorization\Authorizer;
 use App\Authorization\Permission;
+use App\Authorization\PermissionSubject;
 use App\Concurrency\AdvisoryConcurrencyBarrier;
 use App\Concurrency\ConcurrencyBarrier;
 use App\Concurrency\NullConcurrencyBarrier;
@@ -34,6 +35,8 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Sanctum\Contracts\HasAbilities;
+use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -85,6 +88,8 @@ class AppServiceProvider extends ServiceProvider
         TrustProxies::at(config('tesserarr.trusted_proxies'));
 
         $this->definePermissionGates();
+
+        $this->refuseTokensOfBlockedOwners();
 
         // The queue worker and the scheduler run for the whole process with one
         // "request" object; the settings read for one job or task are dropped
@@ -141,6 +146,21 @@ class AppServiceProvider extends ServiceProvider
                 return $decision->allowed ? Response::allow() : Response::deny($decision->reason);
             });
         }
+    }
+
+    /**
+     * A token of a locked account is no sign-in at all (ADR-0008 point 5):
+     * not even on a self-service route that asks no permission. Sanctum
+     * already refuses expired tokens; this adds the owner's state, read
+     * from the database on every request (User::isBlocked).
+     */
+    private function refuseTokensOfBlockedOwners(): void
+    {
+        Sanctum::authenticateAccessTokensUsing(static function (PersonalAccessToken $token, bool $isValid): bool {
+            $owner = $token->getAttribute('tokenable');
+
+            return $isValid && $owner instanceof PermissionSubject && ! $owner->isBlocked();
+        });
     }
 
     /**

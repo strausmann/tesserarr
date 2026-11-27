@@ -5,8 +5,24 @@
 
 declare(strict_types=1);
 
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Route;
+use Laravel\Sanctum\Sanctum;
+
+// The token routes of these probes need a valid token (token-api signs in
+// with the bearer only); the limit runs before it, as global middleware.
+beforeEach(function () {
+    Sanctum::actingAs(User::factory()->create(), ['status.view']);
+});
+
+it('checks the size of the body before the token', function () {
+    auth()->forgetGuards();
+    Route::middleware('token-api')->post('/api/v1/_probe', fn () => abort(500, 'must not run'));
+
+    $this->call('POST', '/api/v1/_probe', server: ['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => '65537'], content: str_repeat('a', 65_537))
+        ->assertStatus(413);
+});
 
 it('rejects a json body above 64 KiB with 413 before validation runs', function () {
     Route::middleware('token-api')->post('/api/v1/_probe', fn () => abort(500, 'must not run')); // route owned by this test

@@ -18,6 +18,7 @@ dieser Seite und in der App unter `/docs/api` (Scalar, für angemeldete Nutzer).
 | Beispiele für den Anfragekörper und jede 2xx-Antwort | `@example` in diesem PHPDoc-Kommentar, `example:` der Parameter-Attribute, `#[Response(…, examples: […])]` |
 | Mindestens eine Fehlerantwort mit ihrer Bedeutung | `#[Response(403, 'The token lacks …')]` und die, die Scramble aus `validate()` und `authorize()` ableitet |
 | Das Token-Recht | der Middleware `can:<recht>` der Route, derselben, die es prüft. `authorize()` im Controller allein genügt nicht: Der Export sieht es nicht |
+| Oder: gar kein Recht | `#[SelfService]` am Controller oder an der Methode (jedes gültige Token, etwa `GET /me`): Der Export schreibt `apiToken` ohne Recht und `x-self-service: true` |
 
 ## Die zwei Tore
 

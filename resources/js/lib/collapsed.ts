@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { appRequest, xsrfToken } from './app-api';
 import { appFetch } from './updates.svelte';
 
 /**
@@ -23,14 +24,8 @@ export function isCollapsed(
     return typeof value === 'boolean' ? value : fallback;
 }
 
-/** Laravel's CSRF token as the browser holds it (cookie XSRF-TOKEN). */
-export function xsrfToken(cookie: string = document.cookie): string | null {
-    const found = cookie
-        .split('; ')
-        .find((part) => part.startsWith('XSRF-TOKEN='));
-
-    return found ? decodeURIComponent(found.slice('XSRF-TOKEN='.length)) : null;
-}
+// Kept here for the callers that import it from this module.
+export { xsrfToken };
 
 /**
  * Stores the state of one section. Resolves true when the server took it,
@@ -43,18 +38,13 @@ export async function saveCollapsed(
     collapsed: boolean,
     send: typeof fetch = (input, init) => appFetch(input, init),
 ): Promise<boolean> {
-    const token = xsrfToken();
     try {
-        const response = await send(COLLAPSED_URL, {
-            method: 'PUT',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                ...(token ? { 'X-XSRF-TOKEN': token } : {}),
-            },
-            body: JSON.stringify({ section: key, collapsed }),
-        });
+        const response = await appRequest(
+            COLLAPSED_URL,
+            'PUT',
+            { section: key, collapsed },
+            send,
+        );
 
         return response.ok;
     } catch {

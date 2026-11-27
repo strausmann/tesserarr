@@ -13,7 +13,7 @@ Route::middleware(['auth'])->group(function () {
     Route::redirect('settings', '/settings/profile');
 
     Route::get('settings/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('settings/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::patch('settings/profile', [ProfileController::class, 'update'])->defaults('audited', true)->name('profile.update');
     Route::patch('settings/language', LanguageController::class)->name('language.update');
 });
 
@@ -24,7 +24,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::put('settings/password', [SecurityController::class, 'update'])
         ->middleware('throttle:6,1')
-        ->name('user-password.update');
+        ->defaults('audited', true)->name('user-password.update');
 
     Route::get('settings/appearance', AppearanceController::class)->name('appearance.edit');
 });

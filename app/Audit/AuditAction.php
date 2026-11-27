@@ -28,4 +28,11 @@ enum AuditAction: string
     case EmailConfirmed = 'email.confirm';
     case EmailClaimRejected = 'email.claim_rejected';
     case EmailReservationReleased = 'email.release';
+    // The own password (task 9: every change of an account is logged).
+    case PasswordChanged = 'user.password';
+    case ProfileChanged = 'user.profile';
+    // API tokens (task 9): issued (or refused) and revoked. The entry names
+    // the token by id and name, never its value.
+    case TokenIssued = 'token.issue';
+    case TokenRevoked = 'token.revoke';
 }

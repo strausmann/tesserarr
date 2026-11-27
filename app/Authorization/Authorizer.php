@@ -28,7 +28,8 @@ use Laravel\Sanctum\PersonalAccessToken;
  *      permission as an ability.
  *
  * Without a credential the request counts as a session only on a route of
- * the `web` group (pages and /api/v1/app) whose `web` user is the owner. On a
+ * the `web` group (pages) or the `session-api` group (/api/v1/app) whose
+ * `web` user is the owner. On a
  * `token-api` route, outside any route (console, queue) or for another owner,
  * a missing credential is `token_missing`: with `sanctum.guard = []` Sanctum
  * never turns a session into a transient token, so null is all a token route
@@ -80,7 +81,7 @@ class Authorizer
             : AuthorizationDecision::deny(AuthorizationDecision::TOKEN_LACKS_PERMISSION);
     }
 
-    /** Signed in through `web` as $owner, on a route of the `web` group. */
+    /** Signed in through `web` as $owner, on a route of the `web` or `session-api` group. */
     private function isSessionOf(Authenticatable $owner): bool
     {
         $route = $this->container->make('request')->route();
@@ -90,7 +91,8 @@ class Authorizer
         }
 
         $middleware = $route->gatherMiddleware();
-        if (in_array('token-api', $middleware, true) || ! in_array('web', $middleware, true)) {
+        $sessionGroup = in_array('web', $middleware, true) || in_array('session-api', $middleware, true);
+        if (in_array('token-api', $middleware, true) || ! $sessionGroup) {
             return false;
         }
 

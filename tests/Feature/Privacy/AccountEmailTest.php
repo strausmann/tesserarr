@@ -598,7 +598,7 @@ it('shows user A their own address and own activity but not user B’s address',
     $this->actingAs($a)->get('/account')->assertOk()->assertSee('alice@example.org')->assertDontSee('bob@example.org')
         ->assertInertia(fn (Assert $page) => $page->where('email.confirmed', 'alice@example.org')
             ->where('activity.0.action', 'user.rename')->where('activity.0.who', $a->shownName()));
-    $this->actingAs($b)->getJson('/api/v1/app/users/'.$a->id)->assertForbidden();
+    $this->actingAs($b)->withHeader('X-Requested-With', 'tesserarr')->getJson('/api/v1/app/users/'.$a->id)->assertForbidden();
     $this->actingAs($b)->get('/account/activity')->assertOk()->assertDontSee('alice@example.org')
         ->assertInertia(fn (Assert $page) => $page->component('account/Activity')->where('entries', []));
     $this->actingAs($a)->get('/account/activity')
@@ -610,13 +610,13 @@ it('shows other users’ addresses only to holders of users.view', function () {
     $alice = User::factory()->withRole(Roles::USER)->withConfirmedEmail('alice@example.org')->create();
     $friend = User::factory()->withRole(Roles::USER)->create();
 
-    $this->actingAs($operator)->getJson('/api/v1/app/users/'.$alice->id)->assertOk()
+    $this->actingAs($operator)->withHeader('X-Requested-With', 'tesserarr')->getJson('/api/v1/app/users/'.$alice->id)->assertOk()
         ->assertJson(fn (AssertableJson $json) => $json->where('email', 'alice@example.org')->where('email_pending', false)
             ->missing('email_bidx')->missing('pending_email')->missing('pgp_public_key')->etc());
     $this->actingAs($operator)->get("/users/{$alice->id}")->assertOk()
         ->assertInertia(fn (Assert $page) => $page->component('admin/UserDetail')->where('email.confirmed', 'alice@example.org'));
 
-    $this->actingAs($friend)->getJson('/api/v1/app/users/'.$alice->id)->assertForbidden();
+    $this->actingAs($friend)->withHeader('X-Requested-With', 'tesserarr')->getJson('/api/v1/app/users/'.$alice->id)->assertForbidden();
     $this->actingAs($friend)->get("/users/{$alice->id}")->assertForbidden();
     $this->actingAs($friend)->get('/dashboard')->assertDontSee('alice@example.org');
 });

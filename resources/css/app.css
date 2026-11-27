@@ -1431,4 +1431,84 @@
         font-size: var(--tr-text-small);
         color: var(--tr-ink-2);
     }
+
+    /* API tokens (Tokens.dc.html): the form beside the one-time token and
+       the usage steps; one column on a phone. */
+    .tr-token-grid {
+        display: grid;
+        gap: var(--tr-space-4);
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+    }
+
+    @media (min-width: 1024px) {
+        .tr-token-grid {
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+        }
+    }
+
+    .tr-token-presets {
+        display: flex;
+        flex-wrap: wrap;
+        column-gap: var(--tr-space-4);
+    }
+
+    .tr-token-permission > span {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .tr-token-secret {
+        display: flex;
+        align-items: center;
+        gap: var(--tr-space-2);
+        min-width: 0;
+        padding: 8px 8px 8px 12px;
+        border-radius: var(--tr-r-2);
+        background: var(--tr-sunken);
+    }
+
+    .tr-token-secret code {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        color: var(--tr-ink);
+    }
+
+    .tr-token-facts {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: var(--tr-space-2) var(--tr-space-4);
+        margin: 0;
+    }
+
+    .tr-token-facts dt {
+        color: var(--tr-ink-2);
+    }
+
+    .tr-token-facts dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .tr-token-steps {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-3);
+        margin: var(--tr-space-3) 0 0;
+        padding-inline-start: 1.25rem;
+    }
+
+    .tr-token-steps li {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-1);
+    }
+
+    .tr-table tr[aria-current='true'] th,
+    .tr-table tr[aria-current='true'] td {
+        background: var(--tr-sunken);
+    }
 }

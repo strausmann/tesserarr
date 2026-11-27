@@ -56,6 +56,10 @@ describe('saveCollapsed', () => {
         expect((init.headers as Record<string, string>)['X-XSRF-TOKEN']).toBe(
             'tok=',
         );
+        // The session API answers 403 missing_app_header without it.
+        expect(
+            (init.headers as Record<string, string>)['X-Requested-With'],
+        ).toBe('tesserarr');
     });
 
     it('sends no token header without the cookie', async () => {

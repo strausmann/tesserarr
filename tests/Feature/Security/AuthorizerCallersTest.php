@@ -51,7 +51,9 @@ it('requires a signed-in user on every self-service route', function () {
         array_filter(
             RouteFacade::getRoutes()->getRoutes(),
             fn (Route $route) => isSelfServiceRoute($route) && ! isPublicRoute($route)
-                && ! collect($route->gatherMiddleware())->contains(fn ($m) => is_string($m) && (str_starts_with($m, 'auth') || $m === 'guest'))
+                // The session-api and token-api groups sign in themselves
+                // (auth:web, auth:sanctum; bootstrap/app.php).
+                && ! collect($route->gatherMiddleware())->contains(fn ($m) => is_string($m) && (str_starts_with($m, 'auth') || in_array($m, ['guest', 'session-api', 'token-api'], true)))
                 && ! in_array($route->uri(), ['/', 'broadcasting/auth'], true),
         ),
     ));

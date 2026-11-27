@@ -7,10 +7,12 @@ declare(strict_types=1);
 
 namespace App\OpenApi;
 
+use App\Http\SelfService;
 use Dedoc\Scramble\Extensions\OperationExtension;
 use Dedoc\Scramble\Support\Generator\Operation;
 use Dedoc\Scramble\Support\Generator\SecurityRequirement;
 use Dedoc\Scramble\Support\RouteInfo;
+use ReflectionClass;
 
 /**
  * Documents the token ability an operation needs, read from the route's
@@ -21,6 +23,10 @@ use Dedoc\Scramble\Support\RouteInfo;
  * (OpenAPI 3.1 allows role names there for schemes other than OAuth 2). A
  * route without a `can:` middleware gets no security requirement, which the
  * API quality gate (scripts/openapi_quality.py) refuses for /api/v1.
+ *
+ * A self-service route (#[SelfService], such as GET /me) needs a valid token
+ * and no permission: it gets the `apiToken` requirement without a scope and
+ * the extension `x-self-service: true`, which the gate accepts instead.
  */
 final class TokenAbilityExtension extends OperationExtension
 {
@@ -45,6 +51,27 @@ final class TokenAbilityExtension extends OperationExtension
 
         if ($abilities !== []) {
             $operation->addSecurity(new SecurityRequirement([self::SCHEME => $abilities]));
+        } elseif (self::isSelfService($routeInfo)) {
+            $operation->addSecurity(new SecurityRequirement([self::SCHEME => []]));
+            $operation->setExtensionProperty('self-service', true);
         }
+    }
+
+    private static function isSelfService(RouteInfo $routeInfo): bool
+    {
+        $class = $routeInfo->className();
+        $method = $routeInfo->methodName();
+
+        if ($class === null || ! class_exists($class)) {
+            return false;
+        }
+
+        $reflection = new ReflectionClass($class);
+        if ($reflection->getAttributes(SelfService::class) !== []) {
+            return true;
+        }
+
+        return $method !== null && $reflection->hasMethod($method)
+            && $reflection->getMethod($method)->getAttributes(SelfService::class) !== [];
     }
 }

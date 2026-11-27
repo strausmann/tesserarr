@@ -109,6 +109,47 @@ tesserarr:settings:set <key> <value>
 | `key` | yes | a general setting such as ui.page_size |
 | `value` | yes | the new value |
 
+## `tesserarr:token:issue`
+
+Issue an API token for an account, capped at what the account holds; the token is printed once
+
+### Usage
+
+```text
+tesserarr:token:issue [--name [NAME]] [--permission [PERMISSION]] [--preset [PRESET]] [--expires [EXPIRES]] [--] <username>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `username` | yes | the owner of the token, by username (never an e-mail address) |
+
+### Options
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--name` | what the token is for, shown in the token list (1 to 100 characters) |  |
+| `--permission` | a permission of the catalogue the token carries; repeat for several |  |
+| `--preset` | a ready-made selection instead of --permission: arr (catalog.browse) or invitations (invitations.create) |  |
+| `--expires` | days until the token expires, or "never" | `90` |
+
+## `tesserarr:token:revoke`
+
+Revoke an API token: it stops working at once
+
+### Usage
+
+```text
+tesserarr:token:revoke <id>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `id` | yes | the id of the token (the number before the bar, shown in the token list) |
+
 ## `tesserarr:user:lock`
 
 Lock an account: it is signed out and cannot sign in or use its tokens; keeps at least one active operator

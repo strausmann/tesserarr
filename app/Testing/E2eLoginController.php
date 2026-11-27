@@ -42,6 +42,10 @@ final class E2eLoginController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
+        // The fixture accounts have no password anybody knows: their session
+        // counts as freshly confirmed, so the pages behind a password
+        // confirmation (the token page) open in the browser tests.
+        $request->session()->passwordConfirmed();
 
         return redirect()->route($role === 'friend' ? 'friend.home' : 'dashboard');
     }

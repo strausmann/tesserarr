@@ -41,12 +41,15 @@ it('sends X-Tesserarr-Version on api and inertia responses but not on static ass
         ->assertOk()
         ->assertExactJson(['version' => '1.2.3'])
         ->assertHeader(VERSION_HEADER, '1.2.3');
-    $this->actingAs($user)->putJson('/api/v1/app/me/ui/collapsed', ['section' => 'nope'])
+    $this->actingAs($user)->withHeader('X-Requested-With', 'tesserarr')->putJson('/api/v1/app/me/ui/collapsed', ['section' => 'nope'])
         ->assertUnprocessable()
         ->assertHeader(VERSION_HEADER, '1.2.3');
 
-    // The token API (/api/v1), and a path below /api/ without a route.
-    $this->getJson('/api/v1/_probe')->assertOk()->assertHeader(VERSION_HEADER, '1.2.3');
+    // The token API (/api/v1): refused without a token, answered with one,
+    // and a path below /api/ without a route.
+    $this->getJson('/api/v1/_probe')->assertUnauthorized()->assertHeader(VERSION_HEADER, '1.2.3');
+    $this->withToken($user->createToken('probe', ['status.view'])->plainTextToken)
+        ->getJson('/api/v1/_probe')->assertOk()->assertHeader(VERSION_HEADER, '1.2.3');
     $this->getJson('/api/v1/nothing-here')->assertNotFound()->assertHeader(VERSION_HEADER, '1.2.3');
 
     // A file sent by PHP carries no version.
