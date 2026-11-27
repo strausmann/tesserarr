@@ -32,7 +32,7 @@ Die zwei Pfade sind zwei Middleware-Gruppen (`bootstrap/app.php`), und jede Rout
 | Gruppe | Reihenfolge |
 | --- | --- |
 | `session-api` (`/api/v1/app/*`) | Cookies, Sitzung, `auth:web` (401), `X-Requested-With: tesserarr` (403 `missing_app_header`), CSRF-Token |
-| `token-api` (`/api/v1/*`) | Grenze für die Anfragegröße, `auth:sanctum` nur mit dem Bearer-Token; keine Cookie-, Sitzungs- oder CSRF-Middleware und kein Cookie in der Antwort |
+| `token-api` (`/api/v1/*`) | Grenze für die Anfragegröße, Ratengrenze je Adresse, `auth:sanctum` nur mit dem Bearer-Token, Ratengrenze je Token; keine Cookie-, Sitzungs- oder CSRF-Middleware und kein Cookie in der Antwort |
 
 Der Token-Pfad hat **absichtlich keine CSRF-Prüfung**: Ein Browser schickt eine `Authorization`-Kopfzeile nie von
 selbst, und eine fremde Seite kann sie nicht ohne CORS-Vorabanfrage setzen, die scheitert. Eine CSRF-Prüfung würde den

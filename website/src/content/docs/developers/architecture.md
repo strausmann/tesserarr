@@ -32,7 +32,7 @@ The two paths are two middleware groups (`bootstrap/app.php`), and every route b
 | Group | Order |
 | --- | --- |
 | `session-api` (`/api/v1/app/*`) | cookies, session, `auth:web` (401), `X-Requested-With: tesserarr` (403 `missing_app_header`), CSRF token |
-| `token-api` (`/api/v1/*`) | request body limit, `auth:sanctum` with the bearer token only. No cookie, session or CSRF middleware; the answer sets no cookie |
+| `token-api` (`/api/v1/*`) | request body limit, rate limit per address, `auth:sanctum` with the bearer token only, rate limit per token. No cookie, session or CSRF middleware; the answer sets no cookie |
 
 The token path has **no CSRF check, on purpose**: a browser never sends an `Authorization` header by itself, and a
 foreign page cannot set one without a CORS preflight, which fails. A CSRF check there would tie the token path to

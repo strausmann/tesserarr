@@ -8,10 +8,14 @@ declare(strict_types=1);
 use App\Audit\Actor;
 use App\Authorization\Permission;
 use App\Authorization\Roles;
+use App\Http\Middleware\LimitTokenPathByAddress;
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use App\Tokens\TokenIssuer;
 use App\Tokens\TokenRevoker;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -155,4 +159,41 @@ it('names the account and its permissions on GET /api/v1/app/me', function () {
             'display_name' => $friend->display_name,
             'permissions' => ['tokens.manage_own', 'catalog.browse'],
         ]);
+});
+
+it('limits the token path per token, without touching another token', function () {
+    $new = app(TokenIssuer::class)->issue($this->operator, Actor::user($this->operator), 'busy', [Permission::CatalogBrowse]);
+    $other = plainToken($this->operator, [Permission::CatalogBrowse]);
+    $key = md5(AppServiceProvider::TOKEN_API_TOKEN_LIMITER.'token:'.$new->accessToken->id);
+    for ($i = 0; $i < AppServiceProvider::TOKEN_API_PER_TOKEN; $i++) {
+        RateLimiter::hit($key, 60);
+    }
+
+    $this->withToken($new->plainTextToken)->getJson('/api/v1/me')->assertTooManyRequests();
+    auth()->forgetGuards();
+    $this->withToken($other)->getJson('/api/v1/me')->assertOk();
+});
+
+it('limits the token path per source address before the token is looked up', function () {
+    $key = LimitTokenPathByAddress::key('127.0.0.1');
+    for ($i = 0; $i < AppServiceProvider::TOKEN_API_PER_ADDRESS; $i++) {
+        RateLimiter::hit($key, 60);
+    }
+    DB::enableQueryLog();
+
+    $this->withToken('1|tsr_made-up')->getJson('/api/v1/me')->assertTooManyRequests();
+
+    // Refused before Sanctum looked the token up.
+    expect(collect(DB::getQueryLog())->pluck('query')->filter(fn (string $q) => str_contains($q, 'personal_access_tokens'))->all())->toBe([]);
+});
+
+it('cannot use up another token’s budget by sending its id with a wrong secret', function () {
+    $victim = app(TokenIssuer::class)->issue($this->operator, Actor::user($this->operator), 'victim', [Permission::CatalogBrowse]);
+    for ($i = 0; $i < 20; $i++) {
+        $this->withToken($victim->accessToken->id.'|tsr_wrong')->getJson('/api/v1/me')->assertUnauthorized();
+        auth()->forgetGuards();
+    }
+
+    expect(RateLimiter::attempts(md5(AppServiceProvider::TOKEN_API_TOKEN_LIMITER.'token:'.$victim->accessToken->id)))->toBe(0);
+    $this->withToken($victim->plainTextToken)->getJson('/api/v1/me')->assertOk();
 });

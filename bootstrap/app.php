@@ -7,11 +7,13 @@ use App\Http\Middleware\AddVersionHeader;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\LimitRequestBody;
+use App\Http\Middleware\LimitTokenPathByAddress;
 use App\Http\Middleware\RequireAppHeader;
 use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\SignOutLockedAccount;
 use App\Http\PersonalInput;
 use App\Http\TrustedHosts;
+use App\Providers\AppServiceProvider;
 use App\Runtime\InstanceRole;
 use App\Runtime\RoleBoot;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -80,8 +82,16 @@ return Application::configure(basePath: dirname(__DIR__))
         //
         // LimitRequestBody runs before it as global middleware (appended
         // above), so an oversized body is refused before the token is looked up.
+        //
+        // Two rate limits: per source address before the token is looked up
+        // (LimitTokenPathByAddress), so a flood of made-up bearers is cut off
+        // early; and per token after the sign-in (AppServiceProvider::
+        // limitTheTokenApi). Laravel sorts `throttle:` behind `auth:` anyway,
+        // so only a token that signed in counts against its own budget.
         $middleware->group('token-api', [
+            LimitTokenPathByAddress::class,
             'auth:sanctum',
+            'throttle:'.AppServiceProvider::TOKEN_API_TOKEN_LIMITER,
             SubstituteBindings::class,
         ]);
 
