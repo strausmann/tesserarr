@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace App\Audit;
 
+use App\Invitations\Invitation;
 use App\Models\User;
 use App\Privacy\EmailNormalizer;
 use Illuminate\Database\Eloquent\Model;
@@ -93,6 +94,7 @@ final class AuditLogger
             $subject instanceof User => 'user',
             $subject instanceof Role => 'role',
             $subject instanceof PersonalAccessToken => 'token',
+            $subject instanceof Invitation => 'invitation',
             default => $subject->getMorphClass(),
         };
     }

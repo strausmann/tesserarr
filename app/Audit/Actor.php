@@ -25,8 +25,11 @@ final readonly class Actor
 
     public const SATELLITE = 'satellite';
 
+    /** Somebody not signed in, such as a person redeeming an invitation that cannot be used. */
+    public const GUEST = 'guest';
+
     /**
-     * @param  self::USER|self::CLI|self::TOKEN|self::SATELLITE  $type
+     * @param  self::USER|self::CLI|self::TOKEN|self::SATELLITE|self::GUEST  $type
      */
     private function __construct(
         public string $type,
@@ -64,6 +67,12 @@ final readonly class Actor
         return new self(self::TOKEN, (int) $owner->getKey(), (string) $token->getKey(), $owner);
     }
 
+    /** Not signed in (the log names no account). */
+    public static function guest(): self
+    {
+        return new self(self::GUEST, null, 'guest', null);
+    }
+
     public static function satellite(int $id, string $name): self
     {
         return new self(self::SATELLITE, $id, $name, null);
@@ -73,7 +82,7 @@ final readonly class Actor
     public function source(): string
     {
         return match ($this->type) {
-            self::USER => 'ui',
+            self::USER, self::GUEST => 'ui',
             self::CLI => 'cli',
             self::TOKEN, self::SATELLITE => 'api',
         };

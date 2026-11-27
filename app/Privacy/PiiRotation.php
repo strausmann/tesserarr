@@ -31,6 +31,7 @@ final class PiiRotation
     private const COLUMNS = [
         'users' => ['email' => 'email_bidx', 'pending_email' => 'pending_email_bidx', 'pgp_public_key' => null],
         'identities' => ['email' => 'email_bidx'],
+        'invitations' => ['note' => null],
     ];
 
     public function __construct(

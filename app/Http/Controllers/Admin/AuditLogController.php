@@ -33,7 +33,7 @@ final class AuditLogController extends Controller
     private const PERIODS = ['24h' => 1, '7d' => 7, '30d' => 30];
 
     private const SOURCES = [
-        'ui' => [Actor::USER],
+        'ui' => [Actor::USER, Actor::GUEST],
         'cli' => [Actor::CLI],
         'api' => [Actor::TOKEN, Actor::SATELLITE],
     ];

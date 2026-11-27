@@ -27,7 +27,7 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    ->in('Feature', 'Unit/Authorization', 'Unit/Privacy', 'Unit/Tokens');
+    ->in('Feature', 'Unit/Authorization', 'Unit/Invitations', 'Unit/Privacy', 'Unit/Tokens');
 
 // Races between child processes: they only see committed rows.
 pest()->extend(ConcurrencyTestCase::class)

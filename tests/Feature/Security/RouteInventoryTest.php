@@ -10,6 +10,7 @@ use App\Audit\AuditAction;
 use App\Audit\AuditEntry;
 use App\Audit\AuditOutcome;
 use App\Authorization\Roles;
+use App\Invitations\InvitationService;
 use App\Mail\ConfirmEmailMail;
 use App\Models\User;
 use App\Privacy\AccountEmailPolicy;
@@ -53,6 +54,9 @@ function auditedRouteCalls(): array
     $addresses = fn () => app(Settings::class)->set(AccountEmailPolicy::SETTING, true, Actor::cli('test'));
     $onUser = fn (AuditAction $action) => fn (array $c) => [$action, 'user', (int) $c['user']->id];
     $onToken = fn (AuditAction $action) => fn (array $c) => [$action, 'token', (int) $c['token']->id];
+    $bearer = fn (User $owner, array $abilities) => test()->withToken($owner->createToken('t', $abilities)->plainTextToken);
+    $invitation = fn () => app(InvitationService::class)->issue(Actor::cli('test'))->invitation;
+    $onInvitation = fn (AuditAction $action) => fn (array $c) => [$action, 'invitation', isset($c['invitation']) ? (int) $c['invitation']->id : null];
     $onRole = fn (AuditAction $action) => fn (array $c) => [$action, 'role', isset($c['role']) ? (int) $c['role']->id : null];
 
     return [
@@ -171,6 +175,26 @@ function auditedRouteCalls(): array
             },
             'call' => fn (array $c) => $app($c['user'])->deleteJson("/api/v1/app/tokens/{$c['token']->id}"),
             'expect' => $onToken(AuditAction::TokenRevoked),
+        ],
+        'app-api.invitations.store' => [
+            'setup' => fn () => ['operator' => $operator()],
+            'call' => fn (array $c) => $app($c['operator'])->postJson('/api/v1/app/invitations', ['days' => 7, 'note' => 'For Sam']),
+            'expect' => $onInvitation(AuditAction::InvitationIssued),
+        ],
+        'app-api.invitations.destroy' => [
+            'setup' => fn () => ['operator' => $operator(), 'invitation' => $invitation()],
+            'call' => fn (array $c) => $app($c['operator'])->deleteJson("/api/v1/app/invitations/{$c['invitation']->id}"),
+            'expect' => $onInvitation(AuditAction::InvitationRevoked),
+        ],
+        'api.invitations.store' => [
+            'setup' => fn () => ['operator' => $operator()],
+            'call' => fn (array $c) => $bearer($c['operator'], ['invitations.create'])->postJson('/api/v1/invitations', ['days' => 3]),
+            'expect' => $onInvitation(AuditAction::InvitationIssued),
+        ],
+        'api.invitations.destroy' => [
+            'setup' => fn () => ['operator' => $operator(), 'invitation' => $invitation()],
+            'call' => fn (array $c) => $bearer($c['operator'], ['invitations.revoke'])->deleteJson("/api/v1/invitations/{$c['invitation']->id}"),
+            'expect' => $onInvitation(AuditAction::InvitationRevoked),
         ],
         'app-api.admin.tokens.destroy' => [
             'setup' => fn () => ['token' => $friend()->createToken('old', ['catalog.browse'])->accessToken, 'operator' => $operator()],

@@ -56,7 +56,7 @@ final class AuditPresenter
                 default => (string) $entry->actor_label,
             },
             'source' => match ($entry->actor_type) {
-                Actor::USER => 'ui',
+                Actor::USER, Actor::GUEST => 'ui',
                 Actor::CLI => 'cli',
                 default => 'api',
             },

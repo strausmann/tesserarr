@@ -27,10 +27,9 @@ use Laravel\Sanctum\PersonalAccessToken;
 */
 
 beforeEach(function () {
-    // Stands in for the invitation route of task 10 (and any route that asks
-    // a permission): the same group and the same check as a real one.
+    // Stands in for a catalogue route (task 21): the same group and the same
+    // check as a real one. POST /api/v1/invitations is the real route.
     Route::middleware('token-api')->prefix('api/v1')->group(function () {
-        Route::post('invitations', fn () => response()->json(['ok' => true], 201))->middleware('can:invitations.create');
         Route::get('_probe/catalog', fn () => response()->json(['ok' => true]))->middleware('can:catalog.browse');
     });
     Route::getRoutes()->refreshNameLookups();

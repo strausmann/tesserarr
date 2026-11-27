@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FriendHomeController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\Invitations\RedeemController;
 use App\Http\Controllers\Tokens\TokenPageController;
 use Dedoc\Scramble\Scramble;
 use Illuminate\Auth\Middleware\RequirePassword;
@@ -33,6 +34,13 @@ Route::get('/', HomeController::class)->name('home');
 // body, uses it.
 Route::get('email/confirm', [EmailConfirmationController::class, 'show'])->name('email.confirm.show');
 Route::post('email/confirm', [EmailConfirmationController::class, 'confirm'])->middleware('throttle:10,1')->defaults('audited', true)->name('email.confirm');
+
+// The link of an invitation (task 10): public, the token is the proof. Like
+// the confirmation link it travels in the fragment (/invite#<token>); the page
+// posts it in the body to show who invites. Nothing is used up by that POST:
+// the sign-in method the person chooses redeems it (tasks 11, 13 to 15).
+Route::get('invite', [RedeemController::class, 'show'])->name('invite.show');
+Route::post('invite', [RedeemController::class, 'check'])->middleware('throttle:10,1')->name('invite.check');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     // The operator's start page; a friend is sent on to /shared.

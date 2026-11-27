@@ -1511,4 +1511,115 @@
     .tr-table tr[aria-current='true'] td {
         background: var(--tr-sunken);
     }
+
+    /* Invitations (task 10): the head of a section with its action, the
+       link shown once, and the facts of the detail dialog. */
+    .tr-section-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: var(--tr-space-3);
+    }
+
+    .tr-invite-link {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--tr-space-2);
+        min-width: 0;
+        padding: 8px 8px 8px 12px;
+        border-radius: var(--tr-r-2);
+        background: var(--tr-sunken);
+    }
+
+    .tr-invite-link code {
+        flex: 1 1 16rem;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        color: var(--tr-ink);
+        font-weight: 600;
+    }
+
+    .tr-facts {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: var(--tr-space-2) var(--tr-space-4);
+        margin: 0;
+    }
+
+    .tr-facts dt {
+        color: var(--tr-ink-2);
+    }
+
+    .tr-facts dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+    }
+
+    /* The redemption of an invitation (Invite-Phone.dc.html): the steps as
+       a row of bars, large step headings, and a main button the thumb
+       reaches. */
+    .tr-steps {
+        display: flex;
+        gap: 4px;
+    }
+
+    .tr-steps span {
+        flex: 1;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--tr-line-strong);
+    }
+
+    .tr-steps span.tr-steps-done {
+        background: var(--tr-accent);
+    }
+
+    .tr-redeem-title {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1.2;
+        text-wrap: balance;
+    }
+
+    .tr-redeem-card {
+        padding: 16px;
+        border-radius: var(--tr-card-radius);
+        background: var(--tr-surface);
+    }
+
+    .tr-redeem-next {
+        min-height: 52px;
+        width: 100%;
+        font-size: 16px;
+    }
+
+    .tr-choice {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        min-height: 64px;
+        padding: 12px 16px;
+        border-radius: var(--tr-card-radius);
+        border: 1px solid var(--tr-line);
+        background: var(--tr-surface);
+        color: var(--tr-ink);
+        font: inherit;
+        text-align: left;
+        touch-action: manipulation;
+        user-select: none;
+    }
+
+    .tr-choice[aria-checked='true'] {
+        border: 2px solid var(--tr-accent);
+    }
+
+    /* The frame of the sign-in pages: as high as the visible area, so the
+       field and its button move above the on-screen keyboard (iOS covers
+       the page instead of resizing it). */
+    .tr-auth-frame {
+        min-height: var(--vvh, 100svh);
+    }
 }

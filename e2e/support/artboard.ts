@@ -49,7 +49,9 @@ export const stateFixtures: Record<
             ).toBeVisible();
         },
     },
-    // At least the operator of the sign-in is listed.
+    // At least the operator of the sign-in is listed. Filled: one open
+    // invitation, made through its dialog; empty: every open one revoked
+    // through the detail dialog (task 10).
     Users: {
         filled: async (page) => {
             await expect(
@@ -57,6 +59,48 @@ export const stateFixtures: Record<
                     .getByRole('cell', { name: 'e2e-operator' })
                     .or(page.getByText('e2e-operator'))
                     .first(),
+            ).toBeVisible();
+            const table = page.getByRole('table', {
+                name: 'Offene Einladungen',
+            });
+            if (!(await table.isVisible())) {
+                await page.getByRole('button', { name: 'Einladen' }).click();
+                const create = page.getByRole('dialog', {
+                    name: 'Nutzer einladen',
+                });
+                await create
+                    .getByRole('textbox', { name: 'Notiz oder Name' })
+                    .fill('Noa');
+                await create
+                    .getByRole('button', { name: 'Einladung erstellen' })
+                    .click();
+                const done = page.getByRole('dialog', {
+                    name: 'Einladung für Noa erstellt',
+                });
+                await expect(done.getByText('/invite#')).toBeVisible();
+                await done.getByRole('button', { name: 'Fertig' }).click();
+            }
+            await expect(table).toBeVisible();
+        },
+        empty: async (page) => {
+            const open = page.getByRole('button', {
+                name: /^Einladung für .* öffnen$/,
+            });
+            while ((await open.count()) > 0) {
+                await open.first().click();
+                const detail = page.getByRole('dialog', {
+                    name: /^Einladung für /,
+                });
+                await detail
+                    .getByRole('button', { name: 'Einladung widerrufen' })
+                    .click();
+                await detail
+                    .getByRole('button', { name: 'Widerrufen', exact: true })
+                    .click();
+                await expect(detail).toBeHidden();
+            }
+            await expect(
+                page.getByText('Keine offenen Einladungen'),
             ).toBeVisible();
         },
     },

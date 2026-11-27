@@ -12,6 +12,7 @@ use App\Audit\AuditAction;
 use App\Audit\AuditLogger;
 use App\Audit\AuditOutcome;
 use App\Audit\AuditPresenter;
+use App\Authorization\Authorizer;
 use App\Authorization\LastOperatorProtected;
 use App\Authorization\Permission;
 use App\Authorization\PrivilegeEscalation;
@@ -19,6 +20,7 @@ use App\Authorization\RoleGuard;
 use App\Authorization\Roles;
 use App\Http\Controllers\Controller;
 use App\Identity\Identity;
+use App\Invitations\InvitationView;
 use App\Models\User;
 use App\Privacy\AccountEmailPolicy;
 use App\Privacy\AccountEmailState;
@@ -26,6 +28,8 @@ use App\Privacy\EmailAlreadyClaimed;
 use App\Privacy\EmailClaimThrottled;
 use App\Privacy\EmailConfirmation;
 use App\Privacy\EmailEntryDisabled;
+use App\Settings\SettingKey;
+use App\Settings\SettingsRegistry;
 use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -38,8 +42,8 @@ use Spatie\Permission\Models\Role;
 
 /**
  * The account list of the operator (Users.dc.html): who has which role, how
- * they sign in, and the actions on an account (role, lock). Invitations join
- * the page with task 10, second factors with task 12.
+ * they sign in, the actions on an account (role, lock) and the open
+ * invitations (task 10). Second factors join with task 12.
  *
  * Every change goes through RoleGuard: the actor needs every permission of
  * the role they give and of the account they change, and at least one active
@@ -57,6 +61,8 @@ final class UserController extends Controller
         private readonly EmailConfirmation $confirmation,
         private readonly AccountEmailPolicy $policy,
         private readonly AuditPresenter $presenter,
+        private readonly Authorizer $authorizer,
+        private readonly SettingsRegistry $settings,
     ) {}
 
     public function index(#[CurrentUser] User $actor): Response
@@ -83,9 +89,24 @@ final class UserController extends Controller
                 ])->values()->all(),
                 'self' => $user->id === $actor->id,
             ])->values()->all(),
+            // The open invitations (task 10), for whom may make or revoke them.
+            'invitations' => $this->seesInvitations($actor) ? InvitationView::open() : [],
+            // The validity the invitation dialog preselects (general settings, #173).
+            'invitation_days' => (int) $this->settings->value(SettingKey::InvitationDays),
             // Whether the actions show is read from the shared prop `permissions`.
             'roles' => Role::query()->where('guard_name', Roles::GUARD)->orderBy('id')->pluck('name')->all(),
         ]);
+    }
+
+    private function seesInvitations(User $actor): bool
+    {
+        foreach ([Permission::InvitationsCreate, Permission::InvitationsRevoke] as $permission) {
+            if ($this->authorizer->allows($actor, null, $permission)->allowed) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

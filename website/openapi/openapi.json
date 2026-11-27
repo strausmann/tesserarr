@@ -12,6 +12,184 @@
         }
     ],
     "paths": {
+        "/invitations": {
+            "post": {
+                "operationId": "invitations.store",
+                "description": "Makes an invitation for one new account and answers its link, which\ncan be redeemed once. The link is in this answer only; pass it on in a\nway you trust. Needs `invitations.create`.",
+                "summary": "Create an invitation",
+                "tags": [
+                    "Invitation"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "days": {
+                                        "type": "integer",
+                                        "description": "How many days the link stays valid, 1 to 90; the instance default (7) when left out",
+                                        "examples": [
+                                            7
+                                        ]
+                                    },
+                                    "note": {
+                                        "type": "string",
+                                        "description": "A label to recognise the invitation by, at most 100 characters",
+                                        "examples": [
+                                            "For Sam"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "The new invitation and its link",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "examples": [
+                                        {
+                                            "id": 12,
+                                            "url": "https://tesserarr.example.org/invite#EXAMPLE_invitation_token_000000000000000000",
+                                            "expires_at": "2026-12-04T18:00:00+00:00"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "id": {
+                                            "type": "integer"
+                                        },
+                                        "url": {
+                                            "type": "string"
+                                        },
+                                        "expires_at": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "url",
+                                        "expires_at"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The token or its owner lacks invitations.create",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "owner_lacks_permission"
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "days is out of range, or note is too long",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "apiToken": [
+                            "invitations.create"
+                        ]
+                    }
+                ]
+            }
+        },
+        "/invitations/{invitation}": {
+            "delete": {
+                "operationId": "invitations.destroy",
+                "description": "The link stops working at once. Only an invitation nobody has\nredeemed yet can be revoked. Needs `invitations.revoke`.",
+                "summary": "Revoke an invitation",
+                "tags": [
+                    "Invitation"
+                ],
+                "parameters": [
+                    {
+                        "name": "invitation",
+                        "in": "path",
+                        "required": true,
+                        "description": "The id of the invitation, as the answer of creating it names it",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "example": 12
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "403": {
+                        "description": "The token or its owner lacks invitations.revoke",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "owner_lacks_permission"
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No open invitation with this id",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "description": "Error overview."
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "apiToken": [
+                            "invitations.revoke"
+                        ]
+                    }
+                ]
+            }
+        },
         "/me": {
             "get": {
                 "operationId": "me.show",

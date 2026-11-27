@@ -13,7 +13,14 @@ declare(strict_types=1);
 | ->defaults('audited', true) (tests/Feature/Security/RouteInventoryTest.php).
 */
 
+use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MeController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('me', [MeController::class, 'token'])->name('me');
+
+// Invitations (task 10): for a script or bot that hands them out.
+Route::post('invitations', [InvitationController::class, 'store'])->middleware('can:invitations.create')
+    ->defaults('audited', true)->name('invitations.store');
+Route::delete('invitations/{invitation}', [InvitationController::class, 'destroy'])->whereNumber('invitation')
+    ->middleware('can:invitations.revoke')->defaults('audited', true)->name('invitations.destroy');

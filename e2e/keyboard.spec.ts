@@ -55,6 +55,61 @@ export const keyboardCases: KeyboardCase[] = [
             };
         },
     },
+    {
+        // Task 10: the note of a new invitation (Users.dc.html).
+        name: 'new invitation',
+        path: '/users',
+        as: 'operator',
+        focus: async (page) => {
+            await page
+                .getByRole('button', { name: /^(Invite|Einladen)$/ })
+                .first()
+                .click();
+            const dialog = page.getByRole('dialog', {
+                name: /^(Invite a user|Nutzer einladen)$/,
+            });
+            const field = dialog.getByRole('textbox', {
+                name: /^(Note or name|Notiz oder Name)$/,
+            });
+            await field.focus();
+            await page.keyboard.type('Noa');
+
+            return {
+                field,
+                buttons: [
+                    dialog.getByRole('button', {
+                        name: /^(Cancel|Abbrechen)$/,
+                    }),
+                    dialog.getByRole('button', {
+                        name: /^(Create invitation|Einladung erstellen)$/,
+                    }),
+                ],
+            };
+        },
+    },
+    {
+        // Task 10: the redemption page without a link in the address, where
+        // the link is pasted (Invite-Phone.dc.html).
+        name: 'pasted invitation link',
+        path: '/invite',
+        as: 'guest',
+        focus: async (page) => {
+            const field = page.getByRole('textbox', {
+                name: /^(Invitation link|Einladungslink)$/,
+            });
+            await field.focus();
+            await page.keyboard.type('https://tesserarr.example.org/invite#');
+
+            return {
+                field,
+                buttons: [
+                    page.getByRole('button', {
+                        name: /^(Open invitation|Einladung öffnen)$/,
+                    }),
+                ],
+            };
+        },
+    },
 ];
 
 test.describe('on-screen keyboard', () => {

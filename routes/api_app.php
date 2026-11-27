@@ -12,6 +12,7 @@ declare(strict_types=1);
 | that changes something carries ->defaults('audited', true).
 */
 
+use App\Http\Controllers\Api\App\InvitationController;
 use App\Http\Controllers\Api\App\TokenController;
 use App\Http\Controllers\Api\App\UserController;
 use App\Http\Controllers\Api\MeController;
@@ -33,3 +34,11 @@ Route::delete('tokens/{token}', [TokenController::class, 'destroy'])->whereNumbe
     ->defaults('audited', true)->name('tokens.destroy');
 Route::delete('admin/tokens/{token}', [TokenController::class, 'destroyAny'])->whereNumber('token')
     ->middleware('can:tokens.manage_all')->defaults('audited', true)->name('admin.tokens.destroy');
+
+// Invitations (task 10): the dialog of the user list issues access
+// invitations, the user detail a recovery invitation (`user`, which also
+// needs users.manage and every permission of that account).
+Route::post('invitations', [InvitationController::class, 'store'])
+    ->middleware(['can:invitations.create', 'throttle:30,1'])->defaults('audited', true)->name('invitations.store');
+Route::delete('invitations/{invitation}', [InvitationController::class, 'destroy'])->whereNumber('invitation')
+    ->middleware('can:invitations.revoke')->defaults('audited', true)->name('invitations.destroy');

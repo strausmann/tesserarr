@@ -35,6 +35,8 @@ const PUBLIC_ROUTES = [
     'login',
     'passkeys/login*',
     'auth/*',
+    // The link of an invitation (task 10): the token is the proof.
+    'invite',
     'invite/*',
     'two-factor-challenge',
     // The running version, without a session (task 7a, RoleBoot::routes).
@@ -95,6 +97,9 @@ const UNAUDITED_MUTATIONS = [
     'broadcasting/auth' => 'channel authorisation',
     // Route::redirect answers every method with a redirect.
     'settings' => 'redirect',
+    // Shows who invites and until when; nothing is used up. The redemption
+    // itself is logged by the sign-in method that does it (task 10, K18).
+    'invite' => 'reads an invitation',
     // Preferences of the own interface, not an administrative action.
     'settings/language' => 'own preference',
     'api/v1/app/me/ui/collapsed' => 'own preference',

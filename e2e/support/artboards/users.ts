@@ -8,9 +8,9 @@ export const users: ArtboardSpec = {
     title: 'Nutzer',
     viewport: 'desktop',
     // "Einladung widerrufen" and its danger zone live in the invitation dialog,
-    // which the artboard opens only on demand: the task that builds the dialog
-    // adds them with the state that opens it. "Einladen" appears twice in the
-    // empty state (page header and the empty card), so it is not in `expect`.
+    // which the artboard opens only on demand (the empty-state fixture uses
+    // them). "Einladen" is in the section head with invitations and in the
+    // empty card without, so it is not in `expect`.
     expect: {
         headings: ['Nutzer', 'Alle Nutzer'],
         controls: ['table:Alle Nutzer'],

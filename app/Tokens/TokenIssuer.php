@@ -100,7 +100,7 @@ final class TokenIssuer
         $allowed = match ($by->type) {
             Actor::CLI => true,
             Actor::USER, Actor::TOKEN => $by->user !== null && $by->user->is($owner),
-            Actor::SATELLITE => false,
+            Actor::SATELLITE, Actor::GUEST => false,
         };
 
         if (! $allowed) {

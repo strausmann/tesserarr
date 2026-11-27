@@ -14,13 +14,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     import type { ActivityEntry } from '@/components/account/ActivityList.svelte';
     import AppHead from '@/components/AppHead.svelte';
     import EmptyState from '@/components/EmptyState.svelte';
+    import RecoveryInvitation from '@/components/invitations/RecoveryInvitation.svelte';
     import { t } from '@/lib/i18n';
 
     // One account for the operator (User-Detail.dc.html). Task 8a builds the
     // contact section (the account address, confirmed by its owner through a
     // link), the sign-in methods with the provider addresses and the latest
-    // log entries; second factors (12), grants (21a) and invitations (10)
-    // join with their tasks. Role and lock stay on the list for now.
+    // log entries; task 10 the recovery invitation. Second factors (12) and
+    // grants (21a) join with their tasks. Role and lock stay on the list.
     type Identity = { id: number; method: string; provider_key: string; provider_email: string | null };
 
     let {
@@ -43,7 +44,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     } = $props();
 
     const shown = $derived(account.display_name.trim() !== '' ? account.display_name : account.username);
-    const canManage = $derived(((page.props as { permissions?: string[] }).permissions ?? []).includes('users.manage'));
+    const granted = $derived((page.props as { permissions?: string[] }).permissions ?? []);
+    const canManage = $derived(granted.includes('users.manage'));
+    // A recovery invitation also needs invitations.create; the server checks the rest.
+    const canRecover = $derived(canManage && granted.includes('invitations.create') && !account.self);
     const role = $derived(
         account.role === 'operator' || account.role === 'user' ? t(`roles.name.${account.role}`) : (account.role ?? t('users.no_role')),
     );
@@ -93,6 +97,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                         </li>
                     {/each}
                 </ul>
+            {/if}
+            {#if canRecover}
+                <RecoveryInvitation userId={account.id} name={shown} />
             {/if}
         </section>
     </div>
