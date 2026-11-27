@@ -96,7 +96,7 @@ const friend: NavGroup[] = [
                 href: '/tokens',
                 permission: 'tokens.manage_own',
             },
-            { label: 'nav.account', href: '/settings/profile' },
+            { label: 'nav.account', href: '/account' },
         ],
     },
 ];

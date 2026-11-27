@@ -24,3 +24,14 @@ services:
                 - App\Models\User
         tags:
             - phpstan.rules.rule
+    -
+        # Task 8a: the account address has one writer.
+        class: Tests\PHPStan\Rules\Privacy\OnlyEmailConfirmationWritesAccountEmailRule
+        arguments:
+            userClasses:
+                - App\Models\User
+            allowedClasses:
+                - App\Privacy\EmailConfirmation
+                - App\Privacy\PiiRotation
+        tags:
+            - phpstan.rules.rule

@@ -1,0 +1,62 @@
+<?php
+
+// SPDX-FileCopyrightText: 2026 Björn Strausmann and Tesserarr contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+declare(strict_types=1);
+
+namespace App\Privacy;
+
+use Normalizer;
+
+/**
+ * One spelling per address, the input of the blind index: trimmed, Unicode
+ * NFC, the whole address in lower case, the domain in ASCII (IDNA). The local
+ * part is lower-cased as well, although RFC 5321 lets it be case-sensitive:
+ * no mail system the project targets treats it so, and "Alice@" and "alice@"
+ * must not be two accounts.
+ */
+final class EmailNormalizer
+{
+    /**
+     * What counts as an address in text (logs, audit context): a local part
+     * of RFC 5322 atext characters and dots (letters of every script too),
+     * "@" or its URL encoding "%40", and a domain with at least one dot.
+     */
+    public const PATTERN = "/[\\p{L}\\p{N}!#$%&'*+\\/=?^_`{|}~.\\-]+(?:@|%40)[\\p{L}\\p{N}\\-]+(?:\\.[\\p{L}\\p{N}\\-]+)+/iu";
+
+    public static function normalize(string $address): string
+    {
+        $address = trim($address);
+        $address = Normalizer::normalize($address, Normalizer::FORM_C) ?: $address;
+        $address = mb_strtolower($address, 'UTF-8');
+
+        $at = strrpos($address, '@');
+        if ($at === false) {
+            return $address;
+        }
+
+        $domain = substr($address, $at + 1);
+        $ascii = idn_to_ascii($domain, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
+
+        return substr($address, 0, $at + 1).(is_string($ascii) && $ascii !== '' ? $ascii : $domain);
+    }
+
+    /** Does $text contain something that looks like an address? */
+    public static function containsAddress(string $text): bool
+    {
+        return self::mayContainAddress($text) && preg_match(self::PATTERN, $text) === 1;
+    }
+
+    /** $text with every address replaced by $replacement. */
+    public static function redact(string $text, string $replacement = '[email]'): string
+    {
+        return self::mayContainAddress($text) ? (string) preg_replace(self::PATTERN, $replacement, $text) : $text;
+    }
+
+    /** No address without "@" or "%40": a long text of anything else never reaches the regex. */
+    private static function mayContainAddress(string $text): bool
+    {
+        return str_contains($text, '@') || stripos($text, '%40') !== false;
+    }
+}

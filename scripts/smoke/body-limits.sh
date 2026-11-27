@@ -34,6 +34,7 @@ fail() {
 docker run -d --name "$name" -p 127.0.0.1::8080 \
     -e APP_ENV=production -e APP_DEBUG=false \
     -e "APP_KEY=base64:$(head -c 32 /dev/urandom | base64)" \
+    -e TESSERARR_PII_KEY="base64:$(head -c 32 /dev/urandom | base64)" -e TESSERARR_BLIND_INDEX_KEY="base64:$(head -c 32 /dev/urandom | base64)" \
     "$image" >/dev/null
 
 port="$(docker port "$name" 8080/tcp | head -n 1 | sed 's/.*://')"

@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use App\Privacy\PiiEncrypter;
+use App\Privacy\PiiKeys;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,7 +27,7 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    ->in('Feature', 'Unit/Authorization');
+    ->in('Feature', 'Unit/Authorization', 'Unit/Privacy');
 
 // Races between child processes: they only see committed rows.
 pest()->extend(ConcurrencyTestCase::class)
@@ -102,6 +105,19 @@ function assertNoStateLeakBetweenUsers(Closure $requestAsA, Closure $requestAsB,
  * wrote inside its transaction. A page that asks the Authorizer (or signs out
  * an account it cannot find) needs the row committed: CommittedUsers.
  */
+function workerEmail(string $name): string
+{
+    return strtolower(str_replace(' ', '.', $name)).'@example.org';
+}
+
+function workerEmailCiphertext(string $address): string
+{
+    return (new Encrypter(
+        PiiKeys::decode((string) getenv('TESSERARR_PII_KEY')),
+        PiiEncrypter::CIPHER,
+    ))->encryptString($address);
+}
+
 function workerUser(string $name, int $id = 0): User
 {
     $user = new User;
@@ -110,8 +126,10 @@ function workerUser(string $name, int $id = 0): User
         'id' => $id !== 0 ? $id : crc32($name),
         'username' => strtolower(str_replace(' ', '.', $name)),
         'display_name' => $name,
-        'email' => strtolower(str_replace(' ', '.', $name)).'@example.org',
-        'email_verified_at' => '2026-01-01 00:00:00',
+        // The confirmed account address, as ciphertext of the PII key (the
+        // cast needs the container, which is not there between two worker runs).
+        'email' => workerEmailCiphertext(workerEmail($name)),
+        'email_confirmed_at' => '2026-01-01 00:00:00',
     ], true);
     $user->exists = true;
 

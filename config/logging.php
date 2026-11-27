@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Privacy\RedactingTap;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
@@ -53,10 +54,18 @@ return [
     |
     */
 
+    /*
+    | Every channel has the tap App\Privacy\RedactingTap, which replaces
+    | e-mail addresses and the messages and traces of exceptions before
+    | anything is written (task 8a; a test checks every channel). A new
+    | channel takes it as well.
+    */
+
     'channels' => [
 
         // One line per request in nginx "combined" format (App\Http\Middleware\AccessLog).
         'access' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'monolog',
             'handler' => StreamHandler::class,
             'handler_with' => [
@@ -70,12 +79,14 @@ return [
         ],
 
         'stack' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'stack',
             'channels' => explode(',', (string) env('LOG_STACK', 'single')),
             'ignore_exceptions' => false,
         ],
 
         'single' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
@@ -83,6 +94,7 @@ return [
         ],
 
         'daily' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
@@ -91,6 +103,7 @@ return [
         ],
 
         'monthly' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'monthly',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
@@ -99,6 +112,7 @@ return [
         ],
 
         'slack' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),
             'username' => env('LOG_SLACK_USERNAME', env('APP_NAME', 'Laravel')),
@@ -108,6 +122,7 @@ return [
         ],
 
         'papertrail' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'monolog',
             'level' => env('LOG_LEVEL', 'debug'),
             'handler' => env('LOG_PAPERTRAIL_HANDLER', SyslogUdpHandler::class),
@@ -120,6 +135,7 @@ return [
         ],
 
         'stderr' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'monolog',
             'level' => env('LOG_LEVEL', 'debug'),
             'handler' => StreamHandler::class,
@@ -131,6 +147,7 @@ return [
         ],
 
         'syslog' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'syslog',
             'level' => env('LOG_LEVEL', 'debug'),
             'facility' => env('LOG_SYSLOG_FACILITY', LOG_USER),
@@ -138,17 +155,22 @@ return [
         ],
 
         'errorlog' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'errorlog',
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
         ],
 
         'null' => [
+            'tap' => [RedactingTap::class],
             'driver' => 'monolog',
             'handler' => NullHandler::class,
         ],
 
+        // Laravel's fallback when a channel cannot be built; it reads only
+        // the path. App\Privacy\RedactingLogManager adds the redaction to it.
         'emergency' => [
+            'tap' => [RedactingTap::class],
             'path' => storage_path('logs/laravel.log'),
         ],
 

@@ -21,4 +21,11 @@ enum AuditAction: string
     case UserUnlocked = 'user.unlock';
     case UserRenamed = 'user.rename';
     case SettingChanged = 'setting.update';
+    // The account address (task 8a): the request (a link is sent), the
+    // confirmation, an address already in use, and an operator releasing a
+    // reservation.
+    case EmailRequested = 'email.request';
+    case EmailConfirmed = 'email.confirm';
+    case EmailClaimRejected = 'email.claim_rejected';
+    case EmailReservationReleased = 'email.release';
 }

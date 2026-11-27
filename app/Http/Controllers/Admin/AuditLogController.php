@@ -9,13 +9,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Audit\Actor;
 use App\Audit\AuditEntry;
+use App\Audit\AuditPresenter;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Settings\SettingKey;
 use App\Settings\SettingsRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Date;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -25,8 +25,8 @@ use Inertia\Response;
  * general setting ui.page_size says (50 until it is set), with
  * links to newer and older entries (keyset on the id, stable while entries
  * arrive), filtered by period, person, action and origin. People are named
- * by their current username or display name, looked up by id; the log itself
- * holds no names and no addresses.
+ * by their current username or display name, looked up by id when shown
+ * (AuditPresenter); the log itself holds no names and no addresses.
  */
 final class AuditLogController extends Controller
 {
@@ -38,7 +38,10 @@ final class AuditLogController extends Controller
         'api' => [Actor::TOKEN, Actor::SATELLITE],
     ];
 
-    public function __construct(private readonly SettingsRegistry $settings) {}
+    public function __construct(
+        private readonly SettingsRegistry $settings,
+        private readonly AuditPresenter $presenter,
+    ) {}
 
     public function __invoke(Request $request): Response
     {
@@ -70,7 +73,7 @@ final class AuditLogController extends Controller
         $last = $page->last();
 
         return Inertia::render('admin/Audit', [
-            'entries' => $this->present($page),
+            'entries' => $this->presenter->present($page),
             'total' => $filtered()->count(),
             'newer' => $first !== null && $filtered()->where('id', '>', $first->id)->exists()
                 ? route('audit.index', [...$query, 'after' => $first->id]) : null,
@@ -98,40 +101,5 @@ final class AuditLogController extends Controller
                 };
             })
             ->when($q !== null && $q !== '', fn (Builder $b) => $b->where('action', 'ilike', '%'.addcslashes((string) $q, '%_\\').'%'));
-    }
-
-    /**
-     * @param  Collection<int, AuditEntry>  $entries
-     * @return list<array<string, mixed>>
-     */
-    private function present(Collection $entries): array
-    {
-        $ids = $entries->filter(fn (AuditEntry $e) => in_array($e->actor_type, [Actor::USER, Actor::TOKEN], true))->pluck('actor_id')
-            ->merge($entries->where('subject_type', 'user')->pluck('subject_id'))
-            ->filter()->unique()->values();
-        $names = User::query()->whereIn('id', $ids)->get(['id', 'username', 'display_name'])
-            ->mapWithKeys(fn (User $user) => [$user->id => $user->shownName()]);
-
-        return array_values($entries->map(fn (AuditEntry $entry) => [
-            'id' => $entry->id,
-            'at' => $entry->occurred_at->toIso8601String(),
-            'who' => match ($entry->actor_type) {
-                Actor::USER, Actor::TOKEN => $names[$entry->actor_id] ?? '#'.$entry->actor_id,
-                default => (string) $entry->actor_label,
-            },
-            'source' => match ($entry->actor_type) {
-                Actor::USER => 'ui',
-                Actor::CLI => 'cli',
-                default => 'api',
-            },
-            'action' => $entry->action,
-            'subject' => match ($entry->subject_type) {
-                'user' => $names[$entry->subject_id] ?? '#'.$entry->subject_id,
-                null => null,
-                default => is_string($entry->context['role'] ?? null) ? $entry->context['role'] : '#'.$entry->subject_id,
-            },
-            'outcome' => $entry->outcome->value,
-            'context' => $entry->context,
-        ])->all());
     }
 }

@@ -10,10 +10,14 @@ declare(strict_types=1);
 | central role only. Routes are added by later steps.
 */
 
+use App\Http\Controllers\Api\App\UserController;
 use App\Http\Controllers\Ui\CollapsedSectionController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth')->group(function () {
     // ui.collapsed: whether the user collapsed a section (Collapsible.svelte).
     Route::put('me/ui/collapsed', CollapsedSectionController::class)->name('me.ui.collapsed');
+
+    // One account, explicit fields; the address only with users.view (task 8a).
+    Route::get('users/{user}', [UserController::class, 'show'])->middleware('can:users.view')->name('users.show');
 });

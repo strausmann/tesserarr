@@ -28,7 +28,10 @@ function pageAs(string $name, string $path): Closure
     return function () use ($name, $path): UserRequest {
         $user = workerUser($name);
 
-        return UserRequest::as($user, Request::create($path), $name, (string) $user->getAttribute('email'));
+        // Only "My account" shows the own address; every page shows the name.
+        $secrets = $path === '/account' ? [$name, workerEmail($name)] : [$name];
+
+        return UserRequest::as($user, Request::create($path), ...$secrets);
     };
 }
 
@@ -42,6 +45,9 @@ it('shows each user only their own data', function (string $path) {
     // Shows how the request of the signed-in user reached the instance.
     'general settings' => '/settings/general',
     'profile settings' => '/settings/profile',
+    // My account (task 8a): the own address in plain text, nobody else's.
+    'my account' => '/account',
+    'my activity' => '/account/activity',
     'appearance settings' => '/settings/appearance',
 ]);
 

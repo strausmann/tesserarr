@@ -9,5 +9,9 @@ description: Passkeys, the second factor, recovery codes and your own API tokens
 - **Security changes** (a new passkey, a new factor) need a fresh passkey or TOTP confirmation, not only the password.
 - **API tokens** for your own scripts or arr apps: each token carries only the permissions you pick, never more than
   you have yourself, and can be revoked at any time.
+- **Email address.** Optional, under *My account*. It counts once you open the link sent to it (valid for 60 minutes);
+  until then you sign in with your username. If a sign-in provider gave Tesserarr your address, the page offers it.
+  Changing a confirmed address comes with the confirmation by second factor.
+- **Your activity.** *My account* lists what you did and what was done to your account.
 
 **Status:** the account page arrives with 0.1.0.

@@ -13,10 +13,13 @@ Jede Person, die Tesserarr nutzt, hat ein Konto. Neue Konten entstehen nur über
   wird. `Max` und `max` sind derselbe Name. Jeder kann seinen eigenen Benutzernamen unter *Konto* ändern; die Änderung
   wird protokolliert.
 - **Anzeigename.** Der Name, den andere sehen. Steuerzeichen werden abgelehnt.
-- **Konto-Adresse.** Eine freiwillige Kontaktadresse des Kontos. Sie bezeichnet nie ein Konto und ist kein
-  Anmeldename.
+- **Konto-Adresse.** Freiwillig. Sie gilt, sobald ihr Inhaber den Link geöffnet hat, der an sie geht, und sie ist
+  eindeutig: eine Adresse, ein Konto. Sie liegt verschlüsselt in der Datenbank. Ein Betreiber kann sie auf der Seite des
+  Nutzers eintragen (*Speichern und Bestätigungslink senden*); die Regeln stehen unter
+  [Personendaten](/tesserarr/de/admin/privacy/).
 - **Adresse beim Anbieter.** Meldet sich jemand über einen Anbieter an (OIDC, Plex), speichert Tesserarr die Adresse,
-  die der Anbieter genannt hat, beim jeweiligen Anmeldeweg. Die Nutzerliste zeigt sie getrennt von der Konto-Adresse.
+  die der Anbieter genannt hat, beim jeweiligen Anmeldeweg. Die Nutzerliste zeigt sie getrennt von der Konto-Adresse. Sie ist
+  nicht eindeutig, und keine Anmeldung ändert die Konto-Adresse.
 
 Schickt ein Anbieter einen Namen in Form einer E-Mail-Adresse (etwa den User Principal Name von Entra ID), schlägt
 Tesserarr den Teil vor dem `@` als Benutzernamen vor und nummeriert ihn, wenn er vergeben ist: `bob`, `bob2`.

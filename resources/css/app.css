@@ -1295,6 +1295,88 @@
         }
     }
 
+    /* The account address and the activity lists (task 8a: My account, user detail). */
+    .tr-email,
+    .tr-email-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-3);
+    }
+
+    .tr-email-state {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tr-space-3);
+        margin: 0;
+    }
+
+    .tr-email-state dd {
+        margin: 0;
+    }
+
+    /* An address has no break opportunities of its own. */
+    .tr-email-address {
+        overflow-wrap: anywhere;
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-email-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--tr-space-2);
+    }
+
+    /* "Use <address>" carries a whole address: it wraps instead of running off a phone. */
+    .tr-email-actions .tr-button {
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: start;
+    }
+
+    .tr-activity {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .tr-activity-row {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: var(--tr-space-3) 0;
+        border-top: 1px solid var(--tr-line);
+        overflow-wrap: anywhere;
+    }
+
+    .tr-activity-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+    }
+
+    .tr-activity-what {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--tr-space-2);
+        font-weight: var(--tr-weight-bold);
+    }
+
+    .tr-row-link {
+        color: inherit;
+        text-decoration: underline;
+        text-decoration-color: var(--tr-line-strong);
+        text-underline-offset: 3px;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        .tr-row-link:hover {
+            text-decoration-color: currentColor;
+        }
+    }
+
     .tr-settings-locked {
         display: flex;
         align-items: flex-start;

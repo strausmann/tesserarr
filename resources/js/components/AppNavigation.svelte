@@ -65,7 +65,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 {#if user}
     <div class="tr-nav-foot">
-        <Link href="/settings/profile" class="tr-nav-account">
+        <Link href="/account" class="tr-nav-account">
             <span class="font-bold">{user.display_name || user.username}</span>
             <span class="text-ink-2"
                 >{t(audience === 'friend' ? 'nav.role.friend' : 'nav.role.operator')} · {t(

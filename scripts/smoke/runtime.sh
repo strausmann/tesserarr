@@ -61,7 +61,8 @@ echo "ok: no e2e marker, route file or controller in the image"
 # route answers 404 before anything touches it.
 web="tesserarr-smoke-$$"
 docker run -d --name "$web" -e APP_ENV=testing -e TESSERARR_E2E_LOGIN=true \
-    -e APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" "$image" >/dev/null
+    -e APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" \
+    -e TESSERARR_PII_KEY="base64:$(head -c 32 /dev/urandom | base64)" -e TESSERARR_BLIND_INDEX_KEY="base64:$(head -c 32 /dev/urandom | base64)" "$image" >/dev/null
 trap 'docker rm -f "$web" >/dev/null 2>&1 || true' EXIT
 status=000
 for _ in $(seq 1 30); do

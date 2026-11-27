@@ -84,6 +84,21 @@ export const stateFixtures: Record<
             );
         },
     },
+    // A friend without an address on an instance that has not allowed
+    // addresses yet: the field is there, locked, and says why.
+    'My account': {
+        empty: async (page) => {
+            await expect(
+                page.getByRole('textbox', { name: 'E-Mail (optional)' }),
+            ).toBeDisabled();
+            await expect(
+                page.getByText(
+                    'Der Betreiber hat Konto-Adressen nicht freigegeben.',
+                    { exact: false },
+                ),
+            ).toBeVisible();
+        },
+    },
     // A friend nothing has been shared with yet.
     'Friend home': {
         empty: async (page) => {

@@ -58,7 +58,7 @@ function runTargetsMain(): bool
 }
 
 it('reads the targets from navigation.ts', function () {
-    expect(navigationTargets())->toContain('/dashboard', '/shared', '/settings/profile');
+    expect(navigationTargets())->toContain('/dashboard', '/shared', '/account');
 });
 
 it('leads every navigation target to a page or names the task that builds it', function () {

@@ -21,6 +21,19 @@ return [
     ))),
 
     /*
+    | Host names the instance answers to besides the host of APP_URL (and
+    | localhost / 127.0.0.1 / [::1] for the health check inside the container),
+    | comma-separated. A request with any other Host header is refused
+    | (TrustHosts, App\Http\TrustedHosts): links in mails are built from
+    | APP_URL anyway, never from the request.
+    */
+
+    'trusted_hosts' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('TESSERARR_TRUSTED_HOSTS', '')),
+    ))),
+
+    /*
     | Backups written by `artisan tesserarr:migrate` before it migrates
     | (pg_dump, custom format, mode 0600; see backups.keep below). In the
     | container this is a bind mount; see CONTRIBUTING.md.
@@ -52,6 +65,23 @@ return [
         'TESSERARR_INVITATION_DAYS' => Env::getRepository()->get('TESSERARR_INVITATION_DAYS'),
         'TESSERARR_AUDIT_RETENTION_DAYS' => Env::getRepository()->get('TESSERARR_AUDIT_RETENTION_DAYS'),
         'TESSERARR_BACKUP_KEEP' => Env::getRepository()->get('TESSERARR_BACKUP_KEEP'),
+    ],
+
+    /*
+    | The keys for personal data (task 8a, App\Privacy\PiiKeys): the e-mail
+    | addresses of accounts and identities and the PGP keys are encrypted with
+    | TESSERARR_PII_KEY (32 bytes, raw or "base64:…", never APP_KEY) and found
+    | through an HMAC keyed with TESSERARR_BLIND_INDEX_KEY. The previous keys
+    | serve `tesserarr:pii:rotate`. From the environment only (Infisical in
+    | production), never from the database; the central instance does not
+    | start without them.
+    */
+
+    'pii' => [
+        'key' => Env::getRepository()->get('TESSERARR_PII_KEY'),
+        'previous_keys' => Env::getRepository()->get('TESSERARR_PII_PREVIOUS_KEYS'),
+        'blind_index_key' => Env::getRepository()->get('TESSERARR_BLIND_INDEX_KEY'),
+        'blind_index_previous_key' => Env::getRepository()->get('TESSERARR_BLIND_INDEX_PREVIOUS_KEY'),
     ],
 
     /*

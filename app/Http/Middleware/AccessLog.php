@@ -60,7 +60,7 @@ final class AccessLog
         $query = $request->server->get('QUERY_STRING', '');
 
         if ($query === '' || $query === null) {
-            return $request->getPathInfo();
+            return self::path($request->getPathInfo());
         }
 
         $redacted = array_map(
@@ -68,7 +68,26 @@ final class AccessLog
             array_filter(explode('&', (string) $query), static fn (string $pair) => $pair !== ''),
         );
 
-        return $request->getPathInfo().'?'.implode('&', $redacted);
+        return self::path($request->getPathInfo()).'?'.implode('&', $redacted);
+    }
+
+    /**
+     * Paths that carry a bearer token in a segment (task 8a: the link of the
+     * address confirmation, usable by whoever holds it) are logged with the
+     * segment replaced. A route of a later task with a token in its path adds
+     * its pattern here.
+     */
+    private const TOKEN_PATHS = [
+        '~^(/email/confirm/)[^/?#]+~',
+    ];
+
+    private static function path(string $path): string
+    {
+        foreach (self::TOKEN_PATHS as $pattern) {
+            $path = (string) preg_replace($pattern, '$1[redacted]', $path);
+        }
+
+        return $path;
     }
 
     /**
@@ -93,7 +112,7 @@ final class AccessLog
             ? $parts['scheme'].'://'.$parts['host'].(isset($parts['port']) ? ':'.$parts['port'] : '')
             : '';
 
-        return $origin.($parts['path'] ?? '') ?: '-';
+        return $origin.self::path($parts['path'] ?? '') ?: '-';
     }
 
     private static function bytes(Response $response): string

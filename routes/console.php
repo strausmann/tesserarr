@@ -18,4 +18,7 @@ Artisan::command('inspire', function () {
 // released after 10 minutes, so a crashed run does not block the next day.
 if (app(InstanceRole::class) === InstanceRole::Central) {
     Schedule::command('tesserarr:release-check')->everySixHours()->withoutOverlapping(10);
+    // An unconfirmed account address holds its blind index for 24 hours at
+    // most (App\Privacy\EmailConfirmation).
+    Schedule::command('tesserarr:email:release-expired')->hourly()->withoutOverlapping(10);
 }

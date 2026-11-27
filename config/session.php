@@ -49,7 +49,9 @@ return [
     |
     */
 
-    'encrypt' => env('SESSION_ENCRYPT', false),
+    // On by default (task 8a): a session can hold flashed input and the
+    // previous URL; sessions in the database are no copy of either in plain text.
+    'encrypt' => (bool) env('SESSION_ENCRYPT', true),
 
     /*
     |--------------------------------------------------------------------------

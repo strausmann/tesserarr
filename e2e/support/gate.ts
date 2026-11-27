@@ -40,20 +40,41 @@ export const FOCUS_STOPS = 30;
 async function walkFocus(
     page: Page,
 ): Promise<{ tabbable: number; stops: FocusStop[]; complete: boolean }> {
-    const tabbable = await page.evaluate(
-        () =>
-            [
-                ...document.querySelectorAll<HTMLElement>(
-                    'a[href], button, input, select, textarea, summary, [tabindex]',
-                ),
-            ].filter(
-                (el) =>
-                    el.tabIndex >= 0 &&
-                    !(el as HTMLButtonElement).disabled &&
-                    el.getClientRects().length > 0 &&
-                    !el.closest('[inert]'),
-            ).length,
-    );
+    // A group of radio buttons is one tab stop (the checked one, or the
+    // first while none is checked); the arrow keys move inside it (HTML). A
+    // group is the name within its form (or outside any form).
+    const tabbable = await page.evaluate(() => {
+        const groups = new Map<HTMLFormElement | null, Set<string>>();
+
+        return [
+            ...document.querySelectorAll<HTMLElement>(
+                'a[href], button, input, select, textarea, summary, [tabindex]',
+            ),
+        ].filter((el) => {
+            if (
+                el.tabIndex < 0 ||
+                (el as HTMLButtonElement).disabled ||
+                el.getClientRects().length === 0 ||
+                el.closest('[inert]')
+            ) {
+                return false;
+            }
+            if (
+                el instanceof HTMLInputElement &&
+                el.type === 'radio' &&
+                el.name !== ''
+            ) {
+                const names = groups.get(el.form) ?? new Set<string>();
+                if (names.has(el.name)) {
+                    return false;
+                }
+                names.add(el.name);
+                groups.set(el.form, names);
+            }
+
+            return true;
+        }).length;
+    });
     await page.evaluate(() =>
         (document.activeElement as HTMLElement | null)?.blur(),
     );
