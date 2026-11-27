@@ -59,9 +59,9 @@ first. Give the token a name, choose a preset or tick the permissions yourself, 
 90 days, a year or never). You can tick only permissions you hold; the administrative ones are marked and are never
 part of a preset. `satellite.execute` is never on the token of an account.
 
-The token is shown **once**, right after you create it, with a copy button and the three steps a script needs: the base
-URL `https://<your installation>/api/v1/`, the header `Authorization: Bearer <token>` and a first call to
-`GET /api/v1/me`, which names the token's owner and what the token may do now. Afterwards Tesserarr keeps only its
+The token is shown **once**, right after you create it, with a copy button. Beside it are the three steps a script
+needs: the base URL `https://<your installation>/api/v1/`, the header `Authorization: Bearer <token>` and a first call
+to `GET /api/v1/me`. That call names the token's owner and what the token may do now. Afterwards Tesserarr keeps only its
 SHA-256 hash: the token is not in the page, the session, the log or the audit log. Every token starts with `tsr_`, so
 secret scanners recognise one that was pasted where it does not belong.
 

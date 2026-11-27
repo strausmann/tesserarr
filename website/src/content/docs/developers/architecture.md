@@ -32,16 +32,16 @@ The two paths are two middleware groups (`bootstrap/app.php`), and every route b
 | Group | Order |
 | --- | --- |
 | `session-api` (`/api/v1/app/*`) | cookies, session, `auth:web` (401), `X-Requested-With: tesserarr` (403 `missing_app_header`), CSRF token |
-| `token-api` (`/api/v1/*`) | request body limit, `auth:sanctum` with the bearer token only; no cookie, session or CSRF middleware, and no cookie in the answer |
+| `token-api` (`/api/v1/*`) | request body limit, `auth:sanctum` with the bearer token only. No cookie, session or CSRF middleware; the answer sets no cookie |
 
 The token path has **no CSRF check, on purpose**: a browser never sends an `Authorization` header by itself, and a
 foreign page cannot set one without a CORS preflight, which fails. A CSRF check there would tie the token path to
 browser state and lock the arr apps out. The session path has two checks against cross-site requests besides
 `SameSite`: the app's own header and Laravel's CSRF token.
 
-Every route that changes something carries `->defaults('audited', true)` and writes an entry in the audit log; the few
-that do not (signing in and out, own preferences, the second factors until task 12) are listed with their reason in
-`tests/Support/Routes.php`.
+Every route that changes something carries `->defaults('audited', true)` and writes an entry in the audit log. The few
+that do not are listed with their reason in `tests/Support/Routes.php`: signing in and out, own preferences, and the
+second factors until task 12.
 
 ## Live updates
 
