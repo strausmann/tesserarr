@@ -149,3 +149,12 @@ it('keeps a route of the token path out of the session', function () {
 
     $this->actingAs($this->alice, 'web')->getJson('/api/v1/_probe-session')->assertUnauthorized();
 });
+
+it('grants nothing on the web pages to a bearer token without a session', function (string $page) {
+    // The web guard reads the session only; a token of an operator is no
+    // sign-in for the pages (ADR-0007, the symmetric case).
+    $operator = User::factory()->operator()->create();
+    $plain = $operator->createToken('script', ['tokens.manage_own', 'tokens.manage_all', 'catalog.browse'])->plainTextToken;
+
+    $this->withToken($plain)->get($page)->assertRedirect('/login');
+})->with(['/tokens', '/dashboard', '/users']);
