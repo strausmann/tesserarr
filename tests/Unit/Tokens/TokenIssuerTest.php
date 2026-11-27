@@ -150,15 +150,22 @@ it('writes a name that looks like an address as [email] in the log', function ()
         ->toBe('bot for [email]');
 });
 
-it('offers presets without an administrative permission', function () {
+it('offers no administrative permission in a preset except invitations.create of the invitation preset', function () {
     expect(TokenPreset::ArrIntegration->permissions())->toBe([Permission::CatalogBrowse])
         ->and(TokenPreset::InvitationIssuer->permissions())->toBe([Permission::InvitationsCreate]);
 
+    // Spec 9.5 names "create invitations" as a preset; that permission is
+    // administrative in the catalogue, and it is the only exception.
+    $allowed = [TokenPreset::InvitationIssuer->value => [Permission::InvitationsCreate]];
+
     foreach (TokenPreset::cases() as $preset) {
-        expect(array_intersect(
-            Permission::values($preset->permissions()),
-            Permission::values([Permission::UsersManage, Permission::RolesManage, Permission::SettingsManage, Permission::TokensManageAll, Permission::SatelliteExecute]),
-        ))->toBe([]);
+        $administrative = array_values(array_filter(
+            $preset->permissions(),
+            fn (Permission $p) => in_array($p, Permission::administrative(), true),
+        ));
+
+        expect($administrative)->toBe($allowed[$preset->value] ?? [], $preset->value)
+            ->and($preset->permissions())->not->toContain(Permission::SatelliteExecute);
     }
 });
 
