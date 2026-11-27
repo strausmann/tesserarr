@@ -139,6 +139,30 @@ class ProblemsTest(unittest.TestCase):
         put_op(doc)["security"] = [{"apiToken": []}]
         self.assert_problem(doc, "PUT /_probe: no token ability")
 
+    def test_accepts_a_self_service_operation_with_a_token_and_no_scope(self) -> None:
+        doc = probe()
+        get_op(doc)["security"] = [{"apiToken": []}]
+        get_op(doc)["x-self-service"] = True
+        self.assertEqual(oq.problems(doc), [])
+
+    def test_a_self_service_operation_still_needs_the_token(self) -> None:
+        doc = probe()
+        del get_op(doc)["security"]
+        get_op(doc)["x-self-service"] = True
+        self.assert_problem(doc, "GET /_probe: self-service without the apiToken requirement")
+
+    def test_a_self_service_operation_with_an_anonymous_alternative_fails(self) -> None:
+        doc = probe()
+        get_op(doc)["security"] = [{"apiToken": []}, {}]
+        get_op(doc)["x-self-service"] = True
+        self.assert_problem(doc, "an empty security requirement lets anonymous callers in")
+
+    def test_only_true_marks_self_service(self) -> None:
+        doc = probe()
+        put_op(doc)["security"] = [{"apiToken": []}]
+        put_op(doc)["x-self-service"] = "yes"
+        self.assert_problem(doc, "PUT /_probe: no token ability")
+
     def test_fails_when_the_ability_names_an_unknown_scheme(self) -> None:
         doc = probe()
         get_op(doc)["security"] = [{"basicAuth": ["catalog.browse"]}]
