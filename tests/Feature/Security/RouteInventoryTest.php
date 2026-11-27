@@ -6,6 +6,7 @@
 declare(strict_types=1);
 
 use App\Audit\Actor;
+use App\Audit\AuditAction;
 use App\Audit\AuditEntry;
 use App\Audit\AuditOutcome;
 use App\Authorization\Roles;
@@ -34,85 +35,148 @@ use function Tests\Support\unauditedReason;
 */
 
 /**
- * One call per audited route, as the route's owner would make it, with what
- * it needs set up first. A new audited route without a call here fails
- * "writes an audit entry for every mutating route".
+ * One call per audited route, as the route's owner would make it. `setup`
+ * prepares what the call needs (and may write audit entries of its own: a
+ * setting, a requested address); the entries are counted only after it.
+ * `call` makes the request; `expect` names the entry the action itself must
+ * write: its action and its subject (type and id, or null for "any id").
+ * A new audited route without an entry here fails "writes an audit entry for
+ * every mutating route".
  *
- * @return array<string, Closure(): TestResponse>
+ * @return array<string, array{setup: Closure(): array<string, mixed>, call: Closure(array<string, mixed>): TestResponse, expect: Closure(array<string, mixed>): array{0: AuditAction, 1: string|null, 2: int|null}}>
  */
 function auditedRouteCalls(): array
 {
     $app = fn (User $as) => test()->actingAs($as, 'web')->withHeader('X-Requested-With', 'tesserarr')->withSession(['auth.password_confirmed_at' => time()]);
     $operator = fn () => User::factory()->operator()->create();
     $friend = fn () => User::factory()->withRole(Roles::USER)->create();
+    $addresses = fn () => app(Settings::class)->set(AccountEmailPolicy::SETTING, true, Actor::cli('test'));
+    $onUser = fn (AuditAction $action) => fn (array $c) => [$action, 'user', (int) $c['user']->id];
+    $onToken = fn (AuditAction $action) => fn (array $c) => [$action, 'token', (int) $c['token']->id];
+    $onRole = fn (AuditAction $action) => fn (array $c) => [$action, 'role', isset($c['role']) ? (int) $c['role']->id : null];
 
     return [
-        'account.email' => function () use ($friend) {
-            app(Settings::class)->set(AccountEmailPolicy::SETTING, true, Actor::cli('test'));
+        'account.email' => [
+            'setup' => function () use ($addresses, $friend) {
+                $addresses();
 
-            return test()->actingAs($friend(), 'web')->put('/account/email', ['email' => 'first@example.org']);
-        },
-        'account.email.resend' => function () use ($friend) {
-            app(Settings::class)->set(AccountEmailPolicy::SETTING, true, Actor::cli('test'));
-            $user = $friend();
-            app(EmailConfirmation::class)->request($user, 'waiting@example.org', Actor::user($user));
+                return ['user' => $friend()];
+            },
+            'call' => fn (array $c) => test()->actingAs($c['user'], 'web')->put('/account/email', ['email' => 'first@example.org']),
+            'expect' => $onUser(AuditAction::EmailRequested),
+        ],
+        'account.email.resend' => [
+            'setup' => function () use ($addresses, $friend) {
+                $addresses();
+                $user = $friend();
+                app(EmailConfirmation::class)->request($user, 'waiting@example.org', Actor::user($user));
 
-            return test()->actingAs($user, 'web')->post('/account/email/resend');
-        },
-        'email.confirm' => function () use ($friend) {
-            app(Settings::class)->set(AccountEmailPolicy::SETTING, true, Actor::cli('test'));
-            $user = $friend();
-            app(EmailConfirmation::class)->request($user, 'confirm@example.org', Actor::user($user));
-            $token = '';
-            Mail::assertQueued(ConfirmEmailMail::class, function (ConfirmEmailMail $mail) use (&$token) {
-                $token = substr($mail->url, (int) strrpos($mail->url, '#') + 1);
+                return ['user' => $user];
+            },
+            'call' => fn (array $c) => test()->actingAs($c['user'], 'web')->post('/account/email/resend'),
+            'expect' => $onUser(AuditAction::EmailRequested),
+        ],
+        'email.confirm' => [
+            'setup' => function () use ($addresses, $friend) {
+                $addresses();
+                $user = $friend();
+                app(EmailConfirmation::class)->request($user, 'confirm@example.org', Actor::user($user));
+                $token = '';
+                Mail::assertQueued(ConfirmEmailMail::class, function (ConfirmEmailMail $mail) use (&$token) {
+                    $token = substr($mail->url, (int) strrpos($mail->url, '#') + 1);
 
-                return true;
-            });
+                    return true;
+                });
 
-            return test()->post('/email/confirm', ['token' => $token]);
-        },
-        'profile.update' => fn () => test()->actingAs($friend(), 'web')->patch('/settings/profile', ['username' => 'renamed', 'display_name' => 'Renamed']),
-        'user-password.update' => fn () => test()->actingAs($friend(), 'web')->put('/settings/password', [
-            'current_password' => 'password',
-            'password' => 'a-new-passphrase-for-tests',
-            'password_confirmation' => 'a-new-passphrase-for-tests',
-        ]),
-        'users.email' => fn () => test()->actingAs($operator(), 'web')->put('/users/'.$friend()->id.'/email', ['email' => 'set@example.org']),
-        'users.email.release' => function () use ($operator, $friend) {
-            app(Settings::class)->set(AccountEmailPolicy::SETTING, true, Actor::cli('test'));
-            $user = $friend();
-            app(EmailConfirmation::class)->request($user, 'pending@example.org', Actor::user($user));
+                return ['user' => $user, 'link' => $token];
+            },
+            'call' => fn (array $c) => test()->post('/email/confirm', ['token' => $c['link']]),
+            'expect' => $onUser(AuditAction::EmailConfirmed),
+        ],
+        'profile.update' => [
+            'setup' => fn () => ['user' => $friend()],
+            'call' => fn (array $c) => test()->actingAs($c['user'], 'web')->patch('/settings/profile', ['username' => 'renamed', 'display_name' => 'Renamed']),
+            'expect' => $onUser(AuditAction::UserRenamed),
+        ],
+        'user-password.update' => [
+            'setup' => fn () => ['user' => $friend()],
+            'call' => fn (array $c) => test()->actingAs($c['user'], 'web')->put('/settings/password', [
+                'current_password' => 'password',
+                'password' => 'a-new-passphrase-for-tests',
+                'password_confirmation' => 'a-new-passphrase-for-tests',
+            ]),
+            'expect' => $onUser(AuditAction::PasswordChanged),
+        ],
+        'users.email' => [
+            'setup' => fn () => ['user' => $friend(), 'operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->put("/users/{$c['user']->id}/email", ['email' => 'set@example.org']),
+            'expect' => $onUser(AuditAction::EmailRequested),
+        ],
+        'users.email.release' => [
+            'setup' => function () use ($addresses, $friend, $operator) {
+                $addresses();
+                $user = $friend();
+                app(EmailConfirmation::class)->request($user, 'pending@example.org', Actor::user($user));
 
-            return test()->actingAs($operator(), 'web')->delete("/users/{$user->id}/email/pending");
-        },
-        'users.role' => fn () => test()->actingAs($operator(), 'web')->put('/users/'.$friend()->id.'/role', ['role' => Roles::OPERATOR]),
-        'users.lock' => fn () => test()->actingAs($operator(), 'web')->post('/users/'.$friend()->id.'/lock'),
-        'users.unlock' => fn () => test()->actingAs($operator(), 'web')->delete('/users/'.User::factory()->create(['locked_at' => now()])->id.'/lock'),
-        'roles.store' => fn () => test()->actingAs($operator(), 'web')->post('/roles', ['name' => 'helpers', 'permissions' => ['catalog.browse']]),
-        'roles.update' => function () use ($operator) {
-            $role = Role::create(['name' => 'editors', 'guard_name' => Roles::GUARD]);
+                return ['user' => $user, 'operator' => $operator()];
+            },
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->delete("/users/{$c['user']->id}/email/pending"),
+            'expect' => $onUser(AuditAction::EmailReservationReleased),
+        ],
+        'users.role' => [
+            'setup' => fn () => ['user' => $friend(), 'operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->put("/users/{$c['user']->id}/role", ['role' => Roles::OPERATOR]),
+            'expect' => $onUser(AuditAction::RoleAssigned),
+        ],
+        'users.lock' => [
+            'setup' => fn () => ['user' => $friend(), 'operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->post("/users/{$c['user']->id}/lock"),
+            'expect' => $onUser(AuditAction::UserLocked),
+        ],
+        'users.unlock' => [
+            'setup' => fn () => ['user' => User::factory()->create(['locked_at' => now()]), 'operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->delete("/users/{$c['user']->id}/lock"),
+            'expect' => $onUser(AuditAction::UserUnlocked),
+        ],
+        'roles.store' => [
+            'setup' => fn () => ['operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->post('/roles', ['name' => 'helpers', 'permissions' => ['catalog.browse']]),
+            'expect' => $onRole(AuditAction::RoleCreated),
+        ],
+        'roles.update' => [
+            'setup' => fn () => ['role' => Role::create(['name' => 'editors', 'guard_name' => Roles::GUARD]), 'operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->put("/roles/{$c['role']->id}", ['permissions' => ['audit.view']]),
+            'expect' => $onRole(AuditAction::RoleChanged),
+        ],
+        'roles.destroy' => [
+            'setup' => fn () => ['role' => Role::create(['name' => 'leavers', 'guard_name' => Roles::GUARD]), 'operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->delete("/roles/{$c['role']->id}"),
+            'expect' => $onRole(AuditAction::RoleDeleted),
+        ],
+        'settings.general.update' => [
+            'setup' => fn () => ['operator' => $operator()],
+            'call' => fn (array $c) => test()->actingAs($c['operator'], 'web')->put('/settings/general', generalForm()),
+            'expect' => fn () => [AuditAction::SettingChanged, null, null],
+        ],
+        'app-api.tokens.store' => [
+            'setup' => fn () => ['user' => $friend()],
+            'call' => fn (array $c) => $app($c['user'])->postJson('/api/v1/app/tokens', ['name' => 'script', 'permissions' => ['catalog.browse'], 'expires' => '30']),
+            'expect' => fn () => [AuditAction::TokenIssued, 'token', null],
+        ],
+        'app-api.tokens.destroy' => [
+            'setup' => function () use ($friend) {
+                $user = $friend();
 
-            return test()->actingAs($operator(), 'web')->put('/roles/'.$role->id, ['permissions' => ['audit.view']]);
-        },
-        'roles.destroy' => function () use ($operator) {
-            $role = Role::create(['name' => 'leavers', 'guard_name' => Roles::GUARD]);
-
-            return test()->actingAs($operator(), 'web')->delete('/roles/'.$role->id);
-        },
-        'settings.general.update' => fn () => test()->actingAs($operator(), 'web')->put('/settings/general', generalForm()),
-        'app-api.tokens.store' => fn () => $app($friend())->postJson('/api/v1/app/tokens', ['name' => 'script', 'permissions' => ['catalog.browse'], 'expires' => '30']),
-        'app-api.tokens.destroy' => function () use ($app, $friend) {
-            $user = $friend();
-            $token = $user->createToken('old', ['catalog.browse'])->accessToken;
-
-            return $app($user)->deleteJson("/api/v1/app/tokens/{$token->id}");
-        },
-        'app-api.admin.tokens.destroy' => function () use ($app, $operator, $friend) {
-            $token = $friend()->createToken('old', ['catalog.browse'])->accessToken;
-
-            return $app($operator())->deleteJson("/api/v1/app/admin/tokens/{$token->id}");
-        },
+                return ['user' => $user, 'token' => $user->createToken('old', ['catalog.browse'])->accessToken];
+            },
+            'call' => fn (array $c) => $app($c['user'])->deleteJson("/api/v1/app/tokens/{$c['token']->id}"),
+            'expect' => $onToken(AuditAction::TokenRevoked),
+        ],
+        'app-api.admin.tokens.destroy' => [
+            'setup' => fn () => ['token' => $friend()->createToken('old', ['catalog.browse'])->accessToken, 'operator' => $operator()],
+            'call' => fn (array $c) => $app($c['operator'])->deleteJson("/api/v1/app/admin/tokens/{$c['token']->id}"),
+            'expect' => $onToken(AuditAction::TokenRevoked),
+        ],
     ];
 }
 
@@ -183,13 +247,22 @@ it('writes an audit entry for every mutating route', function () {
 
     foreach ($audited as $route) {
         $name = (string) $route->getName();
-        $before = AuditEntry::query()->where('outcome', AuditOutcome::Done)->max('id') ?? 0;
+        $context = $calls[$name]['setup']();
+        // Counted after the setup: what it logged is no proof of the action.
+        $before = (int) (AuditEntry::query()->max('id') ?? 0);
 
-        $response = $calls[$name]();
+        $response = $calls[$name]['call']($context);
+        [$action, $subjectType, $subjectId] = $calls[$name]['expect']($context);
+
+        $entry = AuditEntry::query()
+            ->where('id', '>', $before)
+            ->where('action', $action->value)
+            ->where('outcome', AuditOutcome::Done)
+            ->when($subjectType !== null, fn ($q) => $q->where('subject_type', $subjectType))
+            ->when($subjectId !== null, fn ($q) => $q->where('subject_id', $subjectId));
 
         expect($response->status())->toBeLessThan(400, $name.' answered '.$response->status())
-            ->and(AuditEntry::query()->where('outcome', AuditOutcome::Done)->where('id', '>', $before)->count())
-            ->toBeGreaterThanOrEqual(1, $name.' wrote no audit entry');
+            ->and($entry->exists())->toBeTrue(sprintf('%s wrote no %s entry on %s %s', $name, $action->value, $subjectType ?? 'any subject', $subjectId ?? ''));
 
         auth()->forgetGuards();
         $this->flushSession();
