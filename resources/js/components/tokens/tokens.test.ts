@@ -246,6 +246,20 @@ describe('the token page', () => {
         expect(copy).toHaveBeenLastCalledWith(
             'Authorization: Bearer 9|tsr_secret',
         );
+
+        // The example call is copied with the token, shown without it.
+        document
+            .querySelector<HTMLButtonElement>(
+                'button[aria-label="tokens.copy_example"]',
+            )!
+            .click();
+        await settle();
+        expect(copy).toHaveBeenLastCalledWith(
+            'curl -H "Authorization: Bearer 9|tsr_secret" https://tesserarr.example.org/api/v1/me',
+        );
+        expect(document.body.textContent?.split('9|tsr_secret')).toHaveLength(
+            2,
+        );
     });
 
     it('shows why a token was refused and offers the password confirmation', async () => {

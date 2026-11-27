@@ -39,7 +39,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     }
 
     const header = $derived(authorizationHeader(issued ? issued.plainText : '<token>'));
-    const example = $derived(`curl -H "Authorization: Bearer …" ${baseUrl}me`);
+    // Shown with a placeholder, copied with the token: the page never prints
+    // the token a second time, and the copied call works as it is.
+    const exampleFor = (token: string) => `curl -H "Authorization: Bearer ${token}" ${baseUrl}me`;
+    const example = $derived(exampleFor(issued ? issued.plainText : '…'));
 </script>
 
 <section class="tr-panel tr-token-usage" aria-labelledby={issued ? 'h-issued' : 'h-usage'}>
@@ -73,7 +76,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 <li>
                     <span id="tk-step-{step.key}">{step.label}</span>
                     <div class="tr-token-secret">
-                        <code class="tr-code" aria-labelledby="tk-step-{step.key}">{step.key === 'header' && issued ? authorizationHeader('<token>') : step.text}</code>
+                        <code class="tr-code" aria-labelledby="tk-step-{step.key}">{step.key === 'header' && issued ? authorizationHeader('<token>') : step.key === 'try' ? exampleFor('…') : step.text}</code>
                         <!-- Copy buttons once there is a token to use: before, the
                              steps are a reference, and the page stays short to tab
                              through. -->
