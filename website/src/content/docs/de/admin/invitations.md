@@ -12,13 +12,16 @@ die API und gibst den Link weiter, wie du willst. Der Versand per Mail aus Tesse
   angezeigt, wenn er entsteht.
 - Das Token steht hinter dem `#` des Links (`/invite#…`). Browser senden diesen Teil nie mit; er landet also in keinem
   Zugriffsprotokoll, keinem Referrer und keinem Verlaufseintrag des Servers.
+- Eine Zugangs-Einladung darf nur erstellen, wer die Rechte hält, die ein neues Konto bekommt (die der Rolle „Nutzer“).
+  Das wird beim Einlösen noch einmal geprüft: Der Link eines Kontos, das inzwischen gesperrt, gelöscht oder herabgestuft
+  wurde, legt kein Konto mehr an. Mit `artisan` erstellte Links hängen an keinem Konto.
 - Lösen zwei Menschen denselben Link gleichzeitig ein, gelingt es genau einem. Löst dieselbe Person zwei Links
   gleichzeitig ein, entsteht ein Konto, und der zweite Link bleibt unbenutzt.
 - Eine **Wiederherstellungs-Einladung** bindet einen neuen Anmeldeweg an ein **bestehendes** Konto. Rolle, Freigaben,
   Kontingente, das Protokoll und die Syncthing-Kopplung bleiben. Nutze sie, wenn jemand jeden Passkey und Faktor verloren
   hat. Sie gilt einen Tag (höchstens drei), und beim Einlösen prüft Tesserarr noch einmal, ob wer sie erstellt hat das
   noch darf: Dieses Konto muss noch bestehen, nicht gesperrt sein, die Rechte zum Erstellen halten und jedes Recht, das
-  das Zielkonto inzwischen hat.
+  das Zielkonto inzwischen hat; das Zielkonto selbst darf nicht gesperrt sein.
 
 ## In der Weboberfläche
 

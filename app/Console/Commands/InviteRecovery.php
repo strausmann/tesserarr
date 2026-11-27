@@ -10,10 +10,10 @@ namespace App\Console\Commands;
 use App\Audit\Actor;
 use App\Console\Commands\Concerns\FindsAccounts;
 use App\Console\Commands\Concerns\ReadsInvitationDays;
+use App\Invitations\InvalidInvitationRequest;
 use App\Invitations\InvitationKind;
 use App\Invitations\InvitationService;
 use Illuminate\Console\Command;
-use InvalidArgumentException;
 
 /**
  * Issues a recovery invitation (Spec 9.3, last resort): the link binds a new
@@ -41,7 +41,7 @@ final class InviteRecovery extends Command
 
         try {
             $issued = $invitations->issue(Actor::console(), InvitationKind::Recovery, $user, $ttl);
-        } catch (InvalidArgumentException) {
+        } catch (InvalidInvitationRequest) {
             $this->error(sprintf('A recovery invitation is valid for at most %d days.', intdiv(InvitationService::RECOVERY_MAX_HOURS, 24)));
 
             return self::FAILURE;

@@ -27,7 +27,6 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
-use InvalidArgumentException;
 
 /**
  * Invitations (Spec 9.1, 9.3): issue, revoke, show, redeem.
@@ -79,17 +78,18 @@ final class InvitationService
      * @param  CarbonInterval|null  $ttl  how long it stays valid; the instance default (7 days) when null
      *
      * @throws PrivilegeEscalation when $by may not issue it
-     * @throws InvalidArgumentException for a recovery invitation without account, or an access invitation with one
+     * @throws InvalidInvitationRequest for a recovery invitation without account, an access invitation with one, a too long recovery invitation or a bad note
      */
     public function issue(Actor $by, InvitationKind $kind = InvitationKind::Access, ?User $forUser = null, ?CarbonInterval $ttl = null, ?string $note = null): IssuedInvitation
     {
         if (($kind === InvitationKind::Recovery) !== ($forUser !== null)) {
-            throw new InvalidArgumentException('a recovery invitation names its account, an access invitation none');
+            // A recovery invitation names its account, an access invitation none.
+            throw new InvalidInvitationRequest(InvalidInvitationRequest::KIND);
         }
         if ($kind === InvitationKind::Recovery) {
             $ttl ??= CarbonInterval::hours(self::RECOVERY_DEFAULT_HOURS);
             if (CarbonImmutable::now()->add($ttl)->gt(CarbonImmutable::now()->addHours(self::RECOVERY_MAX_HOURS))) {
-                throw new InvalidArgumentException('days');
+                throw new InvalidInvitationRequest(InvalidInvitationRequest::DAYS);
             }
         }
         $ttl ??= CarbonInterval::days((int) $this->settings->value(SettingKey::InvitationDays));
@@ -108,6 +108,10 @@ final class InvitationService
                     // A way into the account: only for who could give it every permission it holds.
                     $this->guard->lockPermissionsOf($forUser);
                     $this->guard->assertCanGrant($by, $forUser->grantedPermissions());
+                } else {
+                    // The new account gets the built-in role `user`: only for who holds its permissions
+                    // (Spec 9.4, nobody gives what they do not have).
+                    $this->guard->assertCanGrant($by, Roles::permissionsOf(Roles::USER));
                 }
 
                 $invitation = new Invitation;
@@ -222,6 +226,7 @@ final class InvitationService
                     if ($invitation->kind === InvitationKind::Recovery) {
                         $user = $this->recoveryTarget($invitation);
                     } else {
+                        $this->assertAccessIssuerStillMay($invitation);
                         $user = $this->newAccount($claim);
                     }
 
@@ -235,9 +240,9 @@ final class InvitationService
 
                     return new RedeemedInvitation($user, $invitation->kind);
                 });
-            } catch (IssuerNoLongerPermitted) {
+            } catch (RedemptionRefused $refused) {
                 // The savepoint is gone, and with it the use of the invitation.
-                return InvitationNotRedeemable::ISSUER_LACKS_PERMISSION;
+                return $refused->reason;
             } catch (UniqueConstraintViolationException $collision) {
                 // The savepoint is gone, and with it the use of the invitation.
                 $existing = $this->linker->find($claim);
@@ -267,8 +272,8 @@ final class InvitationService
         if ($invitation->kind === InvitationKind::Recovery) {
             try {
                 $this->recoveryTarget($invitation);
-            } catch (IssuerNoLongerPermitted) {
-                return InvitationNotRedeemable::ISSUER_LACKS_PERMISSION;
+            } catch (RedemptionRefused $refused) {
+                return $refused->reason;
             }
         }
 
@@ -280,45 +285,98 @@ final class InvitationService
 
     /**
      * The account of a recovery invitation, with the check of its issue
-     * made again now: the issuer still exists, is not locked, still holds
-     * the permissions to issue it and could still give every permission the
-     * account holds now. Otherwise an old link would open an account that
-     * has gained permissions since, or one its issuer may no longer reach.
-     * Both accounts are locked FOR SHARE first (accounts before roles, the
-     * order of RoleGuard), so a concurrent change of either waits.
+     * made again now:
      *
-     * @throws IssuerNoLongerPermitted
+     * - the account is not locked: locking an account that is suspected to
+     *   be taken over must also close its recovery links;
+     * - the issuer still exists, is not locked, still holds the permissions
+     *   to issue it and could still give every permission the account holds
+     *   now. Otherwise an old link would open an account that has gained
+     *   permissions since, or one its issuer may no longer reach. An
+     *   invitation from the console is not checked for its issuer (the
+     *   console stands outside the accounts).
+     *
+     * Both accounts are locked FOR SHARE first (accounts before roles, the
+     * order of RoleGuard), so a concurrent change of either waits. The
+     * invitation row is already locked by the UPDATE of consume(); deleting
+     * the account locks its row first and cascades to the invitation, the
+     * other order. PostgreSQL ends such a deadlock by aborting one side, and
+     * the redemption runs again (attempts of the outer transaction); task 16
+     * builds the deletion and checks the order there.
+     *
+     * @throws RedemptionRefused
      */
     private function recoveryTarget(Invitation $invitation): User
     {
         $target = User::query()->findOrFail($invitation->for_user_id);
-        $by = $invitation->created_by_actor;
+        $issuer = $this->issuerOf($invitation);
 
-        if ($by['type'] === Actor::CLI) {
-            // The operator's console stands outside the accounts (Actor::cli).
-            $this->guard->lockAccounts([], [$target]);
-
+        $this->guard->lockAccounts([], [$issuer, $target]);
+        if ($target->isBlocked()) {
+            throw new RedemptionRefused(InvitationNotRedeemable::TARGET_LOCKED);
+        }
+        if ($issuer === null) {
             return $target;
         }
 
-        $issuer = in_array($by['type'], [Actor::USER, Actor::TOKEN], true) && $by['id'] !== null
-            ? User::query()->find($by['id'])
-            : null;
-        if ($issuer === null) {
-            throw new IssuerNoLongerPermitted;
-        }
-
-        $this->guard->lockAccounts([], [$issuer, $target]);
         try {
             $actor = Actor::user($issuer);
             $this->assertMay($actor, [Permission::InvitationsCreate, Permission::UsersManage]);
             $this->guard->lockPermissionsOf($target);
             $this->guard->assertCanGrant($actor, $target->grantedPermissions());
         } catch (PrivilegeEscalation) {
-            throw new IssuerNoLongerPermitted;
+            throw new RedemptionRefused(InvitationNotRedeemable::ISSUER_LACKS_PERMISSION);
         }
 
         return $target;
+    }
+
+    /**
+     * The check of an access invitation, made again now: its issuer still
+     * exists, is not locked, holds `invitations.create` and every permission
+     * of the role the new account gets. A link of an account that was
+     * locked (perhaps because it was taken over) or demoted makes no
+     * account any more.
+     *
+     * @throws RedemptionRefused
+     */
+    private function assertAccessIssuerStillMay(Invitation $invitation): void
+    {
+        $issuer = $this->issuerOf($invitation);
+        if ($issuer === null) {
+            return;
+        }
+
+        $this->guard->lockAccounts([], [$issuer]);
+        try {
+            $actor = Actor::user($issuer);
+            $this->assertMay($actor, [Permission::InvitationsCreate]);
+            $this->guard->assertCanGrant($actor, Roles::permissionsOf(Roles::USER));
+        } catch (PrivilegeEscalation) {
+            throw new RedemptionRefused(InvitationNotRedeemable::ISSUER_LACKS_PERMISSION);
+        }
+    }
+
+    /**
+     * The account that issued the invitation; null for the console.
+     *
+     * @throws RedemptionRefused when it was an account that no longer exists
+     */
+    private function issuerOf(Invitation $invitation): ?User
+    {
+        $by = $invitation->created_by_actor;
+        if ($by['type'] === Actor::CLI) {
+            return null;
+        }
+
+        $issuer = in_array($by['type'], [Actor::USER, Actor::TOKEN], true) && $by['id'] !== null
+            ? User::query()->find($by['id'])
+            : null;
+        if ($issuer === null) {
+            throw new RedemptionRefused(InvitationNotRedeemable::ISSUER_LACKS_PERMISSION);
+        }
+
+        return $issuer;
     }
 
     private function newAccount(IdentityClaim $claim): User
@@ -404,7 +462,7 @@ final class InvitationService
         }
         $note = trim($note);
         if (! mb_check_encoding($note, 'UTF-8') || mb_strlen($note) > self::NOTE_MAX || preg_match('/\p{C}/u', $note) === 1) {
-            throw new InvalidArgumentException('note');
+            throw new InvalidInvitationRequest(InvalidInvitationRequest::NOTE);
         }
 
         return $note === '' ? null : $note;

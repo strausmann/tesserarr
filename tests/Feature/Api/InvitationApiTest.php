@@ -137,6 +137,9 @@ it('issues a recovery invitation from the interface only with users.manage and t
     appAs($helper)->postJson('/api/v1/app/invitations', ['user' => $sam->id])->assertForbidden()
         ->assertJsonPath('message', 'privilege_escalation');
     appAs($helper)->postJson('/api/v1/app/invitations', ['user' => 999999])->assertUnprocessable();
+    // A recovery invitation lasts three days at most; the answer names the field.
+    appAs($this->operator)->postJson('/api/v1/app/invitations', ['user' => $sam->id, 'days' => 4])->assertUnprocessable()
+        ->assertJsonValidationErrors(['days' => __('invitations.invalid.days')]);
 
     expect(Invitation::query()->where('kind', InvitationKind::Recovery)->count())->toBe(1);
 });

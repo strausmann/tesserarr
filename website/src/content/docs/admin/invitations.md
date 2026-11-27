@@ -11,12 +11,16 @@ through the API, and hand the link on however you like. Sending it by mail from 
 - Only its hash is stored, so a leaked database reveals no usable link. The link is shown once, when it is made.
 - The token sits after the `#` of the link (`/invite#…`). Browsers never send that part, so it ends up in no access log,
   no referrer and no browser history entry of the server.
+- Only someone who holds the permissions a new account gets (those of the role "User") may make an access invitation,
+  and this is checked again when the link is redeemed: a link made by an account that has since been locked, deleted or
+  demoted makes no account any more. Links made with `artisan` are not tied to an account.
 - Two people redeeming the same link at once: exactly one succeeds. The same person redeeming two links at once gets one
   account, and the second link stays unused.
 - A **recovery invitation** binds a new sign-in method to an **existing** account. Role, grants, quotas, the audit trail
   and the Syncthing link stay. Use it when someone lost every passkey and factor. It is valid for one day (three at
   most), and when it is redeemed Tesserarr checks again that whoever made it may still do so: that account must still
-  exist, be unlocked, hold the permissions to make it and every permission the target account holds by then.
+  exist, be unlocked, hold the permissions to make it and every permission the target account holds by then, and the
+  target account itself must not be locked.
 
 ## In the web interface
 

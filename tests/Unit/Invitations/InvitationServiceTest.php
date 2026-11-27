@@ -15,6 +15,7 @@ use App\Authorization\Roles;
 use App\Identity\Identity;
 use App\Identity\IdentityClaim;
 use App\Identity\LoginMethod;
+use App\Invitations\InvalidInvitationRequest;
 use App\Invitations\Invitation;
 use App\Invitations\InvitationKind;
 use App\Invitations\InvitationNotRedeemable;
@@ -426,4 +427,106 @@ it('keeps a recovery invitation short: one day by default, three at most', funct
     expect(invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam)->invitation->fresh()?->expires_at->equalTo(CarbonImmutable::now()->addDay()))->toBeTrue()
         ->and(invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam, CarbonInterval::days(3))->invitation->id)->toBeInt()
         ->and(fn () => invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam, CarbonInterval::days(4)))->toThrow(InvalidArgumentException::class);
+});
+
+/*
+| An access invitation gives the new account the built-in role `user`: only
+| who holds its permissions may issue one, and that is checked again when it
+| is redeemed (Spec 9.4, nobody gives what they do not have; review of task
+| 10, I1 and M1). A recovery invitation does not open a locked account (I2).
+*/
+
+/** An account with invitations.create alone, through an own role. */
+function bareInviter(): User
+{
+    $role = Role::query()->firstOrCreate(['name' => 'bare-inviters', 'guard_name' => Roles::GUARD]);
+    $role->syncPermissions([Permission::InvitationsCreate->value]);
+
+    return User::factory()->withRole('bare-inviters')->create();
+}
+
+/** An account that may issue access invitations: invitations.create plus the permissions of `user`. */
+function accessInviter(): User
+{
+    $role = Role::query()->firstOrCreate(['name' => 'access-inviters', 'guard_name' => Roles::GUARD]);
+    $role->syncPermissions([Permission::InvitationsCreate->value, Permission::CatalogBrowse->value, Permission::TokensManageOwn->value]);
+
+    return User::factory()->withRole('access-inviters')->create();
+}
+
+it('refuses an access invitation from an account that lacks a permission of the user role', function () {
+    $inviter = bareInviter();
+
+    expect(fn () => invitations()->issue(Actor::user($inviter)))->toThrow(PrivilegeEscalation::class)
+        ->and(Invitation::query()->count())->toBe(0)
+        ->and(invitations()->issue(Actor::user(accessInviter()))->invitation->id)->toBeInt();
+});
+
+it('refuses an access invitation at redemption once its issuer lost a permission of the user role', function () {
+    $inviter = accessInviter();
+    $issued = invitations()->issue(Actor::user($inviter));
+    Role::findByName('access-inviters', Roles::GUARD)->revokePermissionTo(Permission::TokensManageOwn->value);
+
+    expect(fn () => invitations()->redeem($issued->plainToken, claim('new'), '192.0.2.90'))->toThrow(InvitationNotRedeemable::class)
+        ->and($issued->invitation->fresh()?->redeemed_at)->toBeNull()
+        ->and(User::query()->count())->toBe(2)
+        ->and(refusedReasons())->toBe(['issuer_lacks_permission']);
+});
+
+it('refuses an access invitation at redemption once its issuer lost invitations.create, is locked or deleted', function () {
+    [$demoted, $locked, $deleted] = [accessInviter(), accessInviter(), accessInviter()];
+    $links = array_map(fn (User $u) => invitations()->issue(Actor::user($u))->plainToken, [$demoted, $locked, $deleted]);
+    $demoted->syncRoles([Roles::USER]);
+    $locked->forceFill(['locked_at' => now()])->save();
+    $deleted->syncRoles([]);
+    $deleted->delete();
+
+    foreach ($links as $i => $plain) {
+        expect(fn () => invitations()->redeem($plain, claim("s{$i}"), '192.0.2.91'))->toThrow(InvitationNotRedeemable::class);
+    }
+    expect(refusedReasons())->toBe(['issuer_lacks_permission', 'issuer_lacks_permission', 'issuer_lacks_permission'])
+        ->and(Invitation::query()->whereNotNull('redeemed_at')->count())->toBe(0);
+});
+
+it('still redeems an access invitation from the console or from an issuer who may give it', function () {
+    $fromConsole = invitations()->issue(Actor::console());
+    $fromInviter = invitations()->issue(Actor::user(accessInviter()));
+
+    expect(invitations()->redeem($fromConsole->plainToken, claim('c1'), '192.0.2.92')->consumed)->toBeTrue()
+        ->and(invitations()->redeem($fromInviter->plainToken, claim('c2'), '192.0.2.93')->consumed)->toBeTrue();
+});
+
+it('refuses a recovery invitation for an account that is locked now, also one from the console', function () {
+    $sam = User::factory()->withRole(Roles::USER)->create();
+    $byOperator = invitations()->issue(Actor::user($this->operator), InvitationKind::Recovery, $sam);
+    $byConsole = invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam);
+    $sam->forceFill(['locked_at' => now()])->save();
+
+    foreach ([$byOperator, $byConsole] as $i => $issued) {
+        expect(fn () => invitations()->redeem($issued->plainToken, claim("l{$i}"), '192.0.2.94'))->toThrow(InvitationNotRedeemable::class)
+            ->and($issued->invitation->fresh()?->redeemed_at)->toBeNull();
+    }
+    expect($sam->identities()->count())->toBe(0)
+        ->and(refusedReasons())->toBe(['target_locked', 'target_locked']);
+
+    $sam->forceFill(['locked_at' => null])->save();
+    expect(invitations()->redeem($byConsole->plainToken, claim('after'), '192.0.2.95')->user->id)->toBe($sam->id);
+});
+
+it('names the field of an invitation that cannot be made as asked', function () {
+    $sam = User::factory()->create();
+    $fields = [];
+    foreach ([
+        fn () => invitations()->issue(Actor::console(), InvitationKind::Recovery),
+        fn () => invitations()->issue(Actor::console(), InvitationKind::Recovery, $sam, CarbonInterval::days(4)),
+        fn () => invitations()->issue(Actor::console(), note: str_repeat('n', 101)),
+    ] as $call) {
+        try {
+            $call();
+        } catch (InvalidInvitationRequest $invalid) {
+            $fields[] = $invalid->field;
+        }
+    }
+
+    expect($fields)->toBe(['kind', 'days', 'note']);
 });

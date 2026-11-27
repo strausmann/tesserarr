@@ -11,6 +11,7 @@ use App\Audit\Actor;
 use App\Authorization\Permission;
 use App\Authorization\PrivilegeEscalation;
 use App\Http\Controllers\Controller;
+use App\Invitations\InvalidInvitationRequest;
 use App\Invitations\InvitationKind;
 use App\Invitations\InvitationNotRevocable;
 use App\Invitations\InvitationRequest;
@@ -22,7 +23,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
-use InvalidArgumentException;
 
 /**
  * Invitations from the interface (session path): the dialog on the user list
@@ -49,9 +49,8 @@ final class InvitationController extends Controller
                 $ttl,
                 $note,
             );
-        } catch (InvalidArgumentException) {
-            // A recovery invitation lasts three days at most.
-            throw ValidationException::withMessages(['days' => __('invitations.recovery.too_long')]);
+        } catch (InvalidInvitationRequest $invalid) {
+            throw ValidationException::withMessages([$invalid->field => __('invitations.invalid.'.$invalid->field)]);
         } catch (PrivilegeEscalation $refused) {
             return response()->json([
                 'message' => 'privilege_escalation',

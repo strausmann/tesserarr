@@ -9,9 +9,9 @@ namespace App\Console\Commands;
 
 use App\Audit\Actor;
 use App\Console\Commands\Concerns\ReadsInvitationDays;
+use App\Invitations\InvalidInvitationRequest;
 use App\Invitations\InvitationService;
 use Illuminate\Console\Command;
-use InvalidArgumentException;
 
 /**
  * Issues an access invitation from the console and prints its link. The link
@@ -39,7 +39,7 @@ final class Invite extends Command
 
         try {
             $issued = $invitations->issue(Actor::console(), ttl: $ttl, note: is_string($note) ? $note : null);
-        } catch (InvalidArgumentException) {
+        } catch (InvalidInvitationRequest) {
             $this->error('--note takes at most 100 characters and no control characters.');
 
             return self::FAILURE;
