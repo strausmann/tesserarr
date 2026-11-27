@@ -112,6 +112,10 @@ describe('the token page', () => {
 
         expect(document.body.textContent).toContain('tokens.empty.title');
         expect(document.querySelector('#token-detail')).toBeNull();
+        // No copy buttons until there is a token to use.
+        expect(
+            document.querySelector('button[aria-label="tokens.copy_base"]'),
+        ).toBeNull();
         expect(document.querySelector('h1')?.textContent).toBe(
             'tokens.title_own',
         );

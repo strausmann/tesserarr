@@ -74,19 +74,24 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                     <span id="tk-step-{step.key}">{step.label}</span>
                     <div class="tr-token-secret">
                         <code class="tr-code" aria-labelledby="tk-step-{step.key}">{step.key === 'header' && issued ? authorizationHeader('<token>') : step.text}</code>
-                        <button
-                            type="button"
-                            class="tr-icon-button"
-                            aria-label={step.copyLabel}
-                            title={step.copyLabel}
-                            onclick={() => copyIt(step.key, step.text)}
-                        >
-                            {#if copied === step.key}
-                                <Check size={18} aria-hidden="true" />
-                            {:else}
-                                <Copy size={18} aria-hidden="true" />
-                            {/if}
-                        </button>
+                        <!-- Copy buttons once there is a token to use: before, the
+                             steps are a reference, and the page stays short to tab
+                             through. -->
+                        {#if issued}
+                            <button
+                                type="button"
+                                class="tr-icon-button"
+                                aria-label={step.copyLabel}
+                                title={step.copyLabel}
+                                onclick={() => copyIt(step.key, step.text)}
+                            >
+                                {#if copied === step.key}
+                                    <Check size={18} aria-hidden="true" />
+                                {:else}
+                                    <Copy size={18} aria-hidden="true" />
+                                {/if}
+                            </button>
+                        {/if}
                     </div>
                 </li>
             {/each}
