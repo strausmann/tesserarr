@@ -99,7 +99,7 @@ jobs:
           # The image that holds the token, pinned by version and digest
           # (Renovate updates it, renovate.json); the action's default is the
           # floating tag 44.
-          renovate-image: ghcr.io/renovatebot/renovate:44.264.0@sha256:a5f6f69c9e9ef45379f644816a029e852174eeba071a360c59e7731437245a52
+          renovate-image: ghcr.io/renovatebot/renovate:45.3.2@sha256:d0358088501c7665688673c8932474b02517941703a16e970e8b4fcf235299cb
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           # renovate.json is in the repository; no onboarding pull request.
